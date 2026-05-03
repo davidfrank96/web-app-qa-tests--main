@@ -11,6 +11,7 @@ const VALID_GEOLOCATION = {
 const NETWORK_FALLBACK_PATTERN =
   /UNKNOWN_ERROR:\s*API request failed\.?|No vendors matched this search|Map view limited, vendors still available below|No vendor selected|No saved vendor yet|Turn on location for more accurate nearby vendors/i;
 const NETWORK_LOADING_PATTERN = /Loading…|Loading\.\.\.|Finding nearby vendors/i;
+const OFFLINE_STATE_PATTERN = /Reconnect to retry|offline|internet disconnected/i;
 const PARTIAL_FAILURE_PATTERN = /UNKNOWN_ERROR:\s*API request failed\.?/i;
 
 type NetworkEvent = {
@@ -38,12 +39,29 @@ test.describe("Local Man network abuse", () => {
     await localman.expectMapOrFallback();
 
     await context.setOffline(true);
-    await page.getByRole("button", { name: /retry location/i }).click();
-    await observer.waitForActivity();
+    const retryLocationButton = page.getByRole("button", { name: /retry location/i });
+    await expect(retryLocationButton).toBeVisible();
+    await expectVisibleAny(page, [page.getByText(OFFLINE_STATE_PATTERN), page.getByText(NETWORK_FALLBACK_PATTERN)]);
+
+    if (await retryLocationButton.isDisabled().catch(() => false)) {
+      await expect(retryLocationButton).toBeDisabled();
+
+      const title = await retryLocationButton.getAttribute("title").catch(() => null);
+      const hasOfflineTitle = typeof title === "string" && OFFLINE_STATE_PATTERN.test(title);
+      const nearbyOfflineText = await findVisibleByText(page, OFFLINE_STATE_PATTERN, 3_000);
+
+      expect(
+        hasOfflineTitle || nearbyOfflineText !== null,
+        'Expected the disabled "Retry Location" control to explain the offline state, such as "Reconnect to retry".'
+      ).toBeTruthy();
+    } else {
+      await retryLocationButton.click();
+      await observer.waitForActivity();
+    }
 
     await expectPageNotBlank(page);
     await expectVisiblePageUi(page, "Expected Local Man to keep rendering usable UI while offline.");
-    await expectVisibleAny(page, [page.getByText(NETWORK_FALLBACK_PATTERN)]);
+    await expectVisibleAny(page, [page.getByText(OFFLINE_STATE_PATTERN), page.getByText(NETWORK_FALLBACK_PATTERN)]);
     await localman.expectMapOrFallback();
     await expectPrimaryUiUsable(page);
 
