@@ -1,0 +1,26 @@
+{
+  "name": "web-app-qa-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reusable Playwright QA framework for Local Man, KBean, INSSA, and other web apps.",
+  "scripts": {
+    "test": "playwright test",
+    "test:localman": "playwright test --project=localman-chrome",
+    "test:kbean": "playwright test --project=kbean-chrome",
+    "test:inssa": "playwright test --project=inssa-chrome",
+    "test:mobile": "playwright test --project=mobile-chrome",
+    "dashboard:dev": "npm --prefix dashboard run dev",
+    "dashboard:build": "npm --prefix dashboard run build",
+    "dashboard:start": "npm --prefix dashboard run start",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report",
+    "install:browsers": "playwright install",
+    "codegen": "playwright codegen"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "@types/node": "^25.6.0",
+    "dotenv": "latest",
+    "typescript": "latest"
+  }
+}

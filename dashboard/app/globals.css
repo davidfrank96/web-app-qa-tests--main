@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  background: #f5f1e8;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(212, 255, 79, 0.28), transparent 26%),
+    radial-gradient(circle at top right, rgba(24, 22, 31, 0.08), transparent 22%),
+    linear-gradient(180deg, #f8f4eb 0%, #f1ecdf 100%);
+  color: #18161f;
+  font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: rgba(212, 255, 79, 0.55);
+  color: #18161f;
+}
+
+.dashboard-grid {
+  background-image:
+    linear-gradient(rgba(24, 22, 31, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(24, 22, 31, 0.04) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.status-pass {
+  @apply bg-pass/10 text-pass ring-1 ring-pass/20;
+}
+
+.status-slow {
+  @apply bg-slow/15 text-amber-800 ring-1 ring-slow/30;
+}
+
+.status-fail {
+  @apply bg-fail/10 text-fail ring-1 ring-fail/20;
+}
+
+.status-none {
+  @apply bg-stone-200 text-stone-600 ring-1 ring-stone-300;
+}
