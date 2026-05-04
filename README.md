@@ -20,9 +20,7 @@ Edit `.env` and set the correct URLs:
 
 ```env
 LOCALMAN_URL=http://localhost:3000
-KBEAN_URL=https://your-kbean-staging-url.com
-INSSA_URL=https://your-inssa-staging-url.com
-```
+
 
 ## Run tests
 
@@ -89,6 +87,7 @@ codex-prompts/
 
 ```bash
 npm run test:localman
+npm run test:inssa
 npm run report
 ```
 
