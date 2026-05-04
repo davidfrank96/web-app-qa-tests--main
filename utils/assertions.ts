@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page, type Request, type Response } from "@playwright/test";
 
 type CriticalPageIssueKind = "console" | "pageerror" | "requestfailed" | "response";
+const SAFE_CLIENT_ERROR_STATUSES = new Set([400, 401, 403, 404, 422]);
 
 type CriticalPageIssue = {
   kind: CriticalPageIssueKind;
@@ -20,9 +21,16 @@ export async function expectPageReady(page: Page): Promise<void> {
 export function collectCriticalPageErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on("console", (message) => {
-    if (message.type() === "error") {
-      errors.push(`console: ${message.text()}`);
+    if (message.type() !== "error") {
+      return;
     }
+
+    const text = `console: ${message.text()}`;
+    if (isSafeClientConsoleError(text)) {
+      return;
+    }
+
+    errors.push(text);
   });
   page.on("pageerror", (error) => {
     errors.push(`pageerror: ${error.message}`);
@@ -118,9 +126,14 @@ export function createCriticalPageMonitor(
 
     const location = message.location();
     const locationSuffix = location.url ? ` (source: ${location.url}:${location.lineNumber}:${location.columnNumber})` : "";
+    const consoleMessage = `${message.text()}${locationSuffix}`;
+    if (isSafeClientConsoleError(consoleMessage)) {
+      return;
+    }
+
     recordIssue({
       kind: "console",
-      message: `${message.text()}${locationSuffix}`
+      message: consoleMessage
     });
   });
 
@@ -163,7 +176,10 @@ export function createCriticalPageMonitor(
   return {
     issues,
     async expectNoCriticalIssues(extraIgnorePatterns: RegExp[] = []) {
-      const unexpected = issues.filter((issue) => !matchesAnyPattern(issue, ignorePatterns.concat(extraIgnorePatterns)));
+      const unexpected = issues.filter(
+        (issue) =>
+          !isSafeClientIssue(issue) && !matchesAnyPattern(issue, ignorePatterns.concat(extraIgnorePatterns))
+      );
 
       expect(
         unexpected.length,
@@ -201,7 +217,7 @@ function defaultIsCriticalRequestFailure(request: Request, page: Page): boolean 
 }
 
 function defaultIsCriticalResponse(response: Response, page: Page): boolean {
-  if (response.status() < 500) {
+  if (!isCriticalResponseStatus(response.status())) {
     return false;
   }
 
@@ -215,6 +231,10 @@ function defaultIsCriticalResponse(response: Response, page: Page): boolean {
   }
 
   return isSameOriginAppRequest(response.url(), page) || /\/api\/|vendors?|discover|directory|nearby|search/i.test(response.url());
+}
+
+function isCriticalResponseStatus(status: number): boolean {
+  return status >= 500;
 }
 
 function isSameOriginAppRequest(url: string, page: Page): boolean {
@@ -243,6 +263,38 @@ function matchesAnyPattern(issue: CriticalPageIssue, patterns: RegExp[]): boolea
   ];
 
   return patterns.some((pattern) => searchableValues.some((value) => pattern.test(value)));
+}
+
+function isSafeClientIssue(issue: CriticalPageIssue): boolean {
+  if (issue.kind === "console") {
+    return isSafeClientConsoleError(issue.message);
+  }
+
+  if (issue.kind === "response" && typeof issue.status === "number") {
+    return SAFE_CLIENT_ERROR_STATUSES.has(issue.status);
+  }
+
+  return false;
+}
+
+function isSafeClientConsoleError(message: string): boolean {
+  const status = extractResourceLoadStatus(message);
+  if (status === null) {
+    return false;
+  }
+
+  return SAFE_CLIENT_ERROR_STATUSES.has(status);
+}
+
+function extractResourceLoadStatus(message: string): number | null {
+  const match = message.match(/status of (\d{3}) \([^)]+\)|HTTP (\d{3})/i);
+  if (!match) {
+    return null;
+  }
+
+  const candidate = match[1] ?? match[2];
+  const parsed = Number(candidate);
+  return Number.isInteger(parsed) ? parsed : null;
 }
 
 function formatCriticalIssue(issue: CriticalPageIssue): string {

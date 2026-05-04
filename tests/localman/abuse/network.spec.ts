@@ -13,6 +13,8 @@ const NETWORK_FALLBACK_PATTERN =
 const NETWORK_LOADING_PATTERN = /Loading…|Loading\.\.\.|Finding nearby vendors/i;
 const OFFLINE_STATE_PATTERN = /Reconnect to retry|offline|internet disconnected/i;
 const PARTIAL_FAILURE_PATTERN = /UNKNOWN_ERROR:\s*API request failed\.?/i;
+const SLOW_NETWORK_DELAY_MS = 4_500;
+const THROTTLED_DISCOVERY_API_PATTERN = /\/api\/(?:vendors\/nearby|location\/reverse)/i;
 
 type NetworkEvent = {
   durationMs?: number;
@@ -69,19 +71,22 @@ test.describe("Local Man network abuse", () => {
     await monitor.expectNoCriticalIssues([/ERR_INTERNET_DISCONNECTED/i]);
   });
 
-  test("slow vendor api keeps loading states visible and avoids blank screens", async ({ page }, testInfo) => {
+  test("slow network keeps the discovery UI usable and avoids blank screens", async ({ page }, testInfo) => {
     const localman = new LocalManPage(page);
     const monitor = createCriticalPageMonitor(page);
     const observer = createNetworkObserver(page, testInfo.title);
-    const nearbyResponse = page.waitForResponse(
-      (response) =>
-        /\/api\/vendors\/nearby/i.test(response.url()) &&
-        response.request().method() === "GET",
-      { timeout: 15_000 }
-    );
+    const nearbyResponse = page.waitForResponse((response) => {
+      return /\/api\/vendors\/nearby/i.test(response.url()) && response.request().method() === "GET";
+    });
+    const reverseResponse = page.waitForResponse((response) => {
+      return /\/api\/location\/reverse/i.test(response.url()) && response.request().method() === "GET";
+    });
 
-    await page.route("**/api/vendors/nearby**", async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 4_500));
+    await page.route("**/api/**", async (route) => {
+      if (THROTTLED_DISCOVERY_API_PATTERN.test(route.request().url())) {
+        await new Promise((resolve) => setTimeout(resolve, SLOW_NETWORK_DELAY_MS));
+      }
+
       await route.continue();
     });
 
@@ -96,7 +101,7 @@ test.describe("Local Man network abuse", () => {
     await expectPageNotBlank(page);
     await expectVisiblePageUi(page, "Expected Local Man to avoid a blank screen during slow vendor requests.");
 
-    await nearbyResponse;
+    await Promise.all([nearbyResponse, reverseResponse]);
     await localman.expectPublicDiscoverySurface();
     await localman.expectMapOrFallback();
     await observer.waitForActivity();
