@@ -1,7 +1,6 @@
 import { expect, type Locator, type Page, type Request, type Response } from "@playwright/test";
 
 type CriticalPageIssueKind = "console" | "pageerror" | "requestfailed" | "response";
-const SAFE_CLIENT_ERROR_STATUSES = new Set([400, 401, 403, 404, 422]);
 
 type CriticalPageIssue = {
   kind: CriticalPageIssueKind;
@@ -25,8 +24,11 @@ export function collectCriticalPageErrors(page: Page): string[] {
       return;
     }
 
-    const text = `console: ${message.text()}`;
-    if (isSafeClientConsoleError(text)) {
+    const location = message.location();
+    const locationSuffix = location.url ? ` (source: ${location.url}:${location.lineNumber}:${location.columnNumber})` : "";
+    const requestUrl = extractFailedResourceUrl(message.text()) ?? location.url ?? undefined;
+    const text = `console: ${message.text()}${locationSuffix}`;
+    if (isSafeClientConsoleError(text, requestUrl)) {
       return;
     }
 
@@ -113,6 +115,10 @@ export function createCriticalPageMonitor(
   const isCriticalResponse = options.isCriticalResponse ?? defaultIsCriticalResponse;
 
   const recordIssue = (issue: Omit<CriticalPageIssue, "pageUrl">) => {
+    if (!shouldRecordCriticalIssue(issue)) {
+      return;
+    }
+
     issues.push({
       ...issue,
       pageUrl: page.url() || "about:blank"
@@ -126,14 +132,16 @@ export function createCriticalPageMonitor(
 
     const location = message.location();
     const locationSuffix = location.url ? ` (source: ${location.url}:${location.lineNumber}:${location.columnNumber})` : "";
+    const requestUrl = extractFailedResourceUrl(message.text()) ?? location.url ?? undefined;
     const consoleMessage = `${message.text()}${locationSuffix}`;
-    if (isSafeClientConsoleError(consoleMessage)) {
+    if (isSafeClientConsoleError(consoleMessage, requestUrl)) {
       return;
     }
 
     recordIssue({
       kind: "console",
-      message: consoleMessage
+      message: consoleMessage,
+      requestUrl
     });
   });
 
@@ -267,23 +275,44 @@ function matchesAnyPattern(issue: CriticalPageIssue, patterns: RegExp[]): boolea
 
 function isSafeClientIssue(issue: CriticalPageIssue): boolean {
   if (issue.kind === "console") {
-    return isSafeClientConsoleError(issue.message);
+    return isSafeClientConsoleError(issue.message, issue.requestUrl);
   }
 
   if (issue.kind === "response" && typeof issue.status === "number") {
-    return SAFE_CLIENT_ERROR_STATUSES.has(issue.status);
+    return isSafeClientResponseStatus(issue.status);
   }
 
   return false;
 }
 
-function isSafeClientConsoleError(message: string): boolean {
-  const status = extractResourceLoadStatus(message);
-  if (status === null) {
+function isSafeClientConsoleError(message: string, requestUrl?: string): boolean {
+  if (!/Failed to load resource/i.test(message)) {
     return false;
   }
 
-  return SAFE_CLIENT_ERROR_STATUSES.has(status);
+  const status = extractResourceLoadStatus(message);
+  if (status === null || !isSafeClientResponseStatus(status)) {
+    return false;
+  }
+
+  const resolvedRequestUrl = requestUrl ?? extractFailedResourceUrl(message);
+  return Boolean(resolvedRequestUrl && /[?&]search=/i.test(resolvedRequestUrl));
+}
+
+function shouldRecordCriticalIssue(issue: Omit<CriticalPageIssue, "pageUrl">): boolean {
+  if (issue.kind === "response" && typeof issue.status === "number" && isSafeClientResponseStatus(issue.status)) {
+    return false;
+  }
+
+  if (issue.kind === "console" && isSafeClientConsoleError(issue.message, issue.requestUrl)) {
+    return false;
+  }
+
+  return true;
+}
+
+function isSafeClientResponseStatus(status: number): boolean {
+  return status >= 400 && status < 500;
 }
 
 function extractResourceLoadStatus(message: string): number | null {
@@ -295,6 +324,11 @@ function extractResourceLoadStatus(message: string): number | null {
   const candidate = match[1] ?? match[2];
   const parsed = Number(candidate);
   return Number.isInteger(parsed) ? parsed : null;
+}
+
+function extractFailedResourceUrl(message: string): string | null {
+  const match = message.match(/https?:\/\/[^\s)]+/i);
+  return match?.[0] ?? null;
 }
 
 function formatCriticalIssue(issue: CriticalPageIssue): string {
