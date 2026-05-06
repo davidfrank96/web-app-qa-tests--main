@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, type Page, type Response } from "@playwright/test";
 import {
   createCriticalPageMonitor,
   expectPageNotBlank,
@@ -176,12 +176,16 @@ test.describe.serial("Local Man admin vendor management", () => {
         "Expected the configured Local Man admin account to expose the Deactivate action."
       ).toBeVisible();
 
-      const dialogPromise = page.waitForEvent("dialog");
+      const deactivationResponsePromise = waitForVendorDeactivationResponse(page, vendor.id!);
+      const uiChangePromise = waitForDeactivationUiChange(page, vendor);
       await deactivateButton.click();
-      const dialog = await dialogPromise;
-      await dialog.accept();
+      await confirmVendorDeactivationIfNeeded(page);
 
-      await waitForAdminStatus(page, [/Vendor deactivated successfully\./i, /Vendor list refreshed\./i]);
+      await Promise.race([deactivationResponsePromise, uiChangePromise]);
+      await waitForAdminStatus(page, [/Vendor deactivated successfully\./i, /Vendor list refreshed\./i], 5_000).catch(
+        () => undefined
+      );
+      await assertVendorMissingFromAdminRegistry(page, vendor);
       vendor.deleted = true;
       await assertPublicVendorMissing(page, vendor);
     });
@@ -403,6 +407,7 @@ async function assertPublicVendorMissing(page: Page, vendor: VendorRecord) {
     lastBodyText = normalizeText(await page.locator("body").textContent());
 
     if (!lastBodyText.includes(vendor.name) && (lastStatus === 404 || /not found|404|vendor detail unavailable/i.test(lastBodyText))) {
+      await assertVendorMissingFromPublicDiscovery(page, vendor);
       return;
     }
 
@@ -411,6 +416,57 @@ async function assertPublicVendorMissing(page: Page, vendor: VendorRecord) {
 
   throw new Error(
     `Expected the deactivated vendor "${vendor.name}" to disappear from the public app. Last status: ${String(lastStatus)}. Last body text: ${lastBodyText}`
+  );
+}
+
+async function assertVendorMissingFromAdminRegistry(page: Page, vendor: VendorRecord) {
+  const deadline = Date.now() + 20_000;
+  let lastBodyText = "";
+
+  while (Date.now() <= deadline) {
+    await page.goto(ADMIN_VENDOR_REGISTRY_PATH, { waitUntil: "domcontentloaded" });
+    await expectAdminPageUsable(page, "Expected the Local Man vendor registry to remain usable after deactivation.");
+
+    const search = page.getByLabel(/^Search$/i);
+    if (await search.isVisible().catch(() => false)) {
+      await search.fill(vendor.name);
+      await page.getByRole("button", { name: /^Apply$/i }).click();
+    }
+
+    const vendorSignals = await countVisibleLocators(adminVendorRegistrySignals(page, vendor));
+    if (vendorSignals === 0) {
+      return;
+    }
+
+    lastBodyText = normalizeText(await page.locator("body").textContent());
+    await page.waitForTimeout(500);
+  }
+
+  throw new Error(
+    `Expected deactivated vendor "${vendor.name}" to disappear from the Local Man admin registry. Last body text: ${lastBodyText}`
+  );
+}
+
+async function assertVendorMissingFromPublicDiscovery(page: Page, vendor: VendorRecord) {
+  const discoveryPath = `/?q=${encodeURIComponent(vendor.name)}`;
+  let lastBodyText = "";
+  const deadline = Date.now() + 20_000;
+
+  while (Date.now() <= deadline) {
+    await page.goto(discoveryPath, { waitUntil: "domcontentloaded" });
+    await expectPublicPageUsable(page, "Expected the Local Man public discovery page to remain usable after vendor deactivation.");
+
+    const vendorSignals = await countVisibleLocators(publicDiscoveryVendorSignals(page, vendor));
+    if (vendorSignals === 0) {
+      return;
+    }
+
+    lastBodyText = normalizeText(await page.locator("body").textContent());
+    await page.waitForTimeout(500);
+  }
+
+  throw new Error(
+    `Expected deactivated vendor "${vendor.name}" to disappear from the Local Man public discovery results. Last body text: ${lastBodyText}`
   );
 }
 
@@ -443,6 +499,66 @@ async function waitForPublicVendorHeading(page: Page, vendor: VendorRecord): Pro
   );
 }
 
+async function confirmVendorDeactivationIfNeeded(page: Page) {
+  const dialog = page
+    .locator("[role='dialog'], [role='alertdialog']")
+    .filter({
+      has: page.getByRole("button", { name: /deactivate|confirm|continue|yes/i })
+    })
+    .first();
+
+  const deadline = Date.now() + 2_000;
+  while (Date.now() <= deadline) {
+    if (await dialog.isVisible().catch(() => false)) {
+      const confirmButton = dialog.getByRole("button", { name: /deactivate|confirm|continue|yes/i }).first();
+      await localExpect(confirmButton, "Expected the Local Man deactivation modal to expose a confirm action.").toBeVisible();
+      await confirmButton.click();
+      return;
+    }
+
+    await page.waitForTimeout(100);
+  }
+}
+
+async function waitForVendorDeactivationResponse(page: Page, vendorId: string): Promise<void> {
+  const response = await page.waitForResponse(
+    (candidate) => isVendorDeactivationResponse(candidate, vendorId),
+    { timeout: 20_000 }
+  );
+
+  localExpect(
+    response.ok(),
+    `Expected Local Man vendor deactivation request for "${vendorId}" to succeed, but received ${response.status()} ${response.statusText()}.`
+  ).toBeTruthy();
+}
+
+async function waitForDeactivationUiChange(page: Page, vendor: VendorRecord): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  let lastBodyText = "";
+
+  while (Date.now() <= deadline) {
+    const pathname = safePathname(page.url());
+    const bodyText = normalizeText(await page.locator("body").textContent());
+    const deactivateVisible = await page.getByRole("button", { name: /deactivate/i }).first().isVisible().catch(() => false);
+    const modalVisible = await page.locator("[role='dialog'], [role='alertdialog']").first().isVisible().catch(() => false);
+
+    if (
+      pathname === ADMIN_VENDOR_REGISTRY_PATH ||
+      /Vendor deactivated successfully\.|Vendor list refreshed\./i.test(bodyText) ||
+      (!deactivateVisible && !modalVisible && !bodyText.includes(vendor.name))
+    ) {
+      return;
+    }
+
+    lastBodyText = bodyText;
+    await page.waitForTimeout(250);
+  }
+
+  throw new Error(
+    `Expected Local Man admin deactivation to change the UI for "${vendor.name}". Last body text: ${lastBodyText}`
+  );
+}
+
 async function expectAdminPageUsable(page: Page, message: string) {
   await expectPageReady(page);
   await expectPageNotBlank(page);
@@ -453,6 +569,27 @@ async function expectPublicPageUsable(page: Page, message: string) {
   await expectPageReady(page);
   await expectPageNotBlank(page);
   await expectVisiblePageUi(page, message);
+}
+
+function adminVendorRegistrySignals(page: Page, vendor: VendorRecord): Locator[] {
+  const vendorPattern = new RegExp(escapeRegExp(vendor.name), "i");
+  return [
+    page.getByRole("button", { name: vendorPattern }),
+    page.getByRole("link", { name: vendorPattern }),
+    page.locator("[data-vendor-id], article, li, tr, [role='row']").filter({ hasText: vendorPattern })
+  ];
+}
+
+function publicDiscoveryVendorSignals(page: Page, vendor: VendorRecord): Locator[] {
+  const vendorPattern = new RegExp(escapeRegExp(vendor.name), "i");
+  return [
+    page.locator(`a[href='/vendors/${vendor.slug}']`),
+    page.getByRole("link", { name: vendorPattern }),
+    page.getByRole("button", { name: vendorPattern }),
+    page
+      .locator("main article, main li, [role='main'] article, [role='main'] li, [role='main'] [role='article'], [role='main'] [role='listitem']")
+      .filter({ hasText: vendorPattern })
+  ];
 }
 
 async function waitForAdminStatus(page: Page, patterns: RegExp[], timeout = 20_000) {
@@ -485,4 +622,36 @@ function escapeRegExp(value: string): string {
 
 function normalizeText(value: string | null): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function isVendorDeactivationResponse(response: Response, vendorId: string): boolean {
+  const request = response.request();
+  if (!["DELETE", "PATCH", "POST"].includes(request.method())) {
+    return false;
+  }
+
+  return response.url().includes(`/api/admin/vendors/${vendorId}`);
+}
+
+function safePathname(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return "";
+  }
+}
+
+async function countVisibleLocators(locators: Locator[]): Promise<number> {
+  let visibleCount = 0;
+
+  for (const locator of locators) {
+    const count = await locator.count().catch(() => 0);
+    for (let index = 0; index < count; index += 1) {
+      if (await locator.nth(index).isVisible().catch(() => false)) {
+        visibleCount += 1;
+      }
+    }
+  }
+
+  return visibleCount;
 }
