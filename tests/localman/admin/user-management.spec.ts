@@ -5,6 +5,12 @@ import {
   expectPageReady,
   expectVisiblePageUi
 } from "../../../utils/assertions";
+import {
+  cleanupQaUsers,
+  createQaCleanupReport,
+  logQaCleanupReport,
+  mergeQaCleanupReport
+} from "../../../utils/cleanup";
 import { expect as localExpect, test } from "../fixtures";
 
 const ADMIN_LOGIN_PATH = "/admin/login";
@@ -59,16 +65,28 @@ test.describe.serial("Local Man admin user management", () => {
     const baseURL = testInfo.project.use.baseURL;
     const context = await browser.newContext(typeof baseURL === "string" ? { baseURL } : {});
     const page = await context.newPage();
+    let cleanupReport = createQaCleanupReport();
+    let cleanupError: unknown;
 
     try {
       await loginToAdmin(page, credentials);
-      await gotoAdminUsers(page);
-
-      for (const user of [agentUser, adminUser]) {
-        await deleteUserIfVisible(page, user);
-      }
+      cleanupReport = mergeQaCleanupReport(
+        cleanupReport,
+        await cleanupQaUsers(page, {
+          deleteIfVisible: deleteUserIfVisible,
+          entities: [agentUser, adminUser]
+        })
+      );
+    } catch (error) {
+      cleanupError = error;
     } finally {
+      logQaCleanupReport(cleanupReport, {
+        scope: "localman-admin-users"
+      });
       await context.close();
+      if (cleanupError) {
+        throw cleanupError;
+      }
     }
   });
 
@@ -396,9 +414,9 @@ async function deleteUser(page: Page, user: QaUserRecord, usersPath: string) {
   await assertUserAbsent(page, user, usersPath);
 }
 
-async function deleteUserIfVisible(page: Page, user: QaUserRecord) {
+async function deleteUserIfVisible(page: Page, user: QaUserRecord): Promise<boolean> {
   if (!user.email.startsWith("qa_")) {
-    return;
+    return false;
   }
 
   try {
@@ -406,12 +424,13 @@ async function deleteUserIfVisible(page: Page, user: QaUserRecord) {
     await searchUsersIfSupported(page, user.email);
     const userSurface = await findUserSurface(page, user.email);
     if (!userSurface) {
-      return;
+      return false;
     }
 
     await deleteUser(page, user, usersPath);
+    return true;
   } catch {
-    return;
+    return false;
   }
 }
 
