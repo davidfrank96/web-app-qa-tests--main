@@ -6,6 +6,12 @@ import {
   expectPageReady,
   expectVisiblePageUi
 } from "../../../utils/assertions";
+import {
+  cleanupQaVendors,
+  createQaCleanupReport,
+  logQaCleanupReport,
+  mergeQaCleanupReport
+} from "../../../utils/cleanup";
 import { expect as localExpect, test } from "../fixtures";
 
 const ADMIN_LOGIN_PATH = "/admin/login";
@@ -30,6 +36,7 @@ type VendorRecord = {
   deleted: boolean;
   id: string | null;
   initialDescription: string;
+  isTest: true;
   name: string;
   slug: string;
   updatedArea: string;
@@ -44,44 +51,34 @@ test.describe.serial("Local Man admin vendor management", () => {
     const baseURL = testInfo.project.use.baseURL;
     const context = await browser.newContext(typeof baseURL === "string" ? { baseURL } : {});
     const page = await context.newPage();
+    let cleanupReport = createQaCleanupReport();
+    let cleanupError: unknown;
 
     try {
       await loginToAdmin(page, credentials);
-      const accessToken = await readAdminAccessToken(page);
-      const response = await context.request.delete(ADMIN_QA_CLEANUP_PATH, {
-        failOnStatusCode: false,
-        headers: {
-          authorization: `Bearer ${accessToken}`
-        }
+      const cleanupResult = await cleanupQaVendors(page, {
+        cleanupPath: ADMIN_QA_CLEANUP_PATH,
+        entities: [vendor],
+        storageKey: ADMIN_SESSION_STORAGE_KEY
       });
-
-      if (!response.ok()) {
-        const responseText = normalizeText(await response.text().catch(() => ""));
-        throw new Error(
-          `Expected QA admin cleanup to succeed. Received ${response.status()} ${response.statusText()}. Response: ${
-            responseText || "empty body"
-          }`
-        );
-      }
-
-      const payload = (await response.json().catch(() => null)) as
-        | {
-            success?: boolean;
-            data?: {
-              deletedCount?: number;
-            } | null;
-          }
-        | null;
+      cleanupReport = mergeQaCleanupReport(cleanupReport, cleanupResult);
 
       if (vendor.id && !vendor.deleted) {
-        const deletedCount = payload?.data?.deletedCount ?? 0;
         localExpect(
-          deletedCount,
+          cleanupResult.actualDeletedCount,
           `Expected QA admin cleanup to remove the created vendor "${vendor.name}" after the admin test run.`
         ).toBeGreaterThan(0);
       }
+    } catch (error) {
+      cleanupError = error;
     } finally {
+      logQaCleanupReport(cleanupReport, {
+        scope: "localman-admin-vendors"
+      });
       await context.close();
+      if (cleanupError) {
+        throw cleanupError;
+      }
     }
   });
 
@@ -198,14 +195,15 @@ function buildVendorRecord(): VendorRecord {
   const suffix = Date.now().toString(36);
 
   return {
-    area: `QA Area ${suffix}`,
+    area: `QA_TEST_Area ${suffix}`,
     deleted: false,
     id: null,
-    initialDescription: `QA vendor description ${suffix}`,
+    initialDescription: `QA_TEST vendor description ${suffix}`,
+    isTest: true,
     name: `QA Admin Vendor ${suffix}`,
     slug: `qa-admin-vendor-${suffix}`,
-    updatedArea: `QA Updated Area ${suffix}`,
-    updatedDescription: `QA updated vendor description ${suffix}`
+    updatedArea: `QA_TEST_Updated Area ${suffix}`,
+    updatedDescription: `QA_TEST updated vendor description ${suffix}`
   };
 }
 
@@ -258,28 +256,6 @@ async function fillCreateVendorIdentity(page: Page, vendor: VendorRecord) {
   await page.locator("input[name='area']").fill(vendor.area);
   await page.locator("textarea[name='short_description']").fill(vendor.initialDescription);
   await page.locator("input[name='address_text']").fill(`QA Test Address ${vendor.slug}`);
-}
-
-async function readAdminAccessToken(page: Page): Promise<string> {
-  const accessToken = await page.evaluate((storageKey) => {
-    const rawValue = window.localStorage.getItem(storageKey);
-
-    if (!rawValue) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(rawValue) as { accessToken?: unknown };
-      return typeof parsed.accessToken === "string" && parsed.accessToken.trim().length > 0
-        ? parsed.accessToken
-        : null;
-    } catch {
-      return null;
-    }
-  }, ADMIN_SESSION_STORAGE_KEY);
-
-  localExpect(accessToken, "Expected the Local Man admin session to persist an access token for cleanup.").toBeTruthy();
-  return accessToken!;
 }
 
 async function selectFirstCategory(select: Locator) {

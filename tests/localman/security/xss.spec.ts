@@ -5,6 +5,12 @@ import {
   expectPageReady,
   expectVisiblePageUi
 } from "../../../utils/assertions";
+import {
+  cleanupQaPayloads,
+  createQaCleanupReport,
+  logQaCleanupReport,
+  mergeQaCleanupReport
+} from "../../../utils/cleanup";
 import { test } from "../fixtures";
 
 const ADMIN_CREATE_VENDOR_PATH = "/admin/vendors/new";
@@ -22,8 +28,10 @@ type Credentials = {
 
 type VendorRecord = {
   area: string;
+  created: boolean;
   description: string;
   id: string | null;
+  isTest: true;
   name: string;
   slug: string;
 };
@@ -40,23 +48,34 @@ test.describe.serial("Local Man XSS safety", () => {
     const baseURL = testInfo.project.use.baseURL;
     const context = await browser.newContext(typeof baseURL === "string" ? { baseURL } : {});
     const page = await context.newPage();
+    let cleanupReport = createQaCleanupReport();
+    let cleanupError: unknown;
 
     try {
       await loginToAdmin(page, credentials);
-      const accessToken = await readAdminAccessToken(page);
-      const response = await context.request.delete(ADMIN_QA_CLEANUP_PATH, {
-        failOnStatusCode: false,
-        headers: {
-          authorization: `Bearer ${accessToken}`
-        }
+      const cleanupResult = await cleanupQaPayloads(page, {
+        cleanupPath: ADMIN_QA_CLEANUP_PATH,
+        entities: createdVendors,
+        storageKey: ADMIN_SESSION_STORAGE_KEY
       });
+      cleanupReport = mergeQaCleanupReport(cleanupReport, cleanupResult);
 
-      expect(
-        response.ok(),
-        `Expected Local Man QA cleanup to succeed after XSS coverage. Received ${response.status()} ${response.statusText()}.`
-      ).toBeTruthy();
+      if (createdVendors.some((vendor) => vendor.created)) {
+        expect(
+          cleanupResult.actualDeletedCount,
+          "Expected Local Man QA cleanup to remove at least one created XSS payload vendor."
+        ).toBeGreaterThan(0);
+      }
+    } catch (error) {
+      cleanupError = error;
     } finally {
+      logQaCleanupReport(cleanupReport, {
+        scope: "localman-xss-payloads"
+      });
       await context.close();
+      if (cleanupError) {
+        throw cleanupError;
+      }
     }
   });
 
@@ -103,6 +122,7 @@ test.describe.serial("Local Man XSS safety", () => {
     await page.getByRole("button", { name: /^Create vendor$/i }).click();
 
     await expect(page.getByText(/Vendor created successfully\./i)).toBeVisible({ timeout: 15_000 });
+    vendor.created = true;
     vendor.id = await captureVendorIdFromRegistry(page, vendor.name);
 
     const bodyText = await waitForPublicVendorBody(page, vendor.slug);
@@ -127,9 +147,11 @@ function buildVendorRecord(): VendorRecord {
   const suffix = Date.now().toString(36);
 
   return {
-    area: `QA XSS Area ${suffix}`,
-    description: `QA XSS Description ${suffix} ${XSS_PAYLOAD}`,
+    area: `QA_TEST_XSS Area ${suffix}`,
+    created: false,
+    description: `QA_TEST_XSS Description ${suffix} ${XSS_PAYLOAD}`,
     id: null,
+    isTest: true,
     name: `QA Admin Vendor ${suffix} ${XSS_PAYLOAD}`,
     slug: `qa-admin-vendor-xss-${suffix}`
   };
@@ -154,28 +176,6 @@ async function loginToAdmin(page: Page, credentials: Credentials) {
   await page.getByRole("button", { name: /^Sign in$/i }).click();
   await page.waitForURL((url) => !url.pathname.endsWith(ADMIN_LOGIN_PATH), { timeout: 20_000 });
   await expectPageReady(page);
-}
-
-async function readAdminAccessToken(page: Page): Promise<string> {
-  const accessToken = await page.evaluate((storageKey) => {
-    const rawValue = window.localStorage.getItem(storageKey);
-
-    if (!rawValue) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(rawValue) as { accessToken?: unknown };
-      return typeof parsed.accessToken === "string" && parsed.accessToken.trim().length > 0
-        ? parsed.accessToken
-        : null;
-    } catch {
-      return null;
-    }
-  }, ADMIN_SESSION_STORAGE_KEY);
-
-  expect(accessToken, "Expected the Local Man admin session to persist an access token for cleanup.").toBeTruthy();
-  return accessToken!;
 }
 
 async function fillCreateVendorIdentity(page: Page, vendor: VendorRecord) {
