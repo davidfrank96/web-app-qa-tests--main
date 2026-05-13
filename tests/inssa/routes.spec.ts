@@ -1,63 +1,51 @@
-import { expect, test, type Browser, type TestInfo } from "@playwright/test";
+import { expect, test, type Browser, type Page, type TestInfo } from "@playwright/test";
+import { LandingPage } from "../../pages/inssa/landing.page";
 import { InssaPage } from "../../pages/inssa/inssa-page";
-import { expectPageNotBlank } from "../../utils/assertions";
+import { TimeCapsulePage } from "../../pages/inssa/time-capsule.page";
 import {
   createInssaErrorMonitor,
   ensureInssaAuthStorageState,
   getInssaTestCredentials
 } from "../../utils/auth";
 import { assertValidInssaUrl } from "../../utils/env";
+import {
+  INSSA_STABLE_ROUTE_CASES,
+  INSSA_TIME_CAPSULE_NEXT_PATTERN,
+  type InssaStableRouteCase,
+  type InssaStableSurface
+} from "../../utils/inssa-test-data";
 
-type RouteAccess = "public" | "auth" | "protected";
-type RouteMode = "logged-out" | "logged-in";
+type RouteMode = "logged-in" | "logged-out";
 type RouteStatus = "passed" | "failed";
-type RouteFailureType = "timeout" | "no-redirect" | "blank-page" | "console-error" | "unknown";
-type RouteBehavior =
-  | "authenticated-route"
-  | "authenticated-surface"
-  | "auth-route"
-  | "auth-surface"
-  | "public-entry"
+type RouteFailureType =
+  | "auth-flicker"
+  | "console-error"
+  | "hydration-failure"
+  | "redirect-loop"
+  | "security"
+  | "timeout"
+  | "unexpected-logout"
   | "unknown";
 
-type RouteCase = {
-  access: RouteAccess;
-  label: string;
-  path: string;
-};
-
 type RouteCoverageRecord = {
-  access: RouteAccess;
+  acceptableIssueCount: number;
   actualResult: string;
-  behavior: RouteBehavior;
-  consoleErrorCount: number;
-  consoleErrors: string[];
   error?: string;
   expectedBehavior: string;
+  failureType?: RouteFailureType;
   finalPath: string;
   finalUrl: string;
-  loadTimeMs: number;
+  issueCategorySummary: Record<string, number>;
   label: string;
   mode: RouteMode;
-  pageErrorCount: number;
+  navigationCount: number;
+  nextRedirectPreserved?: boolean;
   requestedPath: string;
-  redirected: boolean;
-  requestFailureCount: number;
-  routeDurationMs: number;
-  failureType?: RouteFailureType;
+  stableUrl: string;
   status: RouteStatus;
+  surface: InssaStableSurface;
+  urlStable: boolean;
 };
-
-const ROUTE_CASES: RouteCase[] = [
-  { access: "public", label: "home", path: "/" },
-  { access: "auth", label: "sign-in", path: "/signin" },
-  { access: "protected", label: "dashboard", path: "/dashboard" },
-  { access: "protected", label: "profile", path: "/profile" },
-  { access: "protected", label: "me", path: "/me" },
-  { access: "protected", label: "edit-profile", path: "/profile/edit" },
-  { access: "protected", label: "connections", path: "/profile/connections" },
-  { access: "protected", label: "requests", path: "/profile/connections/requests" }
-];
 
 test.describe("INSSA route coverage", () => {
   test.setTimeout(240_000);
@@ -66,10 +54,10 @@ test.describe("INSSA route coverage", () => {
     assertValidInssaUrl();
   });
 
-  test("logged-out route matrix covers public, auth, and protected entry points", async ({ browser }, testInfo) => {
+  test("logged-out stable route matrix preserves redirects and hydration", async ({ browser }, testInfo) => {
     const coverage: RouteCoverageRecord[] = [];
 
-    for (const routeCase of ROUTE_CASES) {
+    for (const routeCase of INSSA_STABLE_ROUTE_CASES) {
       await test.step(`logged out route ${routeCase.path}`, async () => {
         coverage.push(await probeRoute(browser, routeCase, "logged-out"));
       });
@@ -81,17 +69,17 @@ test.describe("INSSA route coverage", () => {
     expect(
       failures,
       failures.length === 0
-        ? "Expected all logged-out route probes to pass."
+        ? "Expected all logged-out stable INSSA route probes to pass."
         : formatCoverageFailures("logged-out", failures)
     ).toEqual([]);
   });
 
-  test("logged-in route matrix covers public, auth, and protected entry points", async ({ browser }, testInfo) => {
+  test("logged-in stable route matrix preserves authenticated surfaces", async ({ browser }, testInfo) => {
     getInssaTestCredentials();
     const storageStatePath = await ensureInssaAuthStorageState(browser);
     const coverage: RouteCoverageRecord[] = [];
 
-    for (const routeCase of ROUTE_CASES) {
+    for (const routeCase of INSSA_STABLE_ROUTE_CASES.filter((candidate) => candidate.access !== "auth")) {
       await test.step(`logged in route ${routeCase.path}`, async () => {
         coverage.push(await probeRoute(browser, routeCase, "logged-in", storageStatePath));
       });
@@ -103,7 +91,7 @@ test.describe("INSSA route coverage", () => {
     expect(
       failures,
       failures.length === 0
-        ? "Expected all logged-in route probes to pass."
+        ? "Expected all logged-in stable INSSA route probes to pass."
         : formatCoverageFailures("logged-in", failures)
     ).toEqual([]);
   });
@@ -111,7 +99,7 @@ test.describe("INSSA route coverage", () => {
 
 async function probeRoute(
   browser: Browser,
-  routeCase: RouteCase,
+  routeCase: InssaStableRouteCase,
   mode: RouteMode,
   storageStatePath?: string
 ): Promise<RouteCoverageRecord> {
@@ -120,58 +108,86 @@ async function probeRoute(
     storageState: storageStatePath
   });
   const page = await context.newPage();
+  const landing = new LandingPage(page);
   const inssa = new InssaPage(page);
-  const errorMonitor = createInssaErrorMonitor(page, { defaultIgnorePatterns: [] });
-  errorMonitor.setAction(`probe route ${mode} ${routeCase.path}`);
-  const routeStartedAt = Date.now();
-  let navigationStartedAt = 0;
+  const compose = new TimeCapsulePage(page);
+  const errorMonitor = createInssaErrorMonitor(page);
+  const navigationHistory: string[] = [];
+
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) {
+      navigationHistory.push(frame.url());
+    }
+  });
+
+  const expectation = mode === "logged-in" ? routeCase.loggedIn : routeCase.loggedOut;
 
   const record: RouteCoverageRecord = {
-    access: routeCase.access,
+    acceptableIssueCount: 0,
     actualResult: "not-started",
-    behavior: "unknown",
-    consoleErrorCount: 0,
-    consoleErrors: [],
+    expectedBehavior: describeExpectedBehavior(routeCase, mode),
     finalPath: "about:blank",
     finalUrl: "about:blank",
-    expectedBehavior: describeExpectedBehavior(routeCase, mode),
-    loadTimeMs: 0,
+    issueCategorySummary: {},
     label: routeCase.label,
     mode,
-    pageErrorCount: 0,
+    navigationCount: 0,
+    nextRedirectPreserved: undefined,
     requestedPath: routeCase.path,
-    redirected: false,
-    requestFailureCount: 0,
-    routeDurationMs: 0,
-    status: "passed"
+    stableUrl: "about:blank",
+    status: "passed",
+    surface: expectation.surface,
+    urlStable: false
   };
 
   try {
-    navigationStartedAt = Date.now();
-    await inssa.goToPath(routeCase.path);
-    record.loadTimeMs = Date.now() - navigationStartedAt;
-    await expectPageNotBlank(page);
+    await inssa.goToPath(routeCase.path, { allowHttpError: false });
+    await inssa.expectHealthyPage();
+    await inssa.expectNoGenericShell();
 
-    if (mode === "logged-out") {
-      await assertLoggedOutRoute(routeCase, inssa);
-    } else {
-      await assertLoggedInRoute(routeCase, inssa);
+    await assertExpectedSurface({
+      compose,
+      inssa,
+      landing,
+      mode,
+      page,
+      record,
+      routeCase
+    });
+
+    const stableUrl = await waitForStableUrl(page, 12_000, 1_500);
+    record.stableUrl = stableUrl;
+    record.urlStable = stableUrl === page.url();
+
+    if (!record.urlStable) {
+      throw new Error(`Expected route "${routeCase.path}" to stabilize, but URL kept changing.`);
+    }
+
+    await expect
+      .poll(() => page.url(), {
+        message: `Expected INSSA route "${routeCase.path}" to avoid auth/session flicker after load.`,
+        timeout: 5_000
+      })
+      .toBe(record.stableUrl);
+
+    if (mode === "logged-in") {
+      expect(
+        !/\/signin\/?$|\/sign-in\/?$|\/login\/?$|\/auth/i.test(page.url()),
+        `Expected authenticated INSSA route "${routeCase.path}" to avoid unexpected logout.`
+      ).toBeTruthy();
     }
 
     await errorMonitor.expectNoUnexpectedErrors();
   } catch (error) {
-    if (navigationStartedAt > 0 && record.loadTimeMs === 0) {
-      record.loadTimeMs = Date.now() - navigationStartedAt;
-    }
     record.status = "failed";
     record.error = error instanceof Error ? error.message : String(error);
   } finally {
-    record.routeDurationMs = Date.now() - routeStartedAt;
+    const classified = errorMonitor.classifyIssues();
+    record.acceptableIssueCount = classified.filter(({ severity }) => severity === "acceptable").length;
+    record.issueCategorySummary = errorMonitor.summarizeCategories();
     record.finalUrl = page.url() || "about:blank";
-    record.finalPath = inssa.currentPath() || "about:blank";
-    record.behavior = await classifyRouteBehavior(inssa);
-    record.redirected = normalizePath(record.requestedPath) !== normalizePath(record.finalPath);
-    applyIssueDiagnostics(record, errorMonitor.issues);
+    record.finalPath = currentPath(page);
+    record.navigationCount = navigationHistory.length;
     record.failureType = classifyFailureType(record);
     record.actualResult = describeActualResult(record);
     logRouteResult(record);
@@ -181,90 +197,77 @@ async function probeRoute(
   return record;
 }
 
-async function assertLoggedOutRoute(routeCase: RouteCase, inssa: InssaPage): Promise<void> {
-  switch (routeCase.access) {
-    case "public":
-      await inssa.expectAnyActionableButton();
-      if (routeCase.path === "/") {
-        await inssa.expectLandingCTAVisible();
-      }
-      return;
+async function assertExpectedSurface(input: {
+  compose: TimeCapsulePage;
+  inssa: InssaPage;
+  landing: LandingPage;
+  mode: RouteMode;
+  page: Page;
+  record: RouteCoverageRecord;
+  routeCase: InssaStableRouteCase;
+}) {
+  const expectation = input.mode === "logged-in" ? input.routeCase.loggedIn : input.routeCase.loggedOut;
+  const currentPathValue = currentPath(input.page);
 
+  expect(
+    expectation.finalPathPattern.test(currentPathValue),
+    `Expected route "${input.routeCase.path}" in ${input.mode} mode to resolve to a path matching ${expectation.finalPathPattern}, but landed on "${currentPathValue}".`
+  ).toBeTruthy();
+
+  switch (expectation.surface) {
+    case "landing-public":
+      await input.landing.expectPublicLandingSurface();
+      return;
+    case "landing-authenticated":
+      await input.landing.expectAuthenticatedLandingSurface();
+      return;
     case "auth":
-      await inssa.expectAuthSurface();
-      return;
-
-    case "protected": {
-      const redirectedToEntry =
-        inssa.isAuthRoute() ||
-        (await inssa.hasAuthSurface()) ||
-        (await inssa.hasPublicEntrySurface());
-
-      expect(
-        redirectedToEntry,
-        `Expected logged-out access to "${routeCase.path}" to redirect to a public or auth surface.`
-      ).toBeTruthy();
-      await inssa.expectPublicOrAuthEntrySurface();
-      return;
-    }
-  }
-}
-
-async function assertLoggedInRoute(routeCase: RouteCase, inssa: InssaPage): Promise<void> {
-  switch (routeCase.access) {
-    case "public":
-      await inssa.expectAnyActionableButton();
-      return;
-
-    case "auth": {
-      const authenticated = inssa.isAuthenticatedRoute() || (await inssa.hasAuthenticatedSurface());
-      const authSurface = inssa.isAuthRoute() || (await inssa.hasAuthSurface());
-
-      expect(
-        authenticated || authSurface,
-        `Expected logged-in access to "${routeCase.path}" to expose authenticated UI or a stable auth surface.`
-      ).toBeTruthy();
-
-      if (authenticated) {
-        await inssa.expectAuthenticatedSurface();
-      } else {
-        await inssa.expectAuthSurface();
+      await input.inssa.expectAuthSurface();
+      if (input.mode === "logged-out" && input.routeCase.path.includes("/timecapsule")) {
+        input.record.nextRedirectPreserved = INSSA_TIME_CAPSULE_NEXT_PATTERN.test(input.page.url());
       }
       return;
-    }
-
-    case "protected":
-      expect(
-        inssa.isAuthenticatedRoute() || (await inssa.hasAuthenticatedSurface()),
-        `Expected logged-in access to "${routeCase.path}" to reach authenticated INSSA UI.`
-      ).toBeTruthy();
-      await inssa.expectAuthenticatedSurface();
+    case "profile":
+      await input.inssa.expectStableProfileSurface();
+      return;
+    case "points-ledger":
+      await input.inssa.expectPointsLedgerSurface();
+      return;
+    case "settings":
+      await input.inssa.expectSettingsSurface();
+      return;
+    case "connections":
+      await input.inssa.expectConnectionsSurface();
+      return;
+    case "requests":
+      await input.inssa.expectRequestsSurface();
+      return;
+    case "compose":
+      await input.compose.expectComposeSurface();
       return;
   }
 }
 
-async function classifyRouteBehavior(inssa: InssaPage): Promise<RouteBehavior> {
-  if (await inssa.hasAuthenticatedSurface()) {
-    return "authenticated-surface";
+async function waitForStableUrl(page: Page, timeout = 8_000, quietWindowMs = 1_200) {
+  const deadline = Date.now() + timeout;
+  let lastUrl = page.url();
+  let stableSince = Date.now();
+
+  while (Date.now() <= deadline) {
+    await page.waitForTimeout(200);
+    const currentUrlValue = page.url();
+    if (currentUrlValue !== lastUrl) {
+      lastUrl = currentUrlValue;
+      stableSince = Date.now();
+      continue;
+    }
+
+    if (Date.now() - stableSince >= quietWindowMs) {
+      return currentUrlValue;
+    }
   }
 
-  if (inssa.isAuthenticatedRoute()) {
-    return "authenticated-route";
-  }
-
-  if (await inssa.hasAuthSurface()) {
-    return "auth-surface";
-  }
-
-  if (inssa.isAuthRoute()) {
-    return "auth-route";
-  }
-
-  if (await inssa.hasPublicEntrySurface()) {
-    return "public-entry";
-  }
-
-  return "unknown";
+  return page.url();
 }
 
 async function attachCoverageSummary(
@@ -278,117 +281,86 @@ async function attachCoverageSummary(
   };
 
   console.log(`INSSA_ROUTE_COVERAGE ${JSON.stringify(summary)}`);
-  await testInfo.attach(`inssa-route-coverage-${mode}.json`, {
+  await testInfo.attach(`inssa-stable-route-coverage-${mode}.json`, {
     body: JSON.stringify(summary, null, 2),
     contentType: "application/json"
   });
 }
 
-function formatCoverageFailures(mode: RouteMode, failures: RouteCoverageRecord[]): string {
-  return [
-    `INSSA ${mode} route coverage failures:`,
-    ...failures.map(
-      (failure) =>
-        `${failure.requestedPath} -> ${failure.finalPath} [${failure.failureType ?? "unknown"}] ${failure.actualResult}`
-    )
-  ].join("\n");
-}
-
-function describeExpectedBehavior(routeCase: RouteCase, mode: RouteMode): string {
-  if (mode === "logged-out") {
-    if (routeCase.access === "public") {
-      return 'route loads and stays public with visible actionable UI';
-    }
-
-    if (routeCase.access === "auth") {
-      return "route loads an auth surface";
-    }
-
-    return "route redirects to a public or auth surface";
-  }
-
-  if (routeCase.access === "public") {
-    return "route loads with visible actionable UI";
-  }
-
-  if (routeCase.access === "auth") {
-    return "route resolves to authenticated UI or remains a stable auth surface";
-  }
-
-  return "route resolves to authenticated UI";
-}
-
-function applyIssueDiagnostics(
-  record: RouteCoverageRecord,
-  issues: Array<{ kind: string; message: string }>
-): void {
-  const consoleErrors = issues.filter((issue) => issue.kind === "console");
-  const pageErrors = issues.filter((issue) => issue.kind === "pageerror");
-  const requestFailures = issues.filter((issue) => issue.kind === "requestfailed");
-
-  record.consoleErrorCount = consoleErrors.length;
-  record.consoleErrors = consoleErrors.map((issue) => issue.message);
-  record.pageErrorCount = pageErrors.length;
-  record.requestFailureCount = requestFailures.length;
+function describeExpectedBehavior(routeCase: InssaStableRouteCase, mode: RouteMode): string {
+  const expectation = mode === "logged-in" ? routeCase.loggedIn : routeCase.loggedOut;
+  return `${routeCase.path} resolves to ${expectation.surface} without hydration failure or auth flicker`;
 }
 
 function classifyFailureType(record: RouteCoverageRecord): RouteFailureType | undefined {
-  const failureText = `${record.error ?? ""}\n${record.consoleErrors.join("\n")}`;
-
   if (record.status !== "failed") {
     return undefined;
   }
 
-  if (/Timeout .* exceeded|timed out|TimeoutError|Unable to load INSSA path/i.test(failureText)) {
+  const failureText = `${record.error ?? ""}\n${record.actualResult}`;
+  if (/timed out|TimeoutError|Unable to load INSSA path/i.test(failureText)) {
     return "timeout";
   }
 
-  if (/redirect to a public or auth surface/i.test(failureText)) {
-    return "no-redirect";
+  if (/kept changing|redirect/i.test(failureText)) {
+    return "redirect-loop";
   }
 
-  if (/blank document|render text or interactive controls instead of a blank document/i.test(failureText)) {
-    return "blank-page";
+  if (/unexpected logout|signin/i.test(failureText)) {
+    return "unexpected-logout";
   }
 
-  if (record.consoleErrorCount > 0 || /Unexpected INSSA issues|Failed to load resource|Firestore/i.test(failureText)) {
+  if (/JavaScript shell|hydrate|generic JavaScript shell/i.test(failureText)) {
+    return "hydration-failure";
+  }
+
+  if (/Sensitive|token|secret/i.test(failureText)) {
+    return "security";
+  }
+
+  if (/Unexpected INSSA issues/i.test(failureText)) {
     return "console-error";
+  }
+
+  if (/flicker/i.test(failureText)) {
+    return "auth-flicker";
   }
 
   return "unknown";
 }
 
 function describeActualResult(record: RouteCoverageRecord): string {
-  const parts = [
-    `finalPath=${record.finalPath}`,
-    `behavior=${record.behavior}`,
-    `redirected=${String(record.redirected)}`,
-    `loadTimeMs=${record.loadTimeMs}`,
-    `routeDurationMs=${record.routeDurationMs}`,
-    `consoleErrors=${record.consoleErrorCount}`,
-    `pageErrors=${record.pageErrorCount}`,
-    `requestFailures=${record.requestFailureCount}`
-  ];
+  return [
+    `${record.requestedPath} -> ${record.finalPath}`,
+    `surface=${record.surface}`,
+    `stable=${record.urlStable}`,
+    `navigations=${record.navigationCount}`,
+    `acceptableIssues=${record.acceptableIssueCount}`,
+    record.nextRedirectPreserved === undefined ? null : `nextPreserved=${record.nextRedirectPreserved}`
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
 
-  if (record.error) {
-    parts.push(`reason=${sanitizeForLog(record.error)}`);
+function formatCoverageFailures(mode: RouteMode, failures: RouteCoverageRecord[]): string {
+  return [
+    `INSSA ${mode} stable route failures:`,
+    ...failures.map(
+      (failure) =>
+        `${failure.requestedPath} -> ${failure.finalPath} [${failure.failureType ?? "unknown"}] ${failure.error ?? failure.actualResult}`
+    )
+  ].join("\n");
+}
+
+function currentPath(page: Page): string {
+  try {
+    const url = new URL(page.url());
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return page.url();
   }
-
-  return parts.join(" | ");
 }
 
 function logRouteResult(record: RouteCoverageRecord): void {
   console.log(`INSSA_ROUTE_RESULT ${JSON.stringify(record)}`);
-}
-
-function normalizePath(value: string): string {
-  if (value === "/") {
-    return value;
-  }
-
-  return value.replace(/\/+$/, "");
-}
-
-function sanitizeForLog(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
 }

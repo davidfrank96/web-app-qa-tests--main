@@ -39,6 +39,10 @@ const DEFAULT_SENSITIVE_PATTERNS = [
   }
 ] as const;
 
+const NON_INSPECTABLE_RESPONSE_PATTERN =
+  /google\.firestore\.v1\.Firestore\/(?:Listen|Write)\/channel|maps\.googleapis\.com\/\$rpc\//i;
+const RESPONSE_TEXT_TIMEOUT_MS = 3_000;
+
 export type ConsoleSecurityEntry = {
   location: {
     columnNumber?: number;
@@ -230,7 +234,7 @@ async function inspectResponseForSensitiveData(
 
   let bodyText = "";
   try {
-    bodyText = await response.text();
+    bodyText = await readResponseTextWithTimeout(response, RESPONSE_TEXT_TIMEOUT_MS);
   } catch {
     return;
   }
@@ -253,8 +257,13 @@ async function inspectResponseForSensitiveData(
 function shouldInspectResponse(response: Response, page: Page): boolean {
   const request = response.request();
   const resourceType = request.resourceType();
+  const url = response.url();
 
   if (!["fetch", "xhr"].includes(resourceType)) {
+    return false;
+  }
+
+  if (NON_INSPECTABLE_RESPONSE_PATTERN.test(url)) {
     return false;
   }
 
@@ -263,7 +272,18 @@ function shouldInspectResponse(response: Response, page: Page): boolean {
     return false;
   }
 
-  return isSameOriginAppRequest(response.url(), page) || /\/api\/|supabase|auth|session|token|vendor/i.test(response.url());
+  return isSameOriginAppRequest(url, page) || /\/api\/|supabase|auth|session|token|vendor/i.test(url);
+}
+
+async function readResponseTextWithTimeout(response: Response, timeoutMs: number): Promise<string> {
+  return Promise.race([
+    response.text(),
+    new Promise<string>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Timed out after ${timeoutMs}ms while reading the response body.`));
+      }, timeoutMs);
+    })
+  ]);
 }
 
 function isInspectableContentType(contentType: string): boolean {

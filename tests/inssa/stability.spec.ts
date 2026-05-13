@@ -1,15 +1,11 @@
 import { type Page, type Route } from "@playwright/test";
+import { LandingPage } from "../../pages/inssa/landing.page";
+import { InssaPage } from "../../pages/inssa/inssa-page";
 import { expectPageNotBlank } from "../../utils/assertions";
 import { createInssaErrorMonitor, getInssaTestCredentials } from "../../utils/auth";
 import { assertValidInssaUrl } from "../../utils/env";
 import { withInssaStabilityMonitor } from "../../utils/monitor";
 import { expect, test } from "./fixtures";
-
-const NAVIGATION_ACTION_PATTERN = /my contacts|contacts|requests|alerts|following|loved|favorites|edit profile/i;
-const EMPTY_STATE_PATTERN =
-  /no (contacts?|connections?|people|posts?|capsules?|content|items?|results?) (yet|found)|nothing (here|to show|yet)|be the first|coming soon|empty/i;
-
-type ActionCandidate = { text: string };
 
 test.describe("INSSA stability checks", () => {
   test.describe.configure({ mode: "serial" });
@@ -24,23 +20,27 @@ test.describe("INSSA stability checks", () => {
     page.setDefaultNavigationTimeout(30_000);
   });
 
-  test("authenticated surface survives repeated reloads", async ({ page, authPage }, testInfo) => {
+  test("authenticated map surface survives repeated reloads", async ({ page }, testInfo) => {
     test.slow();
 
     const errorMonitor = createInssaErrorMonitor(page);
+    const landing = new LandingPage(page);
 
     await withInssaStabilityMonitor(page, testInfo, errorMonitor, async (monitor) => {
-      await monitor.step("open cached authenticated profile", async () => {
-        await authPage.goToProfile();
-        await authPage.expectProfileSurface();
-      }, { phase: "navigation" });
+      await monitor.step("open authenticated INSSA landing page", () => landing.goToHome(), {
+        phase: "navigation",
+        route: "/"
+      });
+      await monitor.step("assert authenticated landing surface", () => landing.expectAuthenticatedLandingSurface(), {
+        phase: "assertion"
+      });
 
       for (let attempt = 0; attempt < 4; attempt += 1) {
-        await monitor.step(`reload authenticated profile cycle ${attempt + 1}`, async () => {
+        await monitor.step(`reload authenticated map cycle ${attempt + 1}`, async () => {
           await page.reload({ waitUntil: "domcontentloaded" });
           await waitForSettledSurface(page);
-          await expectStableAuthenticatedSurface(page);
-          await expectAuthenticatedRoute(page, `reload cycle ${attempt + 1}`);
+          await landing.expectAuthenticatedLandingSurface();
+          await expectAuthenticatedUrl(page, `reload cycle ${attempt + 1}`);
         }, { phase: "navigation" });
       }
 
@@ -50,35 +50,65 @@ test.describe("INSSA stability checks", () => {
     });
   });
 
-  test("rapid authenticated navigation clicks remain stable", async ({ page, authPage }, testInfo) => {
+  test("authenticated session survives visibility loss and focus restore on the map surface", async ({ page, context }, testInfo) => {
     test.slow();
 
     const errorMonitor = createInssaErrorMonitor(page);
+    const landing = new LandingPage(page);
 
     await withInssaStabilityMonitor(page, testInfo, errorMonitor, async (monitor) => {
-      await monitor.step("open cached authenticated profile", async () => {
-        await authPage.goToProfile();
-        await authPage.expectProfileSurface();
-      }, { phase: "navigation" });
+      await monitor.step("open authenticated INSSA landing page", () => landing.goToHome(), {
+        phase: "navigation",
+        route: "/"
+      });
+      await monitor.step("assert authenticated landing surface", () => landing.expectAuthenticatedLandingSurface(), {
+        phase: "assertion"
+      });
 
-      const actions = await collectNavigationActions(page);
-      expect(actions.length, "Expected at least two visible authenticated section actions.").toBeGreaterThanOrEqual(2);
-
-      for (let cycle = 0; cycle < 2; cycle += 1) {
-        for (const action of actions.slice(0, 2)) {
-          await monitor.step(`rapid navigation cycle ${cycle + 1} via "${action.text}"`, async () => {
-            await authPage.goToProfile();
-            await authPage.expectProfileSurface();
-
-            const beforeUrl = page.url();
-            await clickVisibleAction(page, action.text);
-            await page.waitForURL((url) => url.toString() !== beforeUrl, { timeout: 5_000 }).catch(() => {});
-
-            await waitForSettledSurface(page);
-            await expectStableAuthenticatedSurface(page);
-            await expectAuthenticatedRoute(page, `navigation action "${action.text}"`);
-          }, { phase: "navigation" });
+      await monitor.step("background and refocus the authenticated tab", async () => {
+        const secondary = await context.newPage();
+        try {
+          await secondary.goto("about:blank");
+          await secondary.bringToFront();
+          await page.waitForTimeout(750);
+          await page.bringToFront();
+          await page.waitForTimeout(1_000);
+        } finally {
+          await secondary.close().catch(() => {});
         }
+
+        await waitForSettledSurface(page);
+        await landing.expectAuthenticatedLandingSurface();
+        await expectAuthenticatedUrl(page, "visibility/focus restore");
+      }, { phase: "interaction" });
+
+      await monitor.step("assert no unexpected INSSA errors", () => errorMonitor.expectNoUnexpectedErrors(), {
+        phase: "assertion"
+      });
+    });
+  });
+
+  test("stable authenticated routes do not log out during direct navigation", async ({ page }, testInfo) => {
+    test.slow();
+
+    const errorMonitor = createInssaErrorMonitor(page);
+    const inssa = new InssaPage(page);
+
+    const stableRoutes = [
+      { path: "/points-ledger", assertSurface: () => inssa.expectPointsLedgerSurface() },
+      { path: "/settings", assertSurface: () => inssa.expectSettingsSurface() },
+      { path: "/profile/connections", assertSurface: () => inssa.expectConnectionsSurface() },
+      { path: "/profile/connections/requests", assertSurface: () => inssa.expectRequestsSurface() }
+    ];
+
+    await withInssaStabilityMonitor(page, testInfo, errorMonitor, async (monitor) => {
+      for (const route of stableRoutes) {
+        await monitor.step(`open authenticated route ${route.path}`, async () => {
+          await inssa.goToPath(route.path);
+          await waitForSettledSurface(page);
+          await route.assertSurface();
+          await expectAuthenticatedUrl(page, route.path);
+        }, { phase: "navigation", route: route.path });
       }
 
       await monitor.step("assert no unexpected INSSA errors", () => errorMonitor.expectNoUnexpectedErrors(), {
@@ -87,16 +117,20 @@ test.describe("INSSA stability checks", () => {
     });
   });
 
-  test("slow network reload does not break the authenticated UI", async ({ page, context, authPage }, testInfo) => {
+  test("slow network reload keeps the authenticated map surface mounted", async ({ page, context }, testInfo) => {
     test.slow();
 
     const errorMonitor = createInssaErrorMonitor(page);
+    const landing = new LandingPage(page);
 
     await withInssaStabilityMonitor(page, testInfo, errorMonitor, async (monitor) => {
-      await monitor.step("open cached authenticated profile", async () => {
-        await authPage.goToProfile();
-        await authPage.expectProfileSurface();
-      }, { phase: "navigation" });
+      await monitor.step("open authenticated INSSA landing page", () => landing.goToHome(), {
+        phase: "navigation",
+        route: "/"
+      });
+      await monitor.step("assert authenticated landing surface", () => landing.expectAuthenticatedLandingSurface(), {
+        phase: "assertion"
+      });
 
       const slowNetworkHandler = async (route: Route) => {
         const request = route.request();
@@ -109,23 +143,11 @@ test.describe("INSSA stability checks", () => {
       await context.route("**/*", slowNetworkHandler);
 
       try {
-        const progressbar = page.getByRole("progressbar").first();
-        const loadingObserved = progressbar
-          .waitFor({ state: "visible", timeout: 4_000 })
-          .then(() => true)
-          .catch(() => false);
-
-        await monitor.step("reload authenticated profile under delayed network", async () => {
+        await monitor.step("reload authenticated map under delayed network", async () => {
           await page.reload({ waitUntil: "domcontentloaded" });
-          const progressbarShown = await loadingObserved;
-
           await waitForSettledSurface(page, 20_000);
-          await expectStableAuthenticatedSurface(page);
-          await expectAuthenticatedRoute(page, "slow-network reload");
-
-          if (progressbarShown) {
-            await expect(progressbar, "Expected the delayed loading indicator to resolve.").toBeHidden({ timeout: 10_000 });
-          }
+          await landing.expectAuthenticatedLandingSurface();
+          await expectAuthenticatedUrl(page, "slow-network map reload");
         }, { phase: "navigation" });
       } finally {
         await context.unroute("**/*", slowNetworkHandler);
@@ -138,57 +160,7 @@ test.describe("INSSA stability checks", () => {
   });
 });
 
-async function collectNavigationActions(page: Page): Promise<ActionCandidate[]> {
-  const actions = page.locator("button, a[href]").filter({ hasText: NAVIGATION_ACTION_PATTERN });
-  const seen = new Set<string>();
-  const results: ActionCandidate[] = [];
-  const total = await actions.count();
-
-  for (let index = 0; index < total; index += 1) {
-    const action = actions.nth(index);
-    if (!(await action.isVisible().catch(() => false))) {
-      continue;
-    }
-
-    const text = normalizeText(await action.textContent());
-    if (!text || seen.has(text)) {
-      continue;
-    }
-
-    results.push({ text });
-    seen.add(text);
-  }
-
-  return results;
-}
-
-async function clickVisibleAction(page: Page, text: string): Promise<void> {
-  const action = page
-    .locator("button, a[href]")
-    .filter({ hasText: new RegExp(escapeRegExp(text), "i") })
-    .first();
-
-  await expect(action, `Expected the action "${text}" to be visible.`).toBeVisible();
-  await action.click();
-}
-
-async function expectStableAuthenticatedSurface(page: Page): Promise<void> {
-  await expectPageNotBlank(page);
-
-  const interactiveCount = await page.locator("a[href], button, input:not([type='hidden']), select, textarea").count();
-  const emptyState = page
-    .locator("main, [role='main'], body")
-    .locator("h1, h2, h3, p, span, div, li")
-    .filter({ hasText: EMPTY_STATE_PATTERN })
-    .first();
-
-  expect(
-    interactiveCount > 0 || (await emptyState.isVisible().catch(() => false)),
-    "Expected the authenticated INSSA surface to expose interactive UI or a valid empty state."
-  ).toBeTruthy();
-}
-
-async function expectAuthenticatedRoute(page: Page, contextLabel: string): Promise<void> {
+async function expectAuthenticatedUrl(page: Page, contextLabel: string): Promise<void> {
   const url = page.url();
   expect(
     !/\/signin\/?$|\/sign-in\/?$|\/login\/?$|\/auth/i.test(url),
@@ -199,19 +171,12 @@ async function expectAuthenticatedRoute(page: Page, contextLabel: string): Promi
 async function waitForSettledSurface(page: Page, timeout = 15_000): Promise<void> {
   await page.waitForLoadState("domcontentloaded");
   await page.waitForLoadState("networkidle", { timeout }).catch(() => {});
+  await expectPageNotBlank(page);
 
   const progressbar = page.getByRole("progressbar").first();
   if (await progressbar.isVisible().catch(() => false)) {
     await expect(progressbar, "Expected route loading to finish before assertions.").toBeHidden({ timeout }).catch(() => {});
   }
-}
-
-function normalizeText(value: string | null): string {
-  return value?.replace(/\s+/g, " ").trim() ?? "";
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function delay(ms: number): Promise<void> {

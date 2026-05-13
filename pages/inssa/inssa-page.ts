@@ -5,14 +5,24 @@ import {
   expectVisibleInteractiveElements
 } from "../../utils/assertions";
 import { assertValidInssaUrl } from "../../utils/env";
+import {
+  INSSA_CONNECTIONS_PATTERN,
+  INSSA_GENERIC_JS_SHELL_PATTERN,
+  INSSA_POINTS_LEDGER_PATTERN,
+  INSSA_PROFILE_SURFACE_PATTERN,
+  INSSA_REQUESTS_PATTERN,
+  INSSA_SETTINGS_PATTERN
+} from "../../utils/inssa-test-data";
 
 const DEFAULT_TIMEOUT = 15_000;
 const AUTH_PATHS = ["/sign-in", "/signin", "/login", "/auth", "/onboarding", "/onboard", "/start"];
 const AUTH_ROUTE_PATTERN = /^\/(?:sign-in|signin|login)(?:\/)?$|^\/(?:auth|onboarding|onboard|start)(?:\/|$)/i;
-const AUTHENTICATED_ROUTE_PATTERN = /^\/(?:me|dashboard|profile)(?:\/|$)|^\/u\/[^/]+/i;
-const PRIMARY_CTA_PATTERN = /sign in|log in|login|get started|continue|explore|join|start|learn more/i;
+const AUTHENTICATED_ROUTE_PATTERN =
+  /^\/(?:me|dashboard|profile|points-ledger|settings)(?:\/|$)|^\/u\/[^/]+|^\/timecapsule(?:\/|$)/i;
+const PRIMARY_CTA_PATTERN = /sign in|log in|login|get started|continue|explore|join|start|learn more|find|bury/i;
 const AUTH_SIGNAL_PATTERN = /sign in|log in|login|continue|get started|email|google|microsoft|apple|magic link|next/i;
-const AUTHENTICATED_SIGNAL_PATTERN = /sign out|log out|logout|edit profile|my contacts|requests|alerts|following|loved/i;
+const AUTHENTICATED_SIGNAL_PATTERN =
+  /sign out|log out|logout|edit profile|my contacts|requests|alerts|following|loved|discard draft|save & exit|current plan|points/i;
 
 export class InssaPage {
   constructor(private readonly page: Page) {}
@@ -82,6 +92,13 @@ export class InssaPage {
 
   async expectHealthyPage() {
     await expectPageNotBlank(this.page);
+  }
+
+  async expectNoGenericShell() {
+    await expect(
+      this.page.locator("body"),
+      "Expected INSSA to hydrate a real route surface instead of the generic JavaScript shell."
+    ).not.toContainText(INSSA_GENERIC_JS_SHELL_PATTERN);
   }
 
   async goToPath(
@@ -175,6 +192,31 @@ export class InssaPage {
 
   async hasPublicEntrySurface(timeout = 3_000): Promise<boolean> {
     return Boolean(await this.findFirstVisible(this.publicEntryLocators(), timeout));
+  }
+
+  async expectStableProfileSurface() {
+    await this.expectNoGenericShell();
+    await expect(this.page.getByText(INSSA_PROFILE_SURFACE_PATTERN).first()).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+  }
+
+  async expectPointsLedgerSurface() {
+    await this.expectNoGenericShell();
+    await expect(this.page.getByText(INSSA_POINTS_LEDGER_PATTERN).first()).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+  }
+
+  async expectSettingsSurface() {
+    await this.expectNoGenericShell();
+    await expect(this.page.getByText(INSSA_SETTINGS_PATTERN).first()).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+  }
+
+  async expectConnectionsSurface() {
+    await this.expectNoGenericShell();
+    await expect(this.page.getByText(INSSA_CONNECTIONS_PATTERN).first()).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+  }
+
+  async expectRequestsSurface() {
+    await this.expectNoGenericShell();
+    await expect(this.page.getByText(INSSA_REQUESTS_PATTERN).first()).toBeVisible({ timeout: DEFAULT_TIMEOUT });
   }
 
   private async gotoPath(
