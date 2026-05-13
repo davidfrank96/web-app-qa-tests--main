@@ -5,12 +5,11 @@ import path from "path";
 import { expect, type Browser, type Page } from "@playwright/test";
 import { AuthPage } from "../pages/inssa/auth-page";
 import { assertValidInssaUrl, requiredEnv } from "./env";
-
-const DEFAULT_INSSA_IGNORED_ERROR_PATTERNS = [
-  /Could not reach Cloud Firestore backend/i,
-  /Error signing in with email and password: Failed to fetch/i,
-  /Failed to load resource: the server responded with a status of 400/i
-];
+import {
+  classifyInssaIssue,
+  type ClassifiedInssaIssue,
+  type InssaIssueCategory
+} from "./inssa-noise";
 
 const ALWAYS_IGNORED_ERROR_PATTERNS = [
   /net::ERR_ABORTED/i,
@@ -25,7 +24,6 @@ const INSSA_AUTH_LOCK_TIMEOUT_MS = 30_000;
 const INSSA_AUTH_VALIDATION_TIMEOUT_MS = 10_000;
 
 type InssaIssueKind = "console" | "pageerror" | "requestfailed";
-type InssaIssueSeverity = "acceptable" | "critical";
 
 type InssaIssue = {
   action: string;
@@ -35,11 +33,6 @@ type InssaIssue = {
   pageUrl: string;
   requestUrl?: string;
   resourceType?: string;
-};
-
-type ClassifiedInssaIssue = {
-  issue: InssaIssue;
-  severity: InssaIssueSeverity;
 };
 
 export function getInssaTestCredentials(): { email: string; password: string } {
@@ -89,7 +82,7 @@ export function createInssaErrorMonitor(
   } = {}
 ) {
   const issues: InssaIssue[] = [];
-  const defaultIgnorePatterns = options.defaultIgnorePatterns ?? DEFAULT_INSSA_IGNORED_ERROR_PATTERNS;
+  const defaultIgnorePatterns = options.defaultIgnorePatterns ?? [];
   let currentAction = "initial page state";
 
   const recordIssue = (issue: Omit<InssaIssue, "action" | "pageUrl">) => {
@@ -130,6 +123,27 @@ export function createInssaErrorMonitor(
 
   return {
     issues,
+    classifyIssues(ignorePatterns: RegExp[] = []): ClassifiedInssaIssue[] {
+      const patterns = [...ALWAYS_IGNORED_ERROR_PATTERNS, ...defaultIgnorePatterns, ...ignorePatterns];
+      return issues.map((issue) => classifyIssue(issue, patterns));
+    },
+    summarizeCategories(ignorePatterns: RegExp[] = []): Record<InssaIssueCategory, number> {
+      return this.classifyIssues(ignorePatterns).reduce<Record<InssaIssueCategory, number>>(
+        (counts, classifiedIssue) => {
+          counts[classifiedIssue.category] += 1;
+          return counts;
+        },
+        {
+          "acceptable-staging-noise": 0,
+          "auth-error": 0,
+          "failed-api-dependency": 0,
+          "fatal-error": 0,
+          "retryable-network-error": 0,
+          "transport-chatter": 0,
+          unknown: 0
+        }
+      );
+    },
     step<T>(action: string, run: () => Promise<T>): Promise<T> {
       currentAction = action;
       return run();
@@ -138,8 +152,7 @@ export function createInssaErrorMonitor(
       currentAction = action;
     },
     async expectNoUnexpectedErrors(ignorePatterns: RegExp[] = []) {
-      const patterns = [...ALWAYS_IGNORED_ERROR_PATTERNS, ...defaultIgnorePatterns, ...ignorePatterns];
-      const classifiedIssues = issues.map((issue) => classifyInssaIssue(issue, patterns));
+      const classifiedIssues = this.classifyIssues(ignorePatterns);
       const unexpected = classifiedIssues.filter(({ severity }) => severity === "critical");
 
       expect(
@@ -174,7 +187,7 @@ export async function logout(page: Page): Promise<AuthPage> {
   return authPage;
 }
 
-function formatInssaIssue(issue: InssaIssue): string {
+function formatInssaIssue(issue: InssaIssue | ClassifiedInssaIssue["issue"]): string {
   const attributes = [
     `[${issue.kind}]`,
     `action="${issue.action}"`,
@@ -197,7 +210,7 @@ function formatInssaIssue(issue: InssaIssue): string {
   return attributes.join(" ");
 }
 
-function classifyInssaIssue(issue: InssaIssue, ignorePatterns: RegExp[]): ClassifiedInssaIssue {
+function classifyIssue(issue: InssaIssue, ignorePatterns: RegExp[]): ClassifiedInssaIssue {
   const searchableValues = [
     issue.action,
     issue.kind,
@@ -208,11 +221,16 @@ function classifyInssaIssue(issue: InssaIssue, ignorePatterns: RegExp[]): Classi
     issue.resourceType ?? ""
   ];
 
-  const severity = ignorePatterns.some((pattern) => searchableValues.some((value) => pattern.test(value)))
-    ? "acceptable"
-    : "critical";
+  if (ignorePatterns.some((pattern) => searchableValues.some((value) => pattern.test(value)))) {
+    return { issue, severity: "acceptable", category: "acceptable-staging-noise" };
+  }
 
-  return { issue, severity };
+  const classified = classifyInssaIssue(issue);
+  return {
+    issue,
+    severity: classified.severity,
+    category: classified.category
+  };
 }
 
 async function hasUsableInssaAuthStorageState(browser: Browser, statePath: string): Promise<boolean> {
