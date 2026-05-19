@@ -205,3 +205,51 @@ export async function discardQaDraftsFromDraftsList(
   const remainingSubjects = await drafts.listQaDraftSubjects();
   return { deletedSubjects, remainingSubjects };
 }
+
+export async function discardDraftByIdFromDraftsList(
+  page: Page,
+  input: {
+    composePathname: string;
+    draftId: string;
+    maxMatches?: number;
+    qaMarker: string;
+    qaMessage: string;
+    qaSubject: string;
+    templateMessage: string;
+    templateSubject: string;
+  }
+): Promise<boolean> {
+  const drafts = new DraftsPage(page);
+  const compose = new TimeCapsulePage(page);
+  const maxMatches = input.maxMatches ?? 8;
+
+  await drafts.goToDrafts();
+
+  for (let index = 0; index < maxMatches; index += 1) {
+    try {
+      await drafts.openDraftBySubject(input.templateSubject, index);
+    } catch {
+      break;
+    }
+    await compose.expectComposeSurface();
+
+    const storage = await compose.readClientDraftStorage({
+      pathname: input.composePathname,
+      qaMarker: input.qaMarker,
+      qaMessage: input.qaMessage,
+      qaSubject: input.qaSubject,
+      templateMessage: input.templateMessage,
+      templateSubject: input.templateSubject
+    });
+
+    if (storage.refresh.draftId === input.draftId) {
+      await compose.discardDraft();
+      await page.waitForLoadState("domcontentloaded").catch(() => {});
+      return true;
+    }
+
+    await drafts.goToDrafts();
+  }
+
+  return false;
+}

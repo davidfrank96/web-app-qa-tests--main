@@ -32,7 +32,7 @@ const FAILED_RESOURCE_4XX_PATTERN = /Failed to load resource: the server respond
 const TELEMETRY_NOISE_PATTERN =
   /csp\.withgoogle\.com|report-only Content Security Policy|google-analytics\.com\/g\/collect|sentry\.io\/api\/|google\.com\/recaptcha|firebaseinstallations\.googleapis\.com/i;
 const AZURE_PROFILE_FAILURE_PATTERN =
-  /Error fetching Azure profile: TypeError: Failed to fetch|kbeanbetastaging\.azurewebsites\.net\/api\/public\/GetUserProfileByEmail|kbeanbetastaging\.azurewebsites\.net\/Account\/SocialLoginJWT/i;
+  /Error fetching Azure profile: TypeError: Failed to fetch|Error signing in with email and password: Failed to fetch \(kbeanbetastaging\.azurewebsites\.net\)|kbeanbetastaging\.azurewebsites\.net\/api\/public\/GetUserProfileByEmail|kbeanbetastaging\.azurewebsites\.net\/Account\/SocialLoginJWT/i;
 const AUTH_FAILURE_PATTERN = /401|403|unauthorized|forbidden|sign in failed|invalid login|wrong password/i;
 const RETRYABLE_NETWORK_PATTERN =
   /ERR_NETWORK_CHANGED|ERR_INTERNET_DISCONNECTED|ERR_TIMED_OUT|ETIMEDOUT|timeout exceeded/i;
