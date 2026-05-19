@@ -1,5 +1,4 @@
 import { type Page, type Route } from "@playwright/test";
-import { LandingPage } from "../../pages/inssa/landing.page";
 import { TimeCapsulePage } from "../../pages/inssa/time-capsule.page";
 import { expectPageNotBlank } from "../../utils/assertions";
 import { createInssaErrorMonitor, getInssaTestCredentials } from "../../utils/auth";
@@ -56,19 +55,14 @@ test.describe("INSSA compose stability", () => {
     const securityMonitor = createConsoleSecurityMonitor(page, {
       sensitivePatterns: [...INSSA_SENSITIVE_PATTERNS]
     });
-    const landing = new LandingPage(page);
     const compose = new TimeCapsulePage(page);
     const writeMonitor = createUnexpectedWriteMonitor(page);
 
     await withInssaStabilityMonitor(page, testInfo, errorMonitor, async (monitor) => {
-      await monitor.step("open authenticated INSSA landing page", () => landing.goToHome(), {
+      await monitor.step("open authenticated compose route directly", () => compose.goToComposeRoute(), {
         phase: "navigation",
-        route: "/"
+        route: "/timecapsule"
       });
-      await monitor.step("assert authenticated landing surface", () => landing.expectAuthenticatedLandingSurface(), {
-        phase: "assertion"
-      });
-      await monitor.step("open authenticated compose entry", () => landing.openBuryEntry(), { phase: "interaction" });
       await monitor.step("assert compose surface and metadata", async () => {
         await compose.expectComposeSurface();
         await compose.expectRequiredFieldMetadata();

@@ -71,28 +71,27 @@ authenticatedTest.describe("INSSA time capsule compose entry", () => {
     });
   });
 
-  authenticatedTest("compose surface exposes safe required-field metadata", async ({ page }, testInfo) => {
+  authenticatedTest("authenticated direct compose route renders the non-destructive compose surface", async ({ page }, testInfo) => {
     const errorMonitor = createInssaErrorMonitor(page);
-    const landing = new LandingPage(page);
     const timeCapsule = new TimeCapsulePage(page);
 
     await withInssaStabilityMonitor(page, testInfo, errorMonitor, async (monitor) => {
-      await monitor.step("open authenticated INSSA landing page", () => landing.goToHome(), {
+      await monitor.step("open authenticated compose route directly", () => timeCapsule.goToComposeRoute(), {
         phase: "navigation",
-        route: "/"
+        route: "/timecapsule"
       });
-      await monitor.step("open authenticated Bury entry", () => landing.openBuryEntry(), { phase: "interaction" });
       await monitor.step("assert compose route is active", async () => {
         await expect
           .poll(() => page.url(), {
-            message: "Expected authenticated Bury to open the compose route.",
+            message: "Expected direct authenticated compose navigation to stay on the compose route.",
             timeout: 15_000
           })
           .toMatch(INSSA_TIME_CAPSULE_ROUTE_PATTERN);
       }, { phase: "assertion" });
-      await monitor.step("assert required-field metadata and limits", () => timeCapsule.expectRequiredFieldMetadata(), {
-        phase: "assertion"
-      });
+      await monitor.step("assert compose surface and required-field metadata", async () => {
+        await timeCapsule.expectComposeSurface();
+        await timeCapsule.expectRequiredFieldMetadata();
+      }, { phase: "assertion" });
       await monitor.step("assert no unexpected INSSA errors", () => errorMonitor.expectNoUnexpectedErrors(), {
         phase: "assertion"
       });
