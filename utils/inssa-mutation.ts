@@ -4,6 +4,23 @@ export const INSSA_QA_CAPSULE_PREFIX = "QA_TEST_CAPSULE";
 export const INSSA_QA_CAPSULE_MARKER = "qa_test_capsule";
 export const INSSA_MUTATION_ENV_FLAG = "INSSA_ENABLE_MUTATION_TESTS";
 export const INSSA_MUTATION_RUN_TOKEN_ENV = "INSSA_MUTATION_RUN_TOKEN";
+export const INSSA_LIVE_CAPSULE_ENV_FLAG = "INSSA_ENABLE_LIVE_CAPSULE_TESTS";
+export const INSSA_LIVE_CAPSULE_MANUAL_CLEANUP_APPROVED_ENV_FLAG = "INSSA_LIVE_CAPSULE_MANUAL_CLEANUP_APPROVED";
+export const INSSA_MEDIA_CAPSULE_ENV_FLAG = "INSSA_ENABLE_MEDIA_CAPSULE_TESTS";
+export const INSSA_REMOTE_IMAGE_TESTS_ENV_FLAG = "INSSA_ENABLE_REMOTE_IMAGE_TESTS";
+export const INSSA_REMOTE_IMAGE_URL_ENV = "INSSA_TEST_REMOTE_IMAGE_URL";
+export const INSSA_REVEAL_LATER_CAPSULE_ENV_FLAG = "INSSA_ENABLE_REVEAL_LATER_CAPSULE_TESTS";
+export const INSSA_TEST_VIDEO_FIXTURE_PATH_ENV = "INSSA_TEST_VIDEO_FIXTURE_PATH";
+export const INSSA_US_MARKET_LOCATION_ENV_FLAG = "INSSA_US_MARKET_LOCATION";
+export const INSSA_VIDEO_CAPSULE_ENV_FLAG = "INSSA_ENABLE_VIDEO_CAPSULE_TESTS";
+export const INSSA_QA_LIVE_CAPSULE_PREFIX = "QA_LIVE_CAPSULE";
+export const INSSA_QA_LIVE_CAPSULE_MARKER = "qa_live_capsule";
+export const INSSA_QA_LIVE_MEDIA_CAPSULE_PREFIX = "QA_LIVE_MEDIA_CAPSULE";
+export const INSSA_QA_LIVE_MEDIA_CAPSULE_MARKER = "qa_live_media_capsule";
+export const INSSA_QA_REVEAL_LATER_CAPSULE_PREFIX = "QA_REVEAL_LATER_CAPSULE";
+export const INSSA_QA_REVEAL_LATER_CAPSULE_MARKER = "qa_reveal_later_capsule";
+export const INSSA_QA_LIVE_VIDEO_CAPSULE_PREFIX = "QA_LIVE_VIDEO_CAPSULE";
+export const INSSA_QA_LIVE_VIDEO_CAPSULE_MARKER = "qa_live_video_capsule";
 
 export type InssaCleanupCapabilities = {
   accountScopedCleanupVerified: boolean;
@@ -46,6 +63,30 @@ export type InssaMutationRunContext = {
 const DEFAULT_RUN_TOKEN = createDefaultRunToken();
 
 export type InssaQaCapsuleSeed = {
+  message: string;
+  subject: string;
+};
+
+export type InssaQaLiveCapsuleSeed = {
+  createdAtIso: string;
+  message: string;
+  subject: string;
+};
+
+export type InssaQaLiveMediaCapsuleSeed = {
+  createdAtIso: string;
+  message: string;
+  subject: string;
+};
+
+export type InssaQaRevealLaterCapsuleSeed = {
+  createdAtIso: string;
+  message: string;
+  subject: string;
+};
+
+export type InssaQaLiveVideoCapsuleSeed = {
+  createdAtIso: string;
   message: string;
   subject: string;
 };
@@ -181,6 +222,98 @@ export function buildInssaQaCapsuleSeed(
   };
 }
 
+export function buildInssaQaLiveCapsuleSeed(
+  runContext: InssaMutationRunContext,
+  input: {
+    createdAt?: Date;
+  } = {}
+): InssaQaLiveCapsuleSeed {
+  const createdAt = input.createdAt ?? new Date();
+  const createdAtIso = createdAt.toISOString();
+  const compactTimestamp = createdAtIso.replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+
+  return {
+    createdAtIso,
+    message: [
+      "QA live capsule staging test. Safe to delete. Created by automated Playwright test.",
+      `run=${runContext.runId}`,
+      `marker=${INSSA_QA_LIVE_CAPSULE_MARKER}`,
+      `env=${runContext.environmentTag}`,
+      `createdAt=${createdAtIso}`
+    ].join(" | "),
+    subject: `${INSSA_QA_LIVE_CAPSULE_PREFIX}_${runContext.runId}_${compactTimestamp}`
+  };
+}
+
+export function buildInssaQaLiveMediaCapsuleSeed(
+  runContext: InssaMutationRunContext,
+  input: {
+    createdAt?: Date;
+  } = {}
+): InssaQaLiveMediaCapsuleSeed {
+  const createdAt = input.createdAt ?? new Date();
+  const createdAtIso = createdAt.toISOString();
+  const compactTimestamp = createdAtIso.replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+
+  return {
+    createdAtIso,
+    message: [
+      "QA live media capsule staging test. Safe to delete. Created by automated Playwright test.",
+      `run=${runContext.runId}`,
+      `marker=${INSSA_QA_LIVE_MEDIA_CAPSULE_MARKER}`,
+      `env=${runContext.environmentTag}`,
+      `createdAt=${createdAtIso}`
+    ].join(" | "),
+    subject: `${INSSA_QA_LIVE_MEDIA_CAPSULE_PREFIX}_${runContext.runId}_${compactTimestamp}`
+  };
+}
+
+export function buildInssaQaRevealLaterCapsuleSeed(
+  runContext: InssaMutationRunContext,
+  input: {
+    createdAt?: Date;
+  } = {}
+): InssaQaRevealLaterCapsuleSeed {
+  const createdAt = input.createdAt ?? new Date();
+  const createdAtIso = createdAt.toISOString();
+  const compactTimestamp = createdAtIso.replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+
+  return {
+    createdAtIso,
+    message: [
+      "QA reveal-later capsule staging test. Safe to delete. Created by automated Playwright test.",
+      `run=${runContext.runId}`,
+      `marker=${INSSA_QA_REVEAL_LATER_CAPSULE_MARKER}`,
+      `env=${runContext.environmentTag}`,
+      `createdAt=${createdAtIso}`
+    ].join(" | "),
+    subject: `${INSSA_QA_REVEAL_LATER_CAPSULE_PREFIX}_${runContext.runId}_${compactTimestamp}`
+  };
+}
+
+export function buildInssaQaLiveVideoCapsuleSeed(
+  runContext: InssaMutationRunContext,
+  input: {
+    createdAt?: Date;
+  } = {}
+): InssaQaLiveVideoCapsuleSeed {
+  const createdAt = input.createdAt ?? new Date();
+  const createdAtIso = createdAt.toISOString();
+  const compactTimestamp = createdAtIso.replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+
+  return {
+    createdAtIso,
+    message: [
+      "QA live video capsule staging test. Safe to delete. Created by automated Playwright test.",
+      `run=${runContext.runId}`,
+      `marker=${INSSA_QA_LIVE_VIDEO_CAPSULE_MARKER}`,
+      `env=${runContext.environmentTag}`,
+      `createdAt=${createdAtIso}`
+    ].join(" | "),
+    subject: `${INSSA_QA_LIVE_VIDEO_CAPSULE_PREFIX}_${runContext.runId}_${compactTimestamp}`
+  };
+}
+
 export function assertInssaLifecycleMutationReady(
   capabilities: InssaCleanupCapabilities = getInssaCleanupCapabilities()
 ): void {
@@ -204,7 +337,15 @@ export function isInssaQaArtifact(value: string | null | undefined): boolean {
   const text = (value ?? "").trim();
   return (
     text.startsWith(INSSA_QA_CAPSULE_PREFIX) ||
+    text.startsWith(INSSA_QA_LIVE_CAPSULE_PREFIX) ||
+    text.startsWith(INSSA_QA_LIVE_MEDIA_CAPSULE_PREFIX) ||
+    text.startsWith(INSSA_QA_REVEAL_LATER_CAPSULE_PREFIX) ||
+    text.startsWith(INSSA_QA_LIVE_VIDEO_CAPSULE_PREFIX) ||
     text.includes(INSSA_QA_CAPSULE_MARKER) ||
+    text.includes(INSSA_QA_LIVE_CAPSULE_MARKER) ||
+    text.includes(INSSA_QA_LIVE_MEDIA_CAPSULE_MARKER) ||
+    text.includes(INSSA_QA_REVEAL_LATER_CAPSULE_MARKER) ||
+    text.includes(INSSA_QA_LIVE_VIDEO_CAPSULE_MARKER) ||
     /\bQA_TEST_CAPSULE_[a-f0-9]{12}-[a-f0-9]{10}(?:-r\d+)?\b/i.test(text)
   );
 }

@@ -17,6 +17,7 @@ const EMPTY_OR_RESOLVED_PATTERN =
 const CREATE_TEXT_INPUT_PATTERN = /title|headline|subject|name|caption/i;
 const CREATE_BODY_PATTERN = /description|details|body|content|message|story|caption/i;
 const FORM_FIELD_PATTERN = "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), select:not([disabled])";
+const INSSA_MUTATION_OPT_IN_ENABLED = process.env.INSSA_ENABLE_MUTATION_TESTS === "1";
 
 type ActionCandidate = { text: string };
 
@@ -34,6 +35,10 @@ test.describe("INSSA deeper interactions", () => {
 
   test("create flow submits minimal valid data when accessible create UI exists", async ({ page, authPage }, testInfo) => {
     test.slow();
+    test.skip(
+      !INSSA_MUTATION_OPT_IN_ENABLED,
+      "INSSA create submission remains opt-in until lifecycle cleanup is verified for created capsules."
+    );
 
     const errorMonitor = createInssaErrorMonitor(page);
 
