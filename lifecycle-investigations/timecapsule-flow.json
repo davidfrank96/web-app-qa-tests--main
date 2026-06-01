@@ -1,0 +1,277 @@
+{
+  "createdDraftSubject": "QA_PRODUCT_AUDIT_DRAFT_audit-20260531T115504",
+  "createdDraftMessage": "QA product behavior audit draft. Safe to delete. run=audit-20260531T115504",
+  "mutationScope": "draft-side compose only; Bury opened Reveal settings but no final contact/share action was clicked",
+  "screenshots": [
+    "/Users/frankenstein/Desktop/web-app-qa-tests/web-app-qa-tests--main/lifecycle-investigations/screenshots/timecapsule-01-compose-empty.png",
+    "/Users/frankenstein/Desktop/web-app-qa-tests/web-app-qa-tests--main/lifecycle-investigations/screenshots/timecapsule-02-compose-filled.png",
+    "/Users/frankenstein/Desktop/web-app-qa-tests/web-app-qa-tests--main/lifecycle-investigations/screenshots/timecapsule-03-media.png",
+    "/Users/frankenstein/Desktop/web-app-qa-tests/web-app-qa-tests--main/lifecycle-investigations/screenshots/timecapsule-04-media-video-modal.png",
+    "/Users/frankenstein/Desktop/web-app-qa-tests/web-app-qa-tests--main/lifecycle-investigations/screenshots/timecapsule-05-share.png",
+    "/Users/frankenstein/Desktop/web-app-qa-tests/web-app-qa-tests--main/lifecycle-investigations/screenshots/timecapsule-06-reveal-step1-raw.png",
+    "/Users/frankenstein/Desktop/web-app-qa-tests/web-app-qa-tests--main/lifecycle-investigations/screenshots/timecapsule-07-reveal-step1-dismissed.png",
+    "/Users/frankenstein/Desktop/web-app-qa-tests/web-app-qa-tests--main/lifecycle-investigations/screenshots/timecapsule-08-reveal-later-step2.png"
+  ],
+  "browserSessionWarning": {
+    "visible": false,
+    "dismissed": false
+  },
+  "compose": {
+    "finalUrl": null,
+    "title": "Inssa | Discover Time Capsules Near You",
+    "headings": [],
+    "buttons": [
+      "Discard draft",
+      "Clear subject",
+      "Clear message",
+      "Back and save",
+      "Save & exit",
+      "Next step",
+      "Close",
+      "Got it"
+    ],
+    "links": [],
+    "inputs": [
+      "QA product behavior audit draft. Safe to delete. run=audit-20260531T115504"
+    ],
+    "emptyStates": [],
+    "errorsOrToasts": [
+      "Heads up about this browser session"
+    ],
+    "browserSessionWarningVisible": true,
+    "visibleTextSummary": "Step 1: Compose\nDiscard draft\n1\nCompose\n2\nMedia\n3\nShare\nSubject*\nSubject*\n44/140\nYour Message*\nYour Message*\n74/3000\nSave & exit\nDraft created and saved to Buried drafts.\nHeads up about this browser session\nIf you are using private browsing or strict privacy settings, sign-in, shared access, and app preferences may not save normally.\nGot it"
+  },
+  "media": {
+    "finalUrl": null,
+    "title": "Inssa | Discover Time Capsules Near You",
+    "headings": [],
+    "buttons": [
+      "Discard draft",
+      "Photo",
+      "Video",
+      "Gallery",
+      "Back",
+      "Save & exit",
+      "Next step",
+      "Close",
+      "Got it"
+    ],
+    "links": [],
+    "inputs": [],
+    "emptyStates": [],
+    "errorsOrToasts": [
+      "Heads up about this browser session"
+    ],
+    "browserSessionWarningVisible": true,
+    "visibleTextSummary": "Step 2: Media\nDiscard draft\nCompose\n2\nMedia\n3\nShare\nAdd up to 12 files. Up to 2 can be videos (10s max each).\nSelected 0/12 files · 0/2 videos\nPhoto\nVideo\nGallery\nSave & exit\nDraft created and saved to Buried drafts.\nHeads up about this browser session\nIf you are using private browsing or strict privacy settings, sign-in, shared access, and app preferences may not save normally.\nGot it",
+    "fileInputs": [
+      {
+        "accept": "image/*,video/*",
+        "multiple": true,
+        "name": "",
+        "id": ""
+      }
+    ]
+  },
+  "mediaAfterVideoClick": {
+    "finalUrl": null,
+    "title": "Inssa | Discover Time Capsules Near You",
+    "headings": [],
+    "buttons": [
+      "Discard draft",
+      "Photo",
+      "Video",
+      "Gallery",
+      "Back",
+      "Save & exit",
+      "Next step",
+      "Close",
+      "Got it",
+      "Close"
+    ],
+    "links": [],
+    "inputs": [],
+    "emptyStates": [],
+    "errorsOrToasts": [
+      "Heads up about this browser session",
+      "Camera and microphone access is blocked. Please allow permission in your browser settings.",
+      "⚙️ Browser: Site permissions → Camera / Microphone → Allow"
+    ],
+    "browserSessionWarningVisible": true,
+    "visibleTextSummary": "Step 2: Media\nDiscard draft\nCompose\n2\nMedia\n3\nShare\nAdd up to 12 files. Up to 2 can be videos (10s max each).\nSelected 0/12 files · 0/2 videos\nPhoto\nVideo\nGallery\nSave & exit\nDraft created and saved to Buried drafts.\nHeads up about this browser session\nIf you are using private browsing or strict privacy settings, sign-in, shared access, and app preferences may not save normally.\nGot it\nCamera and microphone access is blocked. Please allow permission in your browser settings.\nHow to enable:\n⚙️ Browser: Site permissions → Camera / Microphone → Allow\nClose"
+  },
+  "share": {
+    "finalUrl": null,
+    "title": "Inssa | Discover Time Capsules Near You",
+    "headings": [],
+    "buttons": [
+      "Discard draft",
+      "Back",
+      "Save & exit",
+      "Bury"
+    ],
+    "links": [],
+    "inputs": [],
+    "emptyStates": [],
+    "errorsOrToasts": [],
+    "browserSessionWarningVisible": false,
+    "visibleTextSummary": "Step 3: Share\nDiscard draft\nCompose\nMedia\n3\nShare\nSubject: QA_PRODUCT_AUDIT_DRAFT_audit-20260531T115504\nMessage: QA product behavior audit draft. Safe to delete. run=audit-20260531T115504\nTap Bury to choose reveal timing, then pick connections or share by link.\nSave & exit\nBury"
+  },
+  "revealStep1Raw": {
+    "title": "Reveal settings Step 1 of 2",
+    "stepLabel": "Step 1 of 2",
+    "visibleButtons": [
+      "Discard draft",
+      "Back",
+      "Save & exit",
+      "Bury",
+      "Reveal now",
+      "Reveal later",
+      "Continue",
+      "Cancel"
+    ],
+    "visibleText": "Step 3: Share\nDiscard draft\nCompose\nMedia\n3\nShare\nSubject: QA_PRODUCT_AUDIT_DRAFT_audit-20260531T115504\nMessage: QA product behavior audit draft. Safe to delete. run=audit-20260531T115504\nTap Bury to choose reveal timing, then pick connections or share by link.\nSave & exit\nBury\nReveal settings\nStep 1 of 2\nReveal timing\nReveal now\nReveal later\nContinue\nCancel",
+    "visibleInputs": [],
+    "schedulingControls": [
+      "Reveal now",
+      "Reveal later"
+    ],
+    "contactControls": [],
+    "sharedCapsuleVisible": false,
+    "personalMemoryVisible": false,
+    "revealNowVisible": true,
+    "revealLaterVisible": true
+  },
+  "revealStep1AfterWarningDismissal": {
+    "title": "Reveal settings Step 1 of 2",
+    "stepLabel": "Step 1 of 2",
+    "visibleButtons": [
+      "Discard draft",
+      "Back",
+      "Save & exit",
+      "Bury",
+      "Reveal now",
+      "Reveal later",
+      "Continue",
+      "Cancel"
+    ],
+    "visibleText": "Step 3: Share\nDiscard draft\nCompose\nMedia\n3\nShare\nSubject: QA_PRODUCT_AUDIT_DRAFT_audit-20260531T115504\nMessage: QA product behavior audit draft. Safe to delete. run=audit-20260531T115504\nTap Bury to choose reveal timing, then pick connections or share by link.\nSave & exit\nBury\nReveal settings\nStep 1 of 2\nReveal timing\nReveal now\nReveal later\nContinue\nCancel",
+    "visibleInputs": [],
+    "schedulingControls": [
+      "Reveal now",
+      "Reveal later"
+    ],
+    "contactControls": [],
+    "sharedCapsuleVisible": false,
+    "personalMemoryVisible": false,
+    "revealNowVisible": true,
+    "revealLaterVisible": true
+  },
+  "revealNow": {
+    "step1": {
+      "title": "Reveal settings Step 1 of 2",
+      "stepLabel": "Step 1 of 2",
+      "visibleButtons": [
+        "Discard draft",
+        "Back",
+        "Save & exit",
+        "Bury",
+        "Reveal now",
+        "Reveal later",
+        "Continue",
+        "Cancel"
+      ],
+      "visibleText": "Step 3: Share\nDiscard draft\nCompose\nMedia\n3\nShare\nSubject: QA_PRODUCT_AUDIT_DRAFT_audit-20260531T115504\nMessage: QA product behavior audit draft. Safe to delete. run=audit-20260531T115504\nTap Bury to choose reveal timing, then pick connections or share by link.\nSave & exit\nBury\nReveal settings\nStep 1 of 2\nReveal timing\nReveal now\nReveal later\nContinue\nCancel",
+      "visibleInputs": [],
+      "schedulingControls": [
+        "Reveal now",
+        "Reveal later"
+      ],
+      "contactControls": [],
+      "sharedCapsuleVisible": false,
+      "personalMemoryVisible": false,
+      "revealNowVisible": true,
+      "revealLaterVisible": true
+    },
+    "inferredFromExistingArtifacts": {
+      "artifactPath": "/Users/frankenstein/Desktop/web-app-qa-tests/web-app-qa-tests--main/lifecycle-artifacts/20ed1890ed7c-f658c3a631.json",
+      "revealAudience": "shared-capsule",
+      "revealTiming": "reveal-now",
+      "shareDecisionStepReached": true,
+      "skipContactsClicked": true,
+      "observedCreateSuccess": true,
+      "finalShareLinkPresent": true
+    }
+  },
+  "revealLater": {
+    "classification": "timing-first-contact-after-timing",
+    "step1": {
+      "title": "Reveal settings Step 1 of 2",
+      "stepLabel": "Step 1 of 2",
+      "visibleButtons": [
+        "Discard draft",
+        "Back",
+        "Save & exit",
+        "Bury",
+        "Reveal now",
+        "Reveal later",
+        "Choose date, selected date is May 31, 2026",
+        "Continue",
+        "Cancel"
+      ],
+      "visibleText": "Step 3: Share\nDiscard draft\nCompose\nMedia\n3\nShare\nSubject: QA_PRODUCT_AUDIT_DRAFT_audit-20260531T115504\nMessage: QA product behavior audit draft. Safe to delete. run=audit-20260531T115504\nTap Bury to choose reveal timing, then pick connections or share by link.\nSave & exit\nBury\nReveal settings\nStep 1 of 2\nReveal timing\nReveal now\nReveal later\nReveal date & time\nReveal date & time\nContinue\nCancel",
+      "visibleInputs": [
+        "MM/DD/YYYY hh:mm aa"
+      ],
+      "schedulingControls": [
+        "Reveal now",
+        "Reveal later",
+        "Choose date, selected date is May 31, 2026"
+      ],
+      "contactControls": [
+        "Choose date, selected date is May 31, 2026"
+      ],
+      "sharedCapsuleVisible": false,
+      "personalMemoryVisible": false,
+      "revealNowVisible": true,
+      "revealLaterVisible": true
+    },
+    "step2": {
+      "title": null,
+      "stepLabel": "Step 2 of 2",
+      "visibleButtons": [
+        "Discard draft",
+        "Back",
+        "Save & exit",
+        "Bury",
+        "Save as personal memory Keep a copy just for me",
+        "Select all",
+        "david frank esther96.df@gmail.com",
+        "David Frank davidfrank96.df@gmail.com",
+        "Select contacts or memory to bury",
+        "Bury & share link with others",
+        "Back"
+      ],
+      "visibleText": "Step 3: Share\nDiscard draft\nCompose\nMedia\n3\nShare\nSubject: QA_PRODUCT_AUDIT_DRAFT_audit-20260531T115504\nMessage: QA product behavior audit draft. Safe to delete. run=audit-20260531T115504\nTap Bury to choose reveal timing, then pick connections or share by link.\nSave & exit\nBury\nSend or save\n0 selected · Step 2 of 2\nChoose one or more ways to finish\nSave as personal memory\nKeep a copy just for me\n​\n0 of 2 contacts selected\nSelect all\ndavid frank\nesther96.df@gmail.com\nDavid Frank\ndavidfrank96.df@gmail.com\nSelect contacts or memory to bury\n- or -\nBury & share link with others\nBack",
+      "visibleInputs": [
+        "Search by name or email"
+      ],
+      "schedulingControls": [],
+      "contactControls": [
+        "Save as personal memory Keep a copy just for me",
+        "Select all",
+        "Select contacts or memory to bury",
+        "Bury & share link with others"
+      ],
+      "sharedCapsuleVisible": false,
+      "personalMemoryVisible": true,
+      "revealNowVisible": false,
+      "revealLaterVisible": false
+    },
+    "stoppedBeforeFinalization": true,
+    "finalizationButtonsNotClicked": [
+      "Send to selected contacts & bury",
+      "Skip contacts & share link with others"
+    ]
+  }
+}

@@ -1,9 +1,5 @@
-import { execFile } from "child_process";
 import { promises as fs } from "fs";
-import os from "os";
 import path from "path";
-import { promisify } from "util";
-import type { TestInfo } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import {
   InssaFinalLiveCreateStepError,
@@ -17,6 +13,25 @@ import {
 } from "../../pages/inssa/time-capsule.page";
 import { createInssaErrorMonitor, getInssaTestCredentials } from "../../utils/auth";
 import { assertValidInssaUrl } from "../../utils/env";
+import {
+  captureInssaLifecycleArtifactScreenshot,
+  getInssaLifecycleArtifactPath,
+  writeInssaLifecycleArtifactJson
+} from "../../utils/inssa-live-artifacts";
+import {
+  classifyInssaLifecyclePersistence,
+  createInssaLifecycleNetworkMonitor,
+  type InssaLifecycleNetworkObservation,
+  type InssaLifecycleNetworkPhase,
+  type InssaLifecycleNetworkSummary,
+  type InssaLifecyclePersistenceClassification
+} from "../../utils/inssa-lifecycle-network";
+import {
+  summarizeInssaLifecycleNetworkIssues,
+  type ClassifiedInssaLifecycleNetworkIssue,
+  type InssaLifecycleRequestFailureContext,
+  type InssaLifecycleRequestFailureSummary
+} from "../../utils/inssa-noise";
 import {
   buildInssaComposeRouteForLocation,
   getInssaComposeTemplateDefaults,
@@ -33,26 +48,16 @@ import {
 } from "../../utils/inssa-mutation";
 import { withInssaStabilityMonitor } from "../../utils/monitor";
 
-const execFileAsync = promisify(execFile);
-
 const DEFAULT_TIMEOUT = 25_000;
 const LIVE_TEST_ENABLED = process.env[INSSA_LIVE_CAPSULE_ENV_FLAG] === "1";
 const MANUAL_CLEANUP_APPROVED = process.env[INSSA_LIVE_CAPSULE_MANUAL_CLEANUP_APPROVED_ENV_FLAG] === "1";
 const VIDEO_TEST_ENABLED = process.env[INSSA_VIDEO_CAPSULE_ENV_FLAG] === "1";
 const SELECTED_LOCATION_KEY = process.env[INSSA_US_MARKET_LOCATION_ENV_FLAG]?.trim().toLowerCase() ?? "";
 const STAGING_HOSTNAME = "staging.inssa.us";
-const LIVE_ARTIFACT_DIR = path.resolve(process.cwd(), "test-results", "inssa-live-capsule-artifacts");
-const MAX_VIDEO_BYTES = 5 * 1024 * 1024;
+const STATIC_VIDEO_FIXTURE_PATH = path.resolve(process.cwd(), "tests", "fixtures", "media", "sample-video.mp4");
+const MAX_VIDEO_BYTES = 2 * 1024 * 1024;
 
-type NetworkObservation = {
-  method: string;
-  phase: "bury-click" | "post-create" | "pre-create" | "reveal-continue";
-  requestUrl: string;
-  responseStatus?: number;
-  resourceType: string;
-};
-
-type VideoMode = "existing-local-fixture" | "env-local-fixture" | "generated-playwright-ffmpeg-fixture";
+type VideoMode = "existing-local-fixture" | "env-local-fixture";
 
 type PreparedVideoAttachment = {
   fileName: string;
@@ -68,11 +73,16 @@ type LiveVideoCapsuleArtifact = {
   createdAt: string;
   draftIdBeforeCreate: string | null;
   environment: "staging";
+  fatalNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[];
   finalActionClicked: boolean;
   finalActionLabel: string | null;
   finalShareEvidence: InssaLiveCapsuleShareEvidence | null;
   finalShareLink: string | null;
   finalUrl: string;
+  lifecycleClassification: InssaLifecyclePersistenceClassification;
+  lifecycleSucceededDespiteWarnings: boolean;
+  lifecycleNetworkDebugEnabled: boolean;
+  lifecycleNetworkSummary: InssaLifecycleNetworkSummary;
   maskedTestEmail: string;
   mediaCapabilities: InssaMediaStepCapabilities;
   message: string;
@@ -81,6 +91,7 @@ type LiveVideoCapsuleArtifact = {
   possibleFinalCapsuleId: string | null;
   possibleShareToken: string | null;
   postContinueScreenshotPath: string | null;
+  postFinalizationScreenshotPath: string | null;
   postCreateVisibleControls: {
     archiveCapsule: boolean;
     deleteCapsule: boolean;
@@ -93,8 +104,10 @@ type LiveVideoCapsuleArtifact = {
   revealSettingsOpened: boolean;
   revealSettingsSnapshots: InssaRevealSettingsModalSnapshot[];
   revealTiming: "reveal-later" | "reveal-now" | null;
+  requestFailureSummary: InssaLifecycleRequestFailureSummary;
   runId: string;
   screenshotPath: string | null;
+  sendToContactsClicked: boolean;
   selectedMedia: InssaMediaSelectionSnapshot;
   selectedUsLocation: {
     address: string;
@@ -104,6 +117,8 @@ type LiveVideoCapsuleArtifact = {
     lng: number;
     marketRegion: string;
   };
+  shareDecisionStepReached: boolean;
+  skipContactsClicked: boolean;
   stepButtonSnapshots: InssaComposeStepSnapshot[];
   subject: string;
   successSignals: string[];
@@ -114,7 +129,8 @@ type LiveVideoCapsuleArtifact = {
   videoAttachmentEvidence: InssaMediaAttachmentEvidence | null;
   videoMode: VideoMode | null;
   visibleSuccessText: string | null;
-  writesObserved: NetworkObservation[];
+  warningNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[];
+  writesObserved: InssaLifecycleNetworkObservation[];
 };
 
 test.describe("INSSA live video capsule create", () => {
@@ -175,10 +191,13 @@ test.describe("INSSA live video capsule create", () => {
     const seed = buildInssaQaLiveVideoCapsuleSeed(runContext);
     const composeRoute = buildInssaComposeRouteForLocation(location);
     const composeTemplateDefaults = getInssaComposeTemplateDefaults(composeRoute);
-    const screenshotPath = path.join(LIVE_ARTIFACT_DIR, `${runContext.runId}-video.png`);
-    const postContinueScreenshotPath = path.join(LIVE_ARTIFACT_DIR, `${runContext.runId}-video-post-continue.png`);
-    const artifactPath = path.join(LIVE_ARTIFACT_DIR, `${runContext.runId}-video.json`);
-    const writesObserved: NetworkObservation[] = [];
+    const screenshotFileName = `${runContext.runId}-video.png`;
+    const postContinueScreenshotFileName = `${runContext.runId}-video-post-continue.png`;
+    const postFinalizationScreenshotFileName = `${runContext.runId}-video-post-finalization.png`;
+    const artifactFileName = `${runContext.runId}-video.json`;
+    const screenshotPath = getInssaLifecycleArtifactPath(screenshotFileName);
+    const postContinueScreenshotPath = getInssaLifecycleArtifactPath(postContinueScreenshotFileName);
+    const postFinalizationScreenshotPath = getInssaLifecycleArtifactPath(postFinalizationScreenshotFileName);
     const possibleDocumentIds = new Set<string>();
     const stepButtonSnapshots: InssaComposeStepSnapshot[] = [];
     const revealSettingsSnapshots: InssaRevealSettingsModalSnapshot[] = [];
@@ -193,7 +212,7 @@ test.describe("INSSA live video capsule create", () => {
     let finalUrl = "";
     let mediaCapabilities: InssaMediaStepCapabilities | null = null;
     let observedCreateSuccess = false;
-    let phase: NetworkObservation["phase"] = "pre-create";
+    let phase: InssaLifecycleNetworkPhase = "pre-create";
     let possibleFinalCapsuleId: string | null = null;
     let possibleShareToken: string | null = null;
     let postCreateVisibleControls = {
@@ -208,99 +227,22 @@ test.describe("INSSA live video capsule create", () => {
     let revealSettingsFollowupClickedLabel: string | null = null;
     let revealSettingsOpened = false;
     let revealTiming: "reveal-later" | "reveal-now" | null = null;
+    let sendToContactsClicked = false;
+    let shareDecisionStepReached = false;
+    let skipContactsClicked = false;
     let selectedMedia: InssaMediaSelectionSnapshot = { count: 0, names: [] };
     let videoAttachmentEvidence: InssaMediaAttachmentEvidence | null = null;
     let visibleSuccessText: string | null = null;
+    let fatalNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[] = [];
+    let warningNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[] = [];
+    let requestFailureSummary: InssaLifecycleRequestFailureSummary = summarizeInssaLifecycleNetworkIssues([]);
+    let lifecycleSucceededDespiteWarnings = false;
 
-    const capturePossibleIds = (input: string | null | undefined) => {
-      const text = input?.trim();
-      if (!text) {
-        return;
-      }
-
-      const addIfSafeId = (value: string | null | undefined) => {
-        const candidate = value?.trim();
-        if (!candidate) {
-          return;
-        }
-
-        if (
-          candidate.length > 64 ||
-          candidate.includes(".") ||
-          /^AIza/i.test(candidate) ||
-          /^eyJ/i.test(candidate) ||
-          /^AMf-/i.test(candidate)
-        ) {
-          return;
-        }
-
-        possibleDocumentIds.add(candidate);
-      };
-
-      const namedIdMatches = text.matchAll(/\b(?:capsuleId|draftId|id)["'=:\s]+([A-Za-z0-9_-]{8,64})/gi);
-      for (const match of namedIdMatches) {
-        addIfSafeId(match[1]);
-      }
-
-      const documentPathMatches = text.matchAll(/documents\/(?:[^/?#\s]+\/)*([A-Za-z0-9_-]{8,64})/gi);
-      for (const match of documentPathMatches) {
-        addIfSafeId(match[1]);
-      }
-    };
-
-    page.on("request", (request) => {
-      const url = request.url();
-      const relevant =
-        ["POST", "PUT", "PATCH", "DELETE"].includes(request.method()) ||
-        /firestore|timecapsule|messages|capsule|cloudfunctions|documents|storage/i.test(url);
-
-      if (!relevant) {
-        return;
-      }
-
-      writesObserved.push({
-        method: request.method(),
-        phase,
-        requestUrl: url,
-        resourceType: request.resourceType()
-      });
-      capturePossibleIds(url);
-      capturePossibleIds(request.postData());
+    const networkMonitor = createInssaLifecycleNetworkMonitor({
+      getPhase: () => phase,
+      onPossibleDocumentId: (id) => possibleDocumentIds.add(id)
     });
-
-    page.on("response", (response) => {
-      const url = response.url();
-      const relevant =
-        ["POST", "PUT", "PATCH", "DELETE"].includes(response.request().method()) ||
-        /firestore|timecapsule|messages|capsule|cloudfunctions|documents|storage/i.test(url);
-
-      if (!relevant) {
-        return;
-      }
-
-      const existing = [...writesObserved]
-        .reverse()
-        .find(
-          (entry) =>
-            entry.requestUrl === url &&
-            entry.method === response.request().method() &&
-            entry.responseStatus === undefined
-        );
-
-      if (existing) {
-        existing.responseStatus = response.status();
-      } else {
-        writesObserved.push({
-          method: response.request().method(),
-          phase,
-          requestUrl: url,
-          resourceType: response.request().resourceType(),
-          responseStatus: response.status()
-        });
-      }
-
-      capturePossibleIds(url);
-    });
+    networkMonitor.attach(page);
 
     try {
       await withInssaStabilityMonitor(page, testInfo, errorMonitor, async (monitor) => {
@@ -350,7 +292,7 @@ test.describe("INSSA live video capsule create", () => {
           ).toBe(true);
 
           await compose.selectVideoMediaMode();
-          preparedVideoRef.current = await prepareVideoAttachment(testInfo, runContext.runId);
+          preparedVideoRef.current = await prepareVideoAttachment();
           await compose.attachSingleMediaFile(preparedVideoRef.current.filePath);
 
           selectedMedia = await compose.readSelectedMediaFiles();
@@ -369,6 +311,24 @@ test.describe("INSSA live video capsule create", () => {
               videoAttachmentEvidence.mediaPreviewVisible
             }`
           ).toBeTruthy();
+
+          if (await compose.dismissVideoRecorderModalIfVisible()) {
+            successSignals.add("video-recorder-modal-dismissed");
+            videoAttachmentEvidence = await compose.readMediaAttachmentEvidence();
+            expect(
+              videoAttachmentEvidence.selectedSummaryCount === 1 ||
+                videoAttachmentEvidence.selectedVideoCount === 1 ||
+                videoAttachmentEvidence.videoPreviewVisible ||
+                videoAttachmentEvidence.mediaPreviewVisible,
+              `Expected one attached video to remain after closing the Record Video overlay. selectedSummary="${
+                videoAttachmentEvidence.selectedSummaryText ?? "none"
+              }", selectedVideoCount=${
+                videoAttachmentEvidence.selectedVideoCount ?? "unknown"
+              }, videoPreviewVisible=${videoAttachmentEvidence.videoPreviewVisible}, mediaPreviewVisible=${
+                videoAttachmentEvidence.mediaPreviewVisible
+              }`
+            ).toBeTruthy();
+          }
         }, { phase: "interaction" });
 
         await monitor.step("advance safely until Bury is visible on the final Share step", async () => {
@@ -410,8 +370,7 @@ test.describe("INSSA live video capsule create", () => {
           await compose.continueRevealSettingsOnce();
           revealSettingsContinueClicked = true;
           successSignals.add("reveal-continue-clicked");
-          await fs.mkdir(LIVE_ARTIFACT_DIR, { recursive: true });
-          await page.screenshot({ fullPage: true, path: postContinueScreenshotPath }).catch(() => {});
+          await captureInssaLifecycleArtifactScreenshot(page, postContinueScreenshotFileName).catch(() => {});
         }, { phase: "interaction" });
 
         await monitor.step("wait for final video share-link evidence", async () => {
@@ -419,9 +378,21 @@ test.describe("INSSA live video capsule create", () => {
           const outcome = await compose.waitForLiveCapsuleShareLinkEvidence();
           revealSettingsSnapshots.push(...outcome.revealSettingsSnapshots);
           revealSettingsFollowupClickedLabel = outcome.followupClickedLabel;
+          sendToContactsClicked = outcome.sendToContactsClicked;
+          shareDecisionStepReached = outcome.shareDecisionStepReached;
+          skipContactsClicked = outcome.skipContactsClicked;
           finalShareEvidence = outcome.shareEvidence;
           if (revealSettingsFollowupClickedLabel) {
             successSignals.add(`reveal-followup=${revealSettingsFollowupClickedLabel}`);
+          }
+          if (shareDecisionStepReached) {
+            successSignals.add("share-decision-step-reached");
+          }
+          if (skipContactsClicked) {
+            successSignals.add("skip-contacts-share-link-clicked");
+          }
+          if (sendToContactsClicked) {
+            successSignals.add("send-to-contacts-clicked");
           }
 
           finalUrl = page.url();
@@ -444,6 +415,7 @@ test.describe("INSSA live video capsule create", () => {
             outcome.shareEvidence.copyShareLinkVisible ||
             outcome.shareEvidence.shareLinkButtonVisible ||
             outcome.shareEvidence.homeVisible;
+          await captureInssaLifecycleArtifactScreenshot(page, postFinalizationScreenshotFileName).catch(() => {});
         }, { phase: "assertion" });
 
         await monitor.step("capture post-create control snapshot", async () => {
@@ -472,13 +444,45 @@ test.describe("INSSA live video capsule create", () => {
           ).toBe(true);
         }, { phase: "assertion" });
 
-        await monitor.step("assert no unexpected INSSA errors", () => errorMonitor.expectNoUnexpectedErrors(), {
+        await monitor.step("assert no unexpected INSSA errors", async () => {
+          const lifecycleRequestContext = buildLifecycleRequestFailureContext({
+            finalShareEvidence,
+            finalShareLink,
+            lifecycleStage: "video-live-create",
+            observedCreateSuccess,
+            possibleFinalCapsuleId,
+            possibleShareToken,
+            revealSettingsContinueClicked,
+            uploadSucceeded: hasVideoUploadEvidence(videoAttachmentEvidence, preparedVideoRef.current)
+          });
+          const classifiedNetworkIssues = errorMonitor.classifyLifecycleRequestFailures(lifecycleRequestContext);
+          fatalNetworkIssues = classifiedNetworkIssues.filter((issue) => issue.impact === "fatal");
+          warningNetworkIssues = classifiedNetworkIssues.filter((issue) => issue.impact === "warning");
+          requestFailureSummary = summarizeInssaLifecycleNetworkIssues(classifiedNetworkIssues);
+          lifecycleSucceededDespiteWarnings =
+            lifecycleRequestContext.lifecycleSucceeded &&
+            lifecycleRequestContext.retrievalSucceeded &&
+            warningNetworkIssues.length > 0 &&
+            fatalNetworkIssues.length === 0;
+
+          await errorMonitor.expectNoUnexpectedErrors(
+            buildPostSuccessLifecycleIgnorePatterns(lifecycleRequestContext),
+            { lifecycleRequestContext }
+          );
+        }, {
           phase: "assertion"
         });
       });
     } finally {
-      await fs.mkdir(LIVE_ARTIFACT_DIR, { recursive: true });
-      await page.screenshot({ fullPage: true, path: screenshotPath }).catch(() => {});
+      await networkMonitor.flush();
+      const lifecycleNetworkSummary = networkMonitor.summarize();
+      lifecycleNetworkSummary.possibleDocumentIds.forEach((id) => possibleDocumentIds.add(id));
+      possibleFinalCapsuleId = possibleFinalCapsuleId ?? lifecycleNetworkSummary.possibleCapsuleIds[0] ?? null;
+      possibleShareToken = possibleShareToken ?? lifecycleNetworkSummary.possibleShareTokens[0] ?? null;
+      await captureInssaLifecycleArtifactScreenshot(page, screenshotFileName).catch(() => {});
+      if (skipContactsClicked) {
+        await captureInssaLifecycleArtifactScreenshot(page, postFinalizationScreenshotFileName).catch(() => {});
+      }
       if (revealSettingsContinueClicked && !finalShareEvidence) {
         finalShareEvidence = await compose.readLiveCapsuleShareEvidence().catch(() => null);
         if (finalShareEvidence) {
@@ -500,6 +504,39 @@ test.describe("INSSA live video capsule create", () => {
         Boolean(finalShareEvidence?.copyShareLinkVisible) ||
         Boolean(finalShareEvidence?.shareLinkButtonVisible) ||
         Boolean(finalShareEvidence?.homeVisible);
+      const lifecycleClassification = classifyInssaLifecyclePersistence({
+        finalShareEvidence,
+        finalShareLink,
+        finalUrl,
+        networkSummary: lifecycleNetworkSummary,
+        observedCreateSuccess,
+        possibleFinalCapsuleId,
+        possibleShareToken,
+        revealAudience,
+        revealSettingsContinueClicked,
+        revealSettingsFollowupClickedLabel,
+        revealTiming
+      });
+      const lifecycleRequestContext = buildLifecycleRequestFailureContext({
+        finalShareEvidence,
+        finalShareLink,
+        lifecycleStage: "video-live-create",
+        observedCreateSuccess,
+        possibleFinalCapsuleId,
+        possibleShareToken,
+        revealSettingsContinueClicked,
+        uploadSucceeded: hasVideoUploadEvidence(videoAttachmentEvidence, preparedVideoRef.current)
+      });
+      const classifiedNetworkIssues = errorMonitor.classifyLifecycleRequestFailures(lifecycleRequestContext);
+      fatalNetworkIssues = classifiedNetworkIssues.filter((issue) => issue.impact === "fatal");
+      warningNetworkIssues = classifiedNetworkIssues.filter((issue) => issue.impact === "warning");
+      requestFailureSummary = summarizeInssaLifecycleNetworkIssues(classifiedNetworkIssues);
+      lifecycleSucceededDespiteWarnings =
+        lifecycleRequestContext.lifecycleSucceeded &&
+        lifecycleRequestContext.retrievalSucceeded &&
+        warningNetworkIssues.length > 0 &&
+        fatalNetworkIssues.length === 0;
+      successSignals.add(`lifecycle-classification=${lifecycleClassification}`);
 
       if (!finalActionClicked) {
         artifactStateNote = "Bury was not clicked. Only a draft-side video artifact may exist on staging.";
@@ -519,11 +556,16 @@ test.describe("INSSA live video capsule create", () => {
         createdAt: seed.createdAtIso,
         draftIdBeforeCreate,
         environment: "staging",
+        fatalNetworkIssues,
         finalActionClicked,
         finalActionLabel,
         finalShareEvidence,
         finalShareLink,
         finalUrl: finalUrl || page.url(),
+        lifecycleClassification,
+        lifecycleSucceededDespiteWarnings,
+        lifecycleNetworkDebugEnabled: lifecycleNetworkSummary.debugEnabled,
+        lifecycleNetworkSummary,
         maskedTestEmail,
         mediaCapabilities: mediaCapabilities ?? {
           acceptedFileTypes: [],
@@ -542,6 +584,7 @@ test.describe("INSSA live video capsule create", () => {
         possibleFinalCapsuleId,
         possibleShareToken,
         postContinueScreenshotPath: revealSettingsContinueClicked ? postContinueScreenshotPath : null,
+        postFinalizationScreenshotPath: skipContactsClicked ? postFinalizationScreenshotPath : null,
         postCreateVisibleControls,
         revealAudience,
         revealSettingsContinueClicked,
@@ -549,8 +592,10 @@ test.describe("INSSA live video capsule create", () => {
         revealSettingsOpened,
         revealSettingsSnapshots,
         revealTiming,
+        requestFailureSummary,
         runId: runContext.runId,
         screenshotPath,
+        sendToContactsClicked,
         selectedMedia,
         selectedUsLocation: {
           address: location.address,
@@ -560,6 +605,8 @@ test.describe("INSSA live video capsule create", () => {
           lng: location.lng,
           marketRegion: location.marketRegion
         },
+        shareDecisionStepReached,
+        skipContactsClicked,
         stepButtonSnapshots,
         subject: seed.subject,
         successSignals: [...successSignals],
@@ -570,10 +617,11 @@ test.describe("INSSA live video capsule create", () => {
         videoAttachmentEvidence,
         videoMode: preparedVideoRef.current?.mediaMode ?? null,
         visibleSuccessText,
-        writesObserved
+        warningNetworkIssues,
+        writesObserved: networkMonitor.observations
       };
 
-      await fs.writeFile(artifactPath, JSON.stringify(artifact, null, 2), "utf8");
+      await writeInssaLifecycleArtifactJson(artifactFileName, artifact);
       await testInfo.attach("inssa-live-video-capsule-artifact.json", {
         body: JSON.stringify(artifact, null, 2),
         contentType: "application/json"
@@ -592,44 +640,81 @@ function maskEmail(email: string): string {
   return `${safeLocal}@${domain}`;
 }
 
-async function prepareVideoAttachment(testInfo: TestInfo, runId: string): Promise<PreparedVideoAttachment> {
+function hasVideoUploadEvidence(
+  evidence: InssaMediaAttachmentEvidence | null,
+  preparedVideo: PreparedVideoAttachment | null
+): boolean {
+  return Boolean(
+    preparedVideo?.fileName ||
+      evidence?.inputFileCount ||
+      evidence?.selectedSummaryCount ||
+      evidence?.selectedVideoCount ||
+      evidence?.videoPreviewVisible ||
+      evidence?.mediaPreviewVisible
+  );
+}
+
+function buildLifecycleRequestFailureContext(input: {
+  finalShareEvidence: InssaLiveCapsuleShareEvidence | null;
+  finalShareLink: string | null;
+  lifecycleStage: string;
+  observedCreateSuccess: boolean;
+  possibleFinalCapsuleId: string | null;
+  possibleShareToken: string | null;
+  revealSettingsContinueClicked: boolean;
+  uploadSucceeded: boolean;
+}): InssaLifecycleRequestFailureContext {
+  const retrievalSucceeded = Boolean(
+    input.finalShareLink ||
+      input.possibleFinalCapsuleId ||
+      input.possibleShareToken ||
+      input.finalShareEvidence?.finalShareLink ||
+      input.finalShareEvidence?.possibleFinalCapsuleId ||
+      input.finalShareEvidence?.possibleShareToken ||
+      input.finalShareEvidence?.copyShareLinkVisible ||
+      input.finalShareEvidence?.shareLinkButtonVisible ||
+      input.finalShareEvidence?.homeVisible
+  );
+
+  return {
+    finalizationAttempted: input.revealSettingsContinueClicked,
+    lifecycleStage: input.lifecycleStage,
+    lifecycleSucceeded: input.observedCreateSuccess,
+    retrievalSucceeded,
+    shareLinkCaptured: retrievalSucceeded,
+    uploadSucceeded: input.uploadSucceeded
+  };
+}
+
+function buildPostSuccessLifecycleIgnorePatterns(
+  lifecycleRequestContext: InssaLifecycleRequestFailureContext
+): RegExp[] {
+  if (!lifecycleRequestContext.lifecycleSucceeded || !lifecycleRequestContext.retrievalSucceeded) {
+    return [];
+  }
+
+  return [/Error saving time capsule: FirebaseError: Document already exists:/i];
+}
+
+async function prepareVideoAttachment(): Promise<PreparedVideoAttachment> {
   const envFixture = process.env[INSSA_TEST_VIDEO_FIXTURE_PATH_ENV]?.trim();
   if (envFixture) {
     return await validateVideoFixture(path.resolve(envFixture), "env-local-fixture");
   }
 
-  const existingFixture = await findExistingVideoFixture();
-  if (existingFixture) {
-    return await validateVideoFixture(existingFixture, "existing-local-fixture");
+  if (await fileExists(STATIC_VIDEO_FIXTURE_PATH)) {
+    return await validateVideoFixture(STATIC_VIDEO_FIXTURE_PATH, "existing-local-fixture");
   }
 
-  return await createGeneratedVideoFixture(testInfo, runId);
-}
-
-async function findExistingVideoFixture(): Promise<string | null> {
-  const candidates = [
-    path.resolve(process.cwd(), "tests", "fixtures", "inssa-live-video.mp4"),
-    path.resolve(process.cwd(), "tests", "fixtures", "inssa-live-video.webm"),
-    path.resolve(process.cwd(), "tests", "fixtures", "inssa-live-video.mov"),
-    path.resolve(process.cwd(), "tests", "fixtures", "inssa-live-video.m4v")
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
+  throw new Error(
+    `Missing INSSA static video fixture: "${STATIC_VIDEO_FIXTURE_PATH}". Add a tiny deterministic MP4 there or set ${INSSA_TEST_VIDEO_FIXTURE_PATH_ENV}=<small-mp4-file>.`
+  );
 }
 
 async function validateVideoFixture(filePath: string, mediaMode: VideoMode): Promise<PreparedVideoAttachment> {
   const extension = path.extname(filePath).toLowerCase();
-  if (![".mp4", ".webm", ".mov", ".m4v"].includes(extension)) {
-    throw new Error(`INSSA video fixture must be .mp4, .webm, .mov, or .m4v. Received "${filePath}".`);
+  if (extension !== ".mp4") {
+    throw new Error(`INSSA video fixture must be a static .mp4 file. Received "${filePath}".`);
   }
 
   const stat = await fs.stat(filePath);
@@ -649,115 +734,6 @@ async function validateVideoFixture(filePath: string, mediaMode: VideoMode): Pro
     mediaMode,
     sizeBytes: stat.size
   };
-}
-
-async function createGeneratedVideoFixture(testInfo: TestInfo, runId: string): Promise<PreparedVideoAttachment> {
-  const ffmpegPath = await findPlaywrightFfmpegExecutable();
-  if (!ffmpegPath) {
-    throw new Error(
-      `No video fixture was found and Playwright ffmpeg was not available. Provide ${INSSA_TEST_VIDEO_FIXTURE_PATH_ENV}=<small-video-file>.`
-    );
-  }
-
-  const filePath = testInfo.outputPath(`inssa-live-video-${runId}.mp4`);
-  const commandAttempts = [
-    [
-      "-y",
-      "-f",
-      "lavfi",
-      "-i",
-      "testsrc=size=160x90:rate=15:duration=1",
-      "-an",
-      "-c:v",
-      "libx264",
-      "-pix_fmt",
-      "yuv420p",
-      "-movflags",
-      "+faststart",
-      filePath
-    ],
-    [
-      "-y",
-      "-f",
-      "lavfi",
-      "-i",
-      "testsrc=size=160x90:rate=15:duration=1",
-      "-an",
-      "-c:v",
-      "mpeg4",
-      "-t",
-      "1",
-      filePath
-    ]
-  ];
-  const errors: string[] = [];
-
-  for (const args of commandAttempts) {
-    try {
-      await execFileAsync(ffmpegPath, args, { timeout: 30_000 });
-      return await validateVideoFixture(filePath, "generated-playwright-ffmpeg-fixture");
-    } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  throw new Error(`Unable to generate deterministic INSSA video fixture with ${ffmpegPath}: ${errors.join(" | ")}`);
-}
-
-async function findPlaywrightFfmpegExecutable(): Promise<string | null> {
-  const directCandidate = process.env.PLAYWRIGHT_FFMPEG_PATH?.trim();
-  if (directCandidate && (await fileExists(directCandidate))) {
-    return directCandidate;
-  }
-
-  const roots = [
-    process.env.PLAYWRIGHT_BROWSERS_PATH && process.env.PLAYWRIGHT_BROWSERS_PATH !== "0"
-      ? process.env.PLAYWRIGHT_BROWSERS_PATH
-      : "",
-    path.resolve(process.cwd(), "node_modules", "playwright-core", ".local-browsers"),
-    path.join(os.homedir(), "Library", "Caches", "ms-playwright"),
-    path.join(os.homedir(), ".cache", "ms-playwright"),
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "ms-playwright") : ""
-  ].filter(Boolean);
-
-  for (const root of roots) {
-    const executable = await findFfmpegInRoot(root);
-    if (executable) {
-      return executable;
-    }
-  }
-
-  return null;
-}
-
-async function findFfmpegInRoot(root: string): Promise<string | null> {
-  let entries: Array<{ isDirectory(): boolean; name: string }>;
-  try {
-    entries = (await fs.readdir(root, { withFileTypes: true })) as Array<{ isDirectory(): boolean; name: string }>;
-  } catch {
-    return null;
-  }
-
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith("ffmpeg-")) {
-      continue;
-    }
-
-    const candidates = [
-      path.join(root, entry.name, "ffmpeg-mac"),
-      path.join(root, entry.name, "ffmpeg-linux"),
-      path.join(root, entry.name, "ffmpeg-win64.exe"),
-      path.join(root, entry.name, "ffmpeg.exe")
-    ];
-
-    for (const candidate of candidates) {
-      if (await fileExists(candidate)) {
-        return candidate;
-      }
-    }
-  }
-
-  return null;
 }
 
 async function fileExists(filePath: string): Promise<boolean> {

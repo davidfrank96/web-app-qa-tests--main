@@ -1,7 +1,11 @@
 node_modules/
 .env
+.env.inssa.live-staging
 playwright-report/
 test-results/
+lifecycle-artifacts/
+lifecycle-campaigns/
+security-campaigns/
 reports/
 .next/
 dashboard/.next/
