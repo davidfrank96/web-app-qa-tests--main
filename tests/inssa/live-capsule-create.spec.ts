@@ -1,5 +1,3 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { expect, test } from "./fixtures";
 import {
   InssaFinalLiveCreateStepError,
@@ -10,6 +8,25 @@ import {
 } from "../../pages/inssa/time-capsule.page";
 import { createInssaErrorMonitor, getInssaTestCredentials } from "../../utils/auth";
 import { assertValidInssaUrl } from "../../utils/env";
+import {
+  captureInssaLifecycleArtifactScreenshot,
+  getInssaLifecycleArtifactPath,
+  writeInssaLifecycleArtifactJson
+} from "../../utils/inssa-live-artifacts";
+import {
+  classifyInssaLifecyclePersistence,
+  createInssaLifecycleNetworkMonitor,
+  type InssaLifecycleNetworkObservation,
+  type InssaLifecycleNetworkPhase,
+  type InssaLifecycleNetworkSummary,
+  type InssaLifecyclePersistenceClassification
+} from "../../utils/inssa-lifecycle-network";
+import {
+  summarizeInssaLifecycleNetworkIssues,
+  type ClassifiedInssaLifecycleNetworkIssue,
+  type InssaLifecycleRequestFailureContext,
+  type InssaLifecycleRequestFailureSummary
+} from "../../utils/inssa-noise";
 import {
   INSSA_DEFAULT_COMPOSE_ROUTE,
   INSSA_TIME_CAPSULE_ROUTE_PATTERN
@@ -26,15 +43,6 @@ const DEFAULT_TIMEOUT = 20_000;
 const LIVE_TEST_ENABLED = process.env[INSSA_LIVE_CAPSULE_ENV_FLAG] === "1";
 const MANUAL_CLEANUP_APPROVED = process.env[INSSA_LIVE_CAPSULE_MANUAL_CLEANUP_APPROVED_ENV_FLAG] === "1";
 const STAGING_HOSTNAME = "staging.inssa.us";
-const LIVE_ARTIFACT_DIR = path.resolve(process.cwd(), "test-results", "inssa-live-capsule-artifacts");
-
-type NetworkObservation = {
-  method: string;
-  phase: "bury-click" | "post-create" | "pre-create" | "reveal-continue";
-  requestUrl: string;
-  responseStatus?: number;
-  resourceType: string;
-};
 
 type LiveCapsuleArtifact = {
   artifactStateNote: string | null;
@@ -45,6 +53,7 @@ type LiveCapsuleArtifact = {
   environment: "staging";
   finalActionClicked: boolean;
   finalActionLabel: string | null;
+  fatalNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[];
   finalUrl: string;
   maskedTestEmail: string;
   message: string;
@@ -59,23 +68,33 @@ type LiveCapsuleArtifact = {
   possibleFinalCapsuleId: string | null;
   possibleShareToken: string | null;
   postContinueScreenshotPath: string | null;
+  postFinalizationScreenshotPath: string | null;
   finalShareEvidence: InssaLiveCapsuleShareEvidence | null;
   finalShareLink: string | null;
+  lifecycleClassification: InssaLifecyclePersistenceClassification;
+  lifecycleSucceededDespiteWarnings: boolean;
+  lifecycleNetworkDebugEnabled: boolean;
+  lifecycleNetworkSummary: InssaLifecycleNetworkSummary;
   revealAudience: "personal-memory" | "shared-capsule" | null;
   revealSettingsContinueClicked: boolean;
   revealSettingsFollowupClickedLabel: string | null;
   revealSettingsOpened: boolean;
   revealSettingsSnapshots: InssaRevealSettingsModalSnapshot[];
   revealTiming: "reveal-later" | "reveal-now" | null;
+  requestFailureSummary: InssaLifecycleRequestFailureSummary;
   runId: string;
   screenshotPath: string | null;
+  sendToContactsClicked: boolean;
+  shareDecisionStepReached: boolean;
+  skipContactsClicked: boolean;
   stepButtonSnapshots: InssaComposeStepSnapshot[];
   subject: string;
   successSignals: string[];
   testOutputDir: string;
   url: string;
   visibleSuccessText: string | null;
-  writesObserved: NetworkObservation[];
+  warningNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[];
+  writesObserved: InssaLifecycleNetworkObservation[];
 };
 
 test.describe("INSSA live capsule create", () => {
@@ -122,15 +141,18 @@ test.describe("INSSA live capsule create", () => {
     });
     const seed = buildInssaQaLiveCapsuleSeed(runContext);
     const composePathname = new URL(INSSA_DEFAULT_COMPOSE_ROUTE, configuredUrl).pathname;
-    const screenshotPath = path.join(LIVE_ARTIFACT_DIR, `${runContext.runId}.png`);
-    const postContinueScreenshotPath = path.join(LIVE_ARTIFACT_DIR, `${runContext.runId}-post-continue.png`);
-    const artifactPath = path.join(LIVE_ARTIFACT_DIR, `${runContext.runId}.json`);
-    const writesObserved: NetworkObservation[] = [];
+    const screenshotFileName = `${runContext.runId}.png`;
+    const postContinueScreenshotFileName = `${runContext.runId}-post-continue.png`;
+    const postFinalizationScreenshotFileName = `${runContext.runId}-post-finalization.png`;
+    const artifactFileName = `${runContext.runId}.json`;
+    const screenshotPath = getInssaLifecycleArtifactPath(screenshotFileName);
+    const postContinueScreenshotPath = getInssaLifecycleArtifactPath(postContinueScreenshotFileName);
+    const postFinalizationScreenshotPath = getInssaLifecycleArtifactPath(postFinalizationScreenshotFileName);
     const possibleDocumentIds = new Set<string>();
     const stepButtonSnapshots: InssaComposeStepSnapshot[] = [];
     const revealSettingsSnapshots: InssaRevealSettingsModalSnapshot[] = [];
     const successSignals = new Set<string>();
-    let phase: NetworkObservation["phase"] = "pre-create";
+    let phase: InssaLifecycleNetworkPhase = "pre-create";
     let finalActionLabel: string | null = null;
     let draftIdBeforeCreate: string | null = null;
     let visibleSuccessText: string | null = null;
@@ -148,106 +170,24 @@ test.describe("INSSA live capsule create", () => {
     let revealTiming: "reveal-later" | "reveal-now" | null = null;
     let revealSettingsContinueClicked = false;
     let revealSettingsFollowupClickedLabel: string | null = null;
+    let sendToContactsClicked = false;
+    let shareDecisionStepReached = false;
+    let skipContactsClicked = false;
+    let fatalNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[] = [];
+    let warningNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[] = [];
+    let requestFailureSummary: InssaLifecycleRequestFailureSummary = summarizeInssaLifecycleNetworkIssues([]);
+    let lifecycleSucceededDespiteWarnings = false;
     let observedDeleteArchiveControls = {
       archiveCapsule: false,
       deleteCapsule: false,
       editCapsule: false,
       hideCapsule: false
     };
-    const capturePossibleIds = (input: string | null | undefined) => {
-      const text = input?.trim();
-      if (!text) {
-        return;
-      }
-
-      const addIfSafeId = (value: string | null | undefined) => {
-        const candidate = value?.trim();
-        if (!candidate) {
-          return;
-        }
-
-        if (
-          candidate.length > 64 ||
-          candidate.includes(".") ||
-          /^AIza/i.test(candidate) ||
-          /^eyJ/i.test(candidate) ||
-          /^AMf-/i.test(candidate)
-        ) {
-          return;
-        }
-
-        possibleDocumentIds.add(candidate);
-      };
-
-      const draftIdMatch = text.match(/draftId["'=:\s]+([A-Za-z0-9_-]{8,64})/i);
-      if (draftIdMatch?.[1]) {
-        addIfSafeId(draftIdMatch[1]);
-      }
-
-      const namedIdMatches = text.matchAll(/\b(?:capsuleId|draftId|id)["'=:\s]+([A-Za-z0-9_-]{8,64})/gi);
-      for (const match of namedIdMatches) {
-        addIfSafeId(match[1]);
-      }
-
-      const documentPathMatches = text.matchAll(/documents\/(?:[^/?#\s]+\/)*([A-Za-z0-9_-]{8,64})/gi);
-      for (const match of documentPathMatches) {
-        addIfSafeId(match[1]);
-      }
-    };
-
-    page.on("request", (request) => {
-      const url = request.url();
-      const relevant =
-        ["POST", "PUT", "PATCH", "DELETE"].includes(request.method()) ||
-        /firestore|timecapsule|messages|capsule|cloudfunctions|documents/i.test(url);
-
-      if (!relevant) {
-        return;
-      }
-
-      writesObserved.push({
-        method: request.method(),
-        phase,
-        requestUrl: url,
-        resourceType: request.resourceType()
-      });
-      capturePossibleIds(url);
-      capturePossibleIds(request.postData());
+    const networkMonitor = createInssaLifecycleNetworkMonitor({
+      getPhase: () => phase,
+      onPossibleDocumentId: (id) => possibleDocumentIds.add(id)
     });
-
-    page.on("response", (response) => {
-      const url = response.url();
-      const relevant =
-        ["POST", "PUT", "PATCH", "DELETE"].includes(response.request().method()) ||
-        /firestore|timecapsule|messages|capsule|cloudfunctions|documents/i.test(url);
-
-      if (!relevant) {
-        return;
-      }
-
-      const existing = [...writesObserved]
-        .reverse()
-        .find(
-          (entry) =>
-            entry.requestUrl === url &&
-            entry.method === response.request().method() &&
-            entry.responseStatus === undefined
-        );
-
-      if (existing) {
-        existing.responseStatus = response.status();
-      } else {
-        writesObserved.push({
-          method: response.request().method(),
-          phase,
-          requestUrl: url,
-          resourceType: response.request().resourceType(),
-          responseStatus: response.status()
-        });
-      }
-
-      capturePossibleIds(url);
-    });
+    networkMonitor.attach(page);
 
     try {
       await withInssaStabilityMonitor(page, testInfo, errorMonitor, async (monitor) => {
@@ -324,8 +264,7 @@ test.describe("INSSA live capsule create", () => {
           await compose.continueRevealSettingsOnce();
           revealSettingsContinueClicked = true;
           successSignals.add("reveal-continue-clicked");
-          await fs.mkdir(LIVE_ARTIFACT_DIR, { recursive: true });
-          await page.screenshot({ fullPage: true, path: postContinueScreenshotPath }).catch(() => {});
+          await captureInssaLifecycleArtifactScreenshot(page, postContinueScreenshotFileName).catch(() => {});
         }, { phase: "interaction" });
 
         await monitor.step("wait for final share-link evidence", async () => {
@@ -333,9 +272,21 @@ test.describe("INSSA live capsule create", () => {
           const outcome = await compose.waitForLiveCapsuleShareLinkEvidence();
           revealSettingsSnapshots.push(...outcome.revealSettingsSnapshots);
           revealSettingsFollowupClickedLabel = outcome.followupClickedLabel;
+          sendToContactsClicked = outcome.sendToContactsClicked;
+          shareDecisionStepReached = outcome.shareDecisionStepReached;
+          skipContactsClicked = outcome.skipContactsClicked;
           finalShareEvidence = outcome.shareEvidence;
           if (revealSettingsFollowupClickedLabel) {
             successSignals.add(`reveal-followup=${revealSettingsFollowupClickedLabel}`);
+          }
+          if (shareDecisionStepReached) {
+            successSignals.add("share-decision-step-reached");
+          }
+          if (skipContactsClicked) {
+            successSignals.add("skip-contacts-share-link-clicked");
+          }
+          if (sendToContactsClicked) {
+            successSignals.add("send-to-contacts-clicked");
           }
 
           finalUrl = page.url();
@@ -350,6 +301,7 @@ test.describe("INSSA live capsule create", () => {
           if (possibleShareToken) {
             successSignals.add(`share-token=${possibleShareToken}`);
           }
+          await captureInssaLifecycleArtifactScreenshot(page, postFinalizationScreenshotFileName).catch(() => {});
         }, { phase: "interaction" });
 
         await monitor.step("capture post-create evidence", async () => {
@@ -387,13 +339,45 @@ test.describe("INSSA live capsule create", () => {
           ).toBe(true);
         }, { phase: "assertion" });
 
-        await monitor.step("assert no unexpected INSSA errors", () => errorMonitor.expectNoUnexpectedErrors(), {
+        await monitor.step("assert no unexpected INSSA errors", async () => {
+          const lifecycleRequestContext = buildLifecycleRequestFailureContext({
+            finalShareEvidence,
+            finalShareLink,
+            lifecycleStage: "text-live-create",
+            observedCreateSuccess,
+            possibleFinalCapsuleId,
+            possibleShareToken,
+            revealSettingsContinueClicked,
+            uploadSucceeded: true
+          });
+          const classifiedNetworkIssues = errorMonitor.classifyLifecycleRequestFailures(lifecycleRequestContext);
+          fatalNetworkIssues = classifiedNetworkIssues.filter((issue) => issue.impact === "fatal");
+          warningNetworkIssues = classifiedNetworkIssues.filter((issue) => issue.impact === "warning");
+          requestFailureSummary = summarizeInssaLifecycleNetworkIssues(classifiedNetworkIssues);
+          lifecycleSucceededDespiteWarnings =
+            lifecycleRequestContext.lifecycleSucceeded &&
+            lifecycleRequestContext.retrievalSucceeded &&
+            warningNetworkIssues.length > 0 &&
+            fatalNetworkIssues.length === 0;
+
+          await errorMonitor.expectNoUnexpectedErrors(
+            buildPostSuccessLifecycleIgnorePatterns(lifecycleRequestContext),
+            { lifecycleRequestContext }
+          );
+        }, {
           phase: "assertion"
         });
       });
     } finally {
-      await fs.mkdir(LIVE_ARTIFACT_DIR, { recursive: true });
-      await page.screenshot({ fullPage: true, path: screenshotPath }).catch(() => {});
+      await networkMonitor.flush();
+      const lifecycleNetworkSummary = networkMonitor.summarize();
+      lifecycleNetworkSummary.possibleDocumentIds.forEach((id) => possibleDocumentIds.add(id));
+      possibleFinalCapsuleId = possibleFinalCapsuleId ?? lifecycleNetworkSummary.possibleCapsuleIds[0] ?? null;
+      possibleShareToken = possibleShareToken ?? lifecycleNetworkSummary.possibleShareTokens[0] ?? null;
+      await captureInssaLifecycleArtifactScreenshot(page, screenshotFileName).catch(() => {});
+      if (skipContactsClicked) {
+        await captureInssaLifecycleArtifactScreenshot(page, postFinalizationScreenshotFileName).catch(() => {});
+      }
       if (revealSettingsContinueClicked && !finalShareEvidence) {
         finalShareEvidence = await compose.readLiveCapsuleShareEvidence().catch(() => null);
         if (finalShareEvidence) {
@@ -416,6 +400,39 @@ test.describe("INSSA live capsule create", () => {
         Boolean(finalShareEvidence?.copyShareLinkVisible) ||
         Boolean(finalShareEvidence?.shareLinkButtonVisible) ||
         Boolean(finalShareEvidence?.homeVisible);
+      const lifecycleClassification = classifyInssaLifecyclePersistence({
+        finalShareEvidence,
+        finalShareLink,
+        finalUrl,
+        networkSummary: lifecycleNetworkSummary,
+        observedCreateSuccess,
+        possibleFinalCapsuleId,
+        possibleShareToken,
+        revealAudience,
+        revealSettingsContinueClicked,
+        revealSettingsFollowupClickedLabel,
+        revealTiming
+      });
+      const lifecycleRequestContext = buildLifecycleRequestFailureContext({
+        finalShareEvidence,
+        finalShareLink,
+        lifecycleStage: "text-live-create",
+        observedCreateSuccess,
+        possibleFinalCapsuleId,
+        possibleShareToken,
+        revealSettingsContinueClicked,
+        uploadSucceeded: true
+      });
+      const classifiedNetworkIssues = errorMonitor.classifyLifecycleRequestFailures(lifecycleRequestContext);
+      fatalNetworkIssues = classifiedNetworkIssues.filter((issue) => issue.impact === "fatal");
+      warningNetworkIssues = classifiedNetworkIssues.filter((issue) => issue.impact === "warning");
+      requestFailureSummary = summarizeInssaLifecycleNetworkIssues(classifiedNetworkIssues);
+      lifecycleSucceededDespiteWarnings =
+        lifecycleRequestContext.lifecycleSucceeded &&
+        lifecycleRequestContext.retrievalSucceeded &&
+        warningNetworkIssues.length > 0 &&
+        fatalNetworkIssues.length === 0;
+      successSignals.add(`lifecycle-classification=${lifecycleClassification}`);
       if (!buryClicked) {
         artifactStateNote = "Bury was not clicked. No live capsule is likely to exist; only a draft-side artifact may exist on staging.";
       } else if (buryClicked && !revealSettingsContinueClicked) {
@@ -435,16 +452,22 @@ test.describe("INSSA live capsule create", () => {
         environment: "staging",
         finalActionClicked,
         finalActionLabel,
+        fatalNetworkIssues,
         finalUrl,
         maskedTestEmail,
         message: seed.message,
         observedCreateSuccess,
         observedDeleteArchiveControls,
         finalShareLink,
+        lifecycleClassification,
+        lifecycleSucceededDespiteWarnings,
+        lifecycleNetworkDebugEnabled: lifecycleNetworkSummary.debugEnabled,
+        lifecycleNetworkSummary,
         possibleDocumentIds: [...possibleDocumentIds],
         possibleFinalCapsuleId,
         possibleShareToken,
         postContinueScreenshotPath: revealSettingsContinueClicked ? postContinueScreenshotPath : null,
+        postFinalizationScreenshotPath: skipContactsClicked ? postFinalizationScreenshotPath : null,
         finalShareEvidence,
         revealAudience,
         revealSettingsContinueClicked,
@@ -452,18 +475,23 @@ test.describe("INSSA live capsule create", () => {
         revealSettingsOpened,
         revealSettingsSnapshots,
         revealTiming,
+        requestFailureSummary,
         runId: runContext.runId,
         screenshotPath,
+        sendToContactsClicked,
+        shareDecisionStepReached,
+        skipContactsClicked,
         stepButtonSnapshots,
         subject: seed.subject,
         successSignals: [...successSignals],
         testOutputDir: testInfo.outputDir,
         url: configuredUrl,
         visibleSuccessText,
-        writesObserved
+        warningNetworkIssues,
+        writesObserved: networkMonitor.observations
       };
 
-      await fs.writeFile(artifactPath, JSON.stringify(artifact, null, 2), "utf8");
+      await writeInssaLifecycleArtifactJson(artifactFileName, artifact);
       await testInfo.attach("inssa-live-capsule-artifact.json", {
         body: JSON.stringify(artifact, null, 2),
         contentType: "application/json"
@@ -479,4 +507,46 @@ function maskEmail(email: string): string {
   }
 
   return `${localPart[0]}***@${domain}`;
+}
+
+function buildLifecycleRequestFailureContext(input: {
+  finalShareEvidence: InssaLiveCapsuleShareEvidence | null;
+  finalShareLink: string | null;
+  lifecycleStage: string;
+  observedCreateSuccess: boolean;
+  possibleFinalCapsuleId: string | null;
+  possibleShareToken: string | null;
+  revealSettingsContinueClicked: boolean;
+  uploadSucceeded: boolean;
+}): InssaLifecycleRequestFailureContext {
+  const retrievalSucceeded = Boolean(
+    input.finalShareLink ||
+      input.possibleFinalCapsuleId ||
+      input.possibleShareToken ||
+      input.finalShareEvidence?.finalShareLink ||
+      input.finalShareEvidence?.possibleFinalCapsuleId ||
+      input.finalShareEvidence?.possibleShareToken ||
+      input.finalShareEvidence?.copyShareLinkVisible ||
+      input.finalShareEvidence?.shareLinkButtonVisible ||
+      input.finalShareEvidence?.homeVisible
+  );
+
+  return {
+    finalizationAttempted: input.revealSettingsContinueClicked,
+    lifecycleStage: input.lifecycleStage,
+    lifecycleSucceeded: input.observedCreateSuccess,
+    retrievalSucceeded,
+    shareLinkCaptured: retrievalSucceeded,
+    uploadSucceeded: input.uploadSucceeded
+  };
+}
+
+function buildPostSuccessLifecycleIgnorePatterns(
+  lifecycleRequestContext: InssaLifecycleRequestFailureContext
+): RegExp[] {
+  if (!lifecycleRequestContext.lifecycleSucceeded || !lifecycleRequestContext.retrievalSucceeded) {
+    return [];
+  }
+
+  return [/Error saving time capsule: FirebaseError: Document already exists:/i];
 }

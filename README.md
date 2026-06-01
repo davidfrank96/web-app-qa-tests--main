@@ -1,6 +1,6 @@
 # Web App QA Tests
 
-Reusable Playwright QA framework for testing multiple web apps from one place.
+Reusable Playwright QA harness for testing multiple hosted or local web apps.
 
 Current targets:
 
@@ -16,13 +16,15 @@ npm run install:browsers
 cp .env.example .env
 ```
 
-Edit `.env` and set the correct URLs:
+Edit `.env` for normal non-live suites. For INSSA live staging lifecycle work, use the dedicated profile:
 
-```env
-LOCALMAN_URL=http://localhost:3000
+```bash
+cp .env.inssa.live-staging.example .env.inssa.live-staging
+```
 
+Do not commit real credentials.
 
-## Run tests
+## Common Commands
 
 Run everything:
 
@@ -38,61 +40,56 @@ npm run test:kbean
 npm run test:inssa
 ```
 
-Run with Playwright UI:
+Run the safe INSSA baseline:
 
 ```bash
-npm run test:ui
+npm run test:inssa:safe
 ```
 
-Open report:
+Run focused INSSA live lifecycle campaigns:
 
 ```bash
-npm run report
+npm run test:inssa:campaign:text
+npm run test:inssa:campaign:media
+npm run test:inssa:campaign:video
+npm run test:inssa:campaign:reveal-later
 ```
 
-## Folder structure
+Run the read-only INSSA lifecycle security campaign:
+
+```bash
+npm run test:inssa:campaign:security
+```
+
+## INSSA Documentation
+
+- [Current state and next work](docs/inssa-current-state.md)
+- [Live staging lifecycle runner](docs/inssa-live-staging-lifecycle.md)
+- [Lifecycle security campaign](docs/inssa-security-campaign.md)
+
+## Folder Structure
 
 ```text
 tests/
   localman/
   kbean/
   inssa/
-  shared/
 pages/
   localman/
   kbean/
   inssa/
 utils/
-codex-prompts/
+scripts/
+  inssa/
+docs/
 ```
-
-## How to use with Codex
-
-1. Open this folder in Codex.
-2. Give Codex the prompt in `codex-prompts/01-build-out-framework.md`.
-3. Let it inspect the app-specific routes and improve selectors.
-4. Run one suite at a time.
-5. Paste failures back into Codex using `codex-prompts/03-analyze-test-failures.md`.
 
 ## Rules
 
 - Do not hardcode secrets.
-- Do not commit `.env`.
+- Do not commit `.env` or `.env.inssa.live-staging`.
 - Keep each app's tests in its own folder.
 - Use page objects for repeated flows.
 - Keep smoke tests stable and strict.
-- Do not turn real failures into skipped tests unless the feature is genuinely optional.
-
-## Recommended workflow
-
-```bash
-npm run test:localman
-npm run test:inssa
-npm run report
-```
-
-Then ask Codex:
-
-```text
-Analyze the latest Playwright report and fix only the failing selectors or tests. Do not rewrite unrelated files.
-```
+- Do not turn real product failures into skipped tests.
+- INSSA live mutation tests are staging-only and require explicit flags.

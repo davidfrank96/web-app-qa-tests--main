@@ -40,7 +40,8 @@ export const INSSA_REVEAL_CANCEL_PATTERN = /^cancel$/i;
 export const INSSA_COPY_SHARE_LINK_PATTERN = /copy share link/i;
 export const INSSA_SHARE_LINK_BUTTON_PATTERN = /^share link$/i;
 export const INSSA_HOME_BUTTON_PATTERN = /^home$/i;
-export const INSSA_SAFE_REVEAL_FOLLOWUP_PATTERN = /^share by link$|^skip contacts$|^done$|^continue$/i;
+export const INSSA_SAFE_REVEAL_FOLLOWUP_PATTERN =
+  /^share by link$|^skip contacts(?:\s*&\s*share link with others)?$|^done$|^continue$/i;
 export const INSSA_CONTACT_SELECTION_PATTERN = /contacts?|people|friends|search/i;
 export const INSSA_CAPSULE_SHARE_LINK_PATTERN = /(?:https?:\/\/[^\s"'<>]+)?\/capsule\/[^\s"'<>]+/i;
 export const INSSA_REMOTE_IMAGE_INPUT_PATTERN = /image url|image link|paste.*url|paste.*link|https?:\/\/|url|link/i;

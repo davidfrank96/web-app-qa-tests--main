@@ -1,0 +1,529 @@
+[
+  {
+    "routeLabel": "home",
+    "finalUrl": "https://staging.inssa.us/",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      }
+    ]
+  },
+  {
+    "routeLabel": "signin",
+    "finalUrl": "https://staging.inssa.us/",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Find",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "Bury",
+        "href": null,
+        "disabled": false,
+        "classification": "submit/finalize"
+      },
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "link",
+        "name": "Points ledger",
+        "href": "https://staging.inssa.us/points-ledger",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "My Claims",
+        "href": "https://staging.inssa.us/claims",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "/me",
+        "href": "https://staging.inssa.us/me",
+        "disabled": false,
+        "classification": "navigational"
+      }
+    ]
+  },
+  {
+    "routeLabel": "me",
+    "finalUrl": "https://staging.inssa.us/u/test",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Back",
+        "href": null,
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "button",
+        "name": "Sign Out",
+        "href": null,
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "button",
+        "name": "Alerts (0)",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "Following",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "Loved (0)",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "link",
+        "name": "Points ledger",
+        "href": "https://staging.inssa.us/points-ledger",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "My Claims",
+        "href": "https://staging.inssa.us/claims",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "/me",
+        "href": "https://staging.inssa.us/me",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "2 My Contacts",
+        "href": "https://staging.inssa.us/profile/connections",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "0 Requests",
+        "href": "https://staging.inssa.us/profile/connections/requests",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "Edit Profile",
+        "href": "https://staging.inssa.us/profile/edit",
+        "disabled": false,
+        "classification": "navigational"
+      }
+    ]
+  },
+  {
+    "routeLabel": "settings",
+    "finalUrl": "https://staging.inssa.us/settings",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Back",
+        "href": null,
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "button",
+        "name": "Light Always light",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "Dark Default",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "System Match device",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "Upgrade to Insider",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "link",
+        "name": "Points ledger",
+        "href": "https://staging.inssa.us/points-ledger",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "My Claims",
+        "href": "https://staging.inssa.us/claims",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "/me",
+        "href": "https://staging.inssa.us/me",
+        "disabled": false,
+        "classification": "navigational"
+      }
+    ]
+  },
+  {
+    "routeLabel": "connections",
+    "finalUrl": "https://staging.inssa.us/profile/connections",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Back",
+        "href": null,
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "button",
+        "name": "Remove",
+        "href": null,
+        "disabled": false,
+        "classification": "destructive"
+      },
+      {
+        "role": "button",
+        "name": "Remove",
+        "href": null,
+        "disabled": false,
+        "classification": "destructive"
+      },
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "link",
+        "name": "Points ledger",
+        "href": "https://staging.inssa.us/points-ledger",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "My Claims",
+        "href": "https://staging.inssa.us/claims",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "/me",
+        "href": "https://staging.inssa.us/me",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "4 requests",
+        "href": "https://staging.inssa.us/profile/connections/requests",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "david frank @esther96.df",
+        "href": "https://staging.inssa.us/u/esther96.df",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "David Frank @davidfrank96.df",
+        "href": "https://staging.inssa.us/u/davidfrank96.df",
+        "disabled": false,
+        "classification": "navigational"
+      }
+    ]
+  },
+  {
+    "routeLabel": "connection-requests",
+    "finalUrl": "https://staging.inssa.us/profile/connections/requests",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Back",
+        "href": null,
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "button",
+        "name": "Cancel",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "Cancel",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "Cancel",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "Cancel",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "link",
+        "name": "Points ledger",
+        "href": "https://staging.inssa.us/points-ledger",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "My Claims",
+        "href": "https://staging.inssa.us/claims",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "/me",
+        "href": "https://staging.inssa.us/me",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "Pete Morreale @petewithnospace",
+        "href": "https://staging.inssa.us/u/petewithnospace",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "Juno Lee @jlee70test1",
+        "href": "https://staging.inssa.us/u/jlee70test1",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "P peterjmorreale@aol.com @peterjmorreale",
+        "href": "https://staging.inssa.us/u/peterjmorreale",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "Juno Lee @noxneo2",
+        "href": "https://staging.inssa.us/u/noxneo2",
+        "disabled": false,
+        "classification": "navigational"
+      }
+    ]
+  },
+  {
+    "routeLabel": "points-ledger",
+    "finalUrl": "https://staging.inssa.us/points-ledger",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      }
+    ]
+  },
+  {
+    "routeLabel": "messages",
+    "finalUrl": "https://staging.inssa.us/messages",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      }
+    ]
+  },
+  {
+    "routeLabel": "timecapsule-empty",
+    "finalUrl": "https://staging.inssa.us/timecapsule",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      }
+    ]
+  },
+  {
+    "routeLabel": "timecapsule-nyc",
+    "finalUrl": "https://staging.inssa.us/timecapsule?lat=40.7128&lng=-74.0060&address=New%20York%2C%20NY%2C%20USA",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      }
+    ]
+  },
+  {
+    "routeLabel": "known-capsule-tokenless",
+    "finalUrl": "https://staging.inssa.us/capsule/LIuLWzgAq6UPGjl2Qmoh",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Back",
+        "href": null,
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "link",
+        "name": "Points ledger",
+        "href": "https://staging.inssa.us/points-ledger",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "My Claims",
+        "href": "https://staging.inssa.us/claims",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "/me",
+        "href": "https://staging.inssa.us/me",
+        "disabled": false,
+        "classification": "navigational"
+      }
+    ]
+  },
+  {
+    "routeLabel": "known-capsule-tokenized",
+    "finalUrl": "https://staging.inssa.us/capsule/LIuLWzgAq6UPGjl2Qmoh?token=d6b630aa-6907-4a9a-ae3b-fb91a0d8648c",
+    "controls": [
+      {
+        "role": "button",
+        "name": "Back",
+        "href": null,
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "button",
+        "name": "Got it",
+        "href": null,
+        "disabled": false,
+        "classification": "unknown"
+      },
+      {
+        "role": "link",
+        "name": "Points ledger",
+        "href": "https://staging.inssa.us/points-ledger",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "My Claims",
+        "href": "https://staging.inssa.us/claims",
+        "disabled": false,
+        "classification": "navigational"
+      },
+      {
+        "role": "link",
+        "name": "/me",
+        "href": "https://staging.inssa.us/me",
+        "disabled": false,
+        "classification": "navigational"
+      }
+    ]
+  }
+]
