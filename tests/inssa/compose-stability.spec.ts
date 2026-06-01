@@ -117,7 +117,9 @@ test.describe("INSSA compose stability", () => {
         await context.unroute("**/*", slowNetworkHandler);
       }
 
-      await monitor.step("assert compose stayed non-destructive", () => writeMonitor.expectNoUnexpectedWrites(), {
+      await monitor.step("assert compose stayed non-destructive", async () => {
+        await writeMonitor.expectNoUnexpectedWrites();
+      }, {
         phase: "assertion"
       });
       await monitor.step(

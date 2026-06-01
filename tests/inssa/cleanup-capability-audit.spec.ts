@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { LandingPage } from "../../pages/inssa/landing.page";
-import { TimeCapsulePage } from "../../pages/inssa/time-capsule.page";
+import { TimeCapsulePage, type InssaLifecycleControlSnapshot } from "../../pages/inssa/time-capsule.page";
 import { createInssaErrorMonitor, getInssaTestCredentials, login, logout } from "../../utils/auth";
 import { assertValidInssaUrl } from "../../utils/env";
 import {
@@ -126,8 +126,8 @@ test.describe("INSSA cleanup capability audit", () => {
     let afterDiscardValues: { message: string; subject: string } | null = null;
     let issueSummary: ReturnType<ReturnType<typeof createInssaErrorMonitor>["summarizeCategories"]> | null = null;
     let criticalIssueMessages: string[] = [];
-    let initialControls = null;
-    let reopenedControls = null;
+    let initialControls: InssaLifecycleControlSnapshot | null = null;
+    let reopenedControls: InssaLifecycleControlSnapshot | null = null;
     let typingTraffic: TrafficCapture | null = null;
     let saveTraffic: TrafficCapture | null = null;
     let discardTraffic: TrafficCapture | null = null;
@@ -352,8 +352,9 @@ test.describe("INSSA cleanup capability audit", () => {
       });
     }
 
-    expect(initialControls?.discardDraft, "Expected the compose surface to expose Discard draft.").toBe(true);
-    expect(initialControls?.saveAndExit, "Expected the compose surface to expose Save & exit.").toBe(true);
+    const initialControlSnapshot = initialControls as InssaLifecycleControlSnapshot | null;
+    expect(initialControlSnapshot?.discardDraft, "Expected the compose surface to expose Discard draft.").toBe(true);
+    expect(initialControlSnapshot?.saveAndExit, "Expected the compose surface to expose Save & exit.").toBe(true);
     expect(discardVerified, "Expected the QA draft to be fully removed after Discard draft.").toBe(true);
   });
 });
@@ -713,7 +714,7 @@ function inferRootCause(input: {
     (mutation) =>
       mutation.kind === "update" &&
       Boolean(mutation.messageBody) &&
-      /this place made me think of you:/i.test(mutation.messageBody)
+      /this place made me think of you:/i.test(mutation.messageBody ?? "")
   );
   const saveWrites = input.saveSummary?.mutationRequestCount ?? 0;
   const discardDeletes = input.discardSummary?.firestoreMutations.some((mutation) => mutation.kind === "delete");

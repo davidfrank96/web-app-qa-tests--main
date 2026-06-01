@@ -4,6 +4,7 @@ import { expect, test, type Browser, type Page, type TestInfo } from "@playwrigh
 import { expectPageNotBlank } from "../../utils/assertions";
 import { ensureInssaAuthStorageState } from "../../utils/auth";
 import { assertValidInssaUrl } from "../../utils/env";
+import { resolveInssaLiveCapsuleArtifactPath } from "../../utils/inssa-live-artifacts";
 import {
   INSSA_ARCHIVE_CAPSULE_PATTERN,
   INSSA_CAPSULE_SHARE_LINK_PATTERN,
@@ -15,7 +16,7 @@ import {
 } from "../../utils/inssa-test-data";
 import { getInssaCleanupCapabilities, getInssaMutationReadiness } from "../../utils/inssa-mutation";
 
-const ARTIFACT_PATH = process.env.INSSA_LIVE_CAPSULE_ARTIFACT_PATH?.trim() ?? "";
+const ARTIFACT_PATH = resolveInssaLiveCapsuleArtifactPath();
 const STAGING_HOSTNAME = "staging.inssa.us";
 const AUDIT_ARTIFACT_DIR = path.resolve(process.cwd(), "test-results", "inssa-live-capsule-artifacts");
 const NAVIGATION_TIMEOUT_MS = 25_000;
@@ -79,7 +80,10 @@ type CleanupCapabilityAuditArtifact = {
 
 test.describe("INSSA live capsule cleanup capability audit", () => {
   test.describe.configure({ mode: "serial", retries: 0 });
-  test.skip(!ARTIFACT_PATH, "Requires INSSA_LIVE_CAPSULE_ARTIFACT_PATH=<artifact.json> from a successful live capsule run.");
+  test.skip(
+    !ARTIFACT_PATH,
+    "Requires INSSA_LIVE_CAPSULE_ARTIFACT_PATH=<artifact.json> from a successful live capsule run, or INSSA_USE_LATEST_LIVE_CAPSULE_ARTIFACT=1."
+  );
   test.setTimeout(180_000);
 
   test.beforeAll(() => {
