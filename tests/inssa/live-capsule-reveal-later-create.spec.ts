@@ -1,16 +1,20 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { expect, test } from "./fixtures";
 import {
   InssaFinalLiveCreateStepError,
   type InssaComposeStepSnapshot,
   type InssaLiveCapsuleShareEvidence,
+  type InssaRevealLaterFlowClassification,
   type InssaRevealLaterScheduleEvidence,
   type InssaRevealSettingsModalSnapshot,
   TimeCapsulePage
 } from "../../pages/inssa/time-capsule.page";
 import { createInssaErrorMonitor, getInssaTestCredentials } from "../../utils/auth";
 import { assertValidInssaUrl } from "../../utils/env";
+import {
+  captureInssaLifecycleArtifactScreenshot,
+  getInssaLifecycleArtifactPath,
+  writeInssaLifecycleArtifactJson
+} from "../../utils/inssa-live-artifacts";
 import {
   INSSA_DEFAULT_COMPOSE_ROUTE,
   INSSA_TIME_CAPSULE_ROUTE_PATTERN
@@ -29,7 +33,6 @@ const LIVE_TEST_ENABLED = process.env[INSSA_LIVE_CAPSULE_ENV_FLAG] === "1";
 const MANUAL_CLEANUP_APPROVED = process.env[INSSA_LIVE_CAPSULE_MANUAL_CLEANUP_APPROVED_ENV_FLAG] === "1";
 const REVEAL_LATER_TEST_ENABLED = process.env[INSSA_REVEAL_LATER_CAPSULE_ENV_FLAG] === "1";
 const STAGING_HOSTNAME = "staging.inssa.us";
-const LIVE_ARTIFACT_DIR = path.resolve(process.cwd(), "test-results", "inssa-live-capsule-artifacts");
 
 type NetworkObservation = {
   method: string;
@@ -59,7 +62,10 @@ type RevealLaterCapsuleArtifact = {
   possibleShareToken: string | null;
   postContinueScreenshotPath: string | null;
   revealAudience: "personal-memory" | "shared-capsule" | null;
+  revealLaterFlowClassification: InssaRevealLaterFlowClassification | null;
   revealLaterSchedule: InssaRevealLaterScheduleEvidence | null;
+  revealLaterStep1Snapshot: InssaRevealSettingsModalSnapshot | null;
+  revealLaterStep2Snapshot: InssaRevealSettingsModalSnapshot | null;
   revealSettingsContinueClicked: boolean;
   revealSettingsFollowupClickedLabel: string | null;
   revealSettingsOpened: boolean;
@@ -72,7 +78,13 @@ type RevealLaterCapsuleArtifact = {
   successSignals: string[];
   testOutputDir: string;
   url: string;
+  visibleButtons: string[];
+  visibleContactControls: string[];
+  visibleDateFields: string[];
+  visibleSchedulingControls: string[];
   visibleSuccessText: string | null;
+  visibleTimeFields: string[];
+  visibleValidationMessages: string[];
   writesObserved: NetworkObservation[];
 };
 
@@ -122,9 +134,11 @@ test.describe("INSSA live reveal-later capsule create", () => {
     });
     const seed = buildInssaQaRevealLaterCapsuleSeed(runContext);
     const composePathname = new URL(INSSA_DEFAULT_COMPOSE_ROUTE, configuredUrl).pathname;
-    const screenshotPath = path.join(LIVE_ARTIFACT_DIR, `${runContext.runId}-reveal-later.png`);
-    const postContinueScreenshotPath = path.join(LIVE_ARTIFACT_DIR, `${runContext.runId}-reveal-later-post-continue.png`);
-    const artifactPath = path.join(LIVE_ARTIFACT_DIR, `${runContext.runId}-reveal-later.json`);
+    const screenshotFileName = `${runContext.runId}-reveal-later.png`;
+    const postContinueScreenshotFileName = `${runContext.runId}-reveal-later-post-continue.png`;
+    const artifactFileName = `${runContext.runId}-reveal-later.json`;
+    const screenshotPath = getInssaLifecycleArtifactPath(screenshotFileName);
+    const postContinueScreenshotPath = getInssaLifecycleArtifactPath(postContinueScreenshotFileName);
     const writesObserved: NetworkObservation[] = [];
     const possibleDocumentIds = new Set<string>();
     const stepButtonSnapshots: InssaComposeStepSnapshot[] = [];
@@ -143,7 +157,10 @@ test.describe("INSSA live reveal-later capsule create", () => {
     let possibleFinalCapsuleId: string | null = null;
     let possibleShareToken: string | null = null;
     let revealAudience: "personal-memory" | "shared-capsule" | null = null;
+    let revealLaterFlowClassification: InssaRevealLaterFlowClassification | null = null;
     let revealLaterSchedule: InssaRevealLaterScheduleEvidence | null = null;
+    let revealLaterStep1Snapshot: InssaRevealSettingsModalSnapshot | null = null;
+    let revealLaterStep2Snapshot: InssaRevealSettingsModalSnapshot | null = null;
     let revealSettingsContinueClicked = false;
     let revealSettingsFollowupClickedLabel: string | null = null;
     let revealSettingsOpened = false;
@@ -302,29 +319,48 @@ test.describe("INSSA live reveal-later capsule create", () => {
           successSignals.add("reveal-settings-opened");
         }, { phase: "interaction" });
 
-        await monitor.step("choose Shared capsule and Reveal later", async () => {
-          const selection = await compose.chooseRevealSettingsForQaRevealLaterCapsule();
-          revealAudience = selection.revealAudience;
-          revealTiming = selection.revealTiming;
-          revealLaterSchedule = selection.schedule;
-          revealSettingsSnapshots.push(await compose.snapshotRevealSettingsModal());
-          successSignals.add(`reveal-audience=${revealAudience}`);
-          successSignals.add(`reveal-timing=${revealTiming}`);
-          if (revealLaterSchedule.chosenIntervalLabel) {
-            successSignals.add(`reveal-later-interval=${revealLaterSchedule.chosenIntervalLabel}`);
-          }
-          if (revealLaterSchedule.scheduledAtIso) {
-            successSignals.add(`reveal-later-scheduled-at=${revealLaterSchedule.scheduledAtIso}`);
-          }
-        }, { phase: "interaction" });
-
-        await monitor.step("click Reveal settings Continue once", async () => {
+        await monitor.step("choose Reveal later and inspect Step 2", async () => {
           phase = "reveal-continue";
-          await compose.continueRevealSettingsOnce();
-          revealSettingsContinueClicked = true;
-          successSignals.add("reveal-continue-clicked");
-          await fs.mkdir(LIVE_ARTIFACT_DIR, { recursive: true });
-          await page.screenshot({ fullPage: true, path: postContinueScreenshotPath }).catch(() => {});
+          try {
+            const selection = await compose.chooseRevealSettingsForQaRevealLaterCapsule();
+            revealAudience = selection.revealAudience;
+            revealLaterFlowClassification = selection.flowClassification;
+            revealTiming = selection.revealTiming;
+            revealLaterSchedule = selection.schedule;
+            revealLaterStep1Snapshot = selection.step1Snapshot;
+            revealLaterStep2Snapshot = selection.stepTwoSnapshot;
+            revealSettingsContinueClicked = selection.continueClicked;
+            revealSettingsSnapshots.push(selection.step1Snapshot, selection.stepTwoSnapshot);
+            if (revealAudience) {
+              successSignals.add(`reveal-audience=${revealAudience}`);
+            } else {
+              successSignals.add("reveal-audience-not-present-on-step-1");
+            }
+            successSignals.add(`reveal-timing=${revealTiming}`);
+            successSignals.add(`reveal-later-flow=${revealLaterFlowClassification}`);
+            successSignals.add("reveal-continue-clicked");
+            successSignals.add("reveal-step-2-inspected");
+            if (revealLaterSchedule.chosenIntervalLabel) {
+              successSignals.add(`reveal-later-interval=${revealLaterSchedule.chosenIntervalLabel}`);
+            }
+            if (revealLaterSchedule.scheduledAtIso) {
+              successSignals.add(`reveal-later-scheduled-at=${revealLaterSchedule.scheduledAtIso}`);
+            }
+            await captureInssaLifecycleArtifactScreenshot(page, postContinueScreenshotFileName).catch(() => {});
+          } catch (error) {
+            const failureSnapshot = await compose.snapshotRevealSettingsModal().catch(() => null);
+            if (failureSnapshot) {
+              revealSettingsSnapshots.push(failureSnapshot);
+              if (/step\s*2\s*of\s*2/i.test([failureSnapshot.stepLabel, failureSnapshot.selectedContactsStepLabel, failureSnapshot.visibleText].filter(Boolean).join("\n"))) {
+                revealSettingsContinueClicked = true;
+                revealLaterStep2Snapshot = revealLaterStep2Snapshot ?? failureSnapshot;
+              } else {
+                revealLaterStep1Snapshot = revealLaterStep1Snapshot ?? failureSnapshot;
+              }
+            }
+            await captureInssaLifecycleArtifactScreenshot(page, postContinueScreenshotFileName).catch(() => {});
+            throw error;
+          }
         }, { phase: "interaction" });
 
         await monitor.step("wait for final reveal-later share-link evidence", async () => {
@@ -381,8 +417,7 @@ test.describe("INSSA live reveal-later capsule create", () => {
         });
       });
     } finally {
-      await fs.mkdir(LIVE_ARTIFACT_DIR, { recursive: true });
-      await page.screenshot({ fullPage: true, path: screenshotPath }).catch(() => {});
+      await captureInssaLifecycleArtifactScreenshot(page, screenshotFileName).catch(() => {});
       if (revealSettingsContinueClicked && !finalShareEvidence) {
         finalShareEvidence = await compose.readLiveCapsuleShareEvidence().catch(() => null);
         if (finalShareEvidence) {
@@ -416,6 +451,22 @@ test.describe("INSSA live reveal-later capsule create", () => {
           : "Reveal-later capsule finalization was attempted; verify staging before rerun.";
       }
 
+      const revealLaterDiagnosticSnapshots: InssaRevealSettingsModalSnapshot[] = [];
+      if (revealLaterStep1Snapshot) {
+        revealLaterDiagnosticSnapshots.push(revealLaterStep1Snapshot);
+      }
+      if (revealLaterStep2Snapshot) {
+        revealLaterDiagnosticSnapshots.push(revealLaterStep2Snapshot);
+      }
+      const visibleButtons = Array.from(new Set(revealLaterDiagnosticSnapshots.flatMap((snapshot) => snapshot.visibleButtons)));
+      const visibleContactControls = Array.from(new Set(revealLaterDiagnosticSnapshots.flatMap((snapshot) => snapshot.contactControls)));
+      const visibleDateFields = Array.from(new Set(revealLaterDiagnosticSnapshots.flatMap((snapshot) => snapshot.visibleDateFields)));
+      const visibleSchedulingControls = Array.from(new Set(revealLaterDiagnosticSnapshots.flatMap((snapshot) => snapshot.schedulingControls)));
+      const visibleTimeFields = Array.from(new Set(revealLaterDiagnosticSnapshots.flatMap((snapshot) => snapshot.visibleTimeFields)));
+      const visibleValidationMessages = Array.from(
+        new Set(revealLaterDiagnosticSnapshots.flatMap((snapshot) => snapshot.validationMessages))
+      );
+
       const artifact: RevealLaterCapsuleArtifact = {
         artifactStateNote,
         buryClicked,
@@ -436,7 +487,10 @@ test.describe("INSSA live reveal-later capsule create", () => {
         possibleShareToken,
         postContinueScreenshotPath: revealSettingsContinueClicked ? postContinueScreenshotPath : null,
         revealAudience,
+        revealLaterFlowClassification,
         revealLaterSchedule,
+        revealLaterStep1Snapshot,
+        revealLaterStep2Snapshot,
         revealSettingsContinueClicked,
         revealSettingsFollowupClickedLabel,
         revealSettingsOpened,
@@ -449,11 +503,17 @@ test.describe("INSSA live reveal-later capsule create", () => {
         successSignals: [...successSignals],
         testOutputDir: testInfo.outputDir,
         url: configuredUrl,
+        visibleButtons,
+        visibleContactControls,
+        visibleDateFields,
+        visibleSchedulingControls,
         visibleSuccessText,
+        visibleTimeFields,
+        visibleValidationMessages,
         writesObserved
       };
 
-      await fs.writeFile(artifactPath, JSON.stringify(artifact, null, 2), "utf8");
+      await writeInssaLifecycleArtifactJson(artifactFileName, artifact);
       await testInfo.attach("inssa-reveal-later-capsule-artifact.json", {
         body: JSON.stringify(artifact, null, 2),
         contentType: "application/json"

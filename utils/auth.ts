@@ -6,8 +6,11 @@ import { expect, type Browser, type Page } from "@playwright/test";
 import { AuthPage } from "../pages/inssa/auth-page";
 import { assertValidInssaUrl, requiredEnv } from "./env";
 import {
+  classifyInssaRequestFailure,
   classifyInssaIssue,
+  type ClassifiedInssaLifecycleNetworkIssue,
   type ClassifiedInssaIssue,
+  type InssaLifecycleRequestFailureContext,
   type InssaIssueCategory
 } from "./inssa-noise";
 
@@ -25,7 +28,7 @@ const INSSA_AUTH_VALIDATION_TIMEOUT_MS = 10_000;
 
 type InssaIssueKind = "console" | "pageerror" | "requestfailed";
 
-type InssaIssue = {
+export type InssaIssue = {
   action: string;
   kind: InssaIssueKind;
   message: string;
@@ -144,6 +147,13 @@ export function createInssaErrorMonitor(
         }
       );
     },
+    classifyLifecycleRequestFailures(
+      context: InssaLifecycleRequestFailureContext
+    ): ClassifiedInssaLifecycleNetworkIssue[] {
+      return issues
+        .filter((issue) => issue.kind === "requestfailed")
+        .map((issue) => classifyInssaRequestFailure(issue, context));
+    },
     step<T>(action: string, run: () => Promise<T>): Promise<T> {
       currentAction = action;
       return run();
@@ -151,15 +161,48 @@ export function createInssaErrorMonitor(
     setAction(action: string) {
       currentAction = action;
     },
-    async expectNoUnexpectedErrors(ignorePatterns: RegExp[] = []) {
+    async expectNoUnexpectedErrors(
+      ignorePatterns: RegExp[] = [],
+      options: {
+        lifecycleRequestContext?: InssaLifecycleRequestFailureContext;
+      } = {}
+    ) {
       const classifiedIssues = this.classifyIssues(ignorePatterns);
-      const unexpected = classifiedIssues.filter(({ severity }) => severity === "critical");
+      const lifecycleNetworkIssues = options.lifecycleRequestContext
+        ? this.classifyLifecycleRequestFailures(options.lifecycleRequestContext)
+        : [];
+      const warningRequestIssueKeys = new Set(
+        lifecycleNetworkIssues
+          .filter((issue) => issue.impact === "warning")
+          .map((issue) => formatIssueKey(issue.issue))
+      );
+      const lifecycleRequestIssueKeys = new Set(lifecycleNetworkIssues.map((issue) => formatIssueKey(issue.issue)));
+      const fatalLifecycleNetworkIssues = lifecycleNetworkIssues.filter((issue) => issue.impact === "fatal");
+      const unexpected = classifiedIssues.filter(({ issue, severity }) => {
+        if (severity !== "critical") {
+          return false;
+        }
+
+        const issueKey = formatIssueKey(issue);
+        return !warningRequestIssueKeys.has(issueKey) && !lifecycleRequestIssueKeys.has(issueKey);
+      });
 
       expect(
-        unexpected.length,
-        unexpected.length === 0
+        unexpected.length + fatalLifecycleNetworkIssues.length,
+        unexpected.length + fatalLifecycleNetworkIssues.length === 0
           ? "Expected no unexpected INSSA console, page, or network errors."
-          : `Unexpected INSSA issues:\n${unexpected.map(({ issue }) => formatInssaIssue(issue)).join("\n")}`
+          : [
+              unexpected.length > 0
+                ? `Unexpected INSSA issues:\n${unexpected.map(({ issue }) => formatInssaIssue(issue)).join("\n")}`
+                : null,
+              fatalLifecycleNetworkIssues.length > 0
+                ? `Fatal INSSA lifecycle network issues:\n${fatalLifecycleNetworkIssues
+                    .map((issue) => formatLifecycleNetworkIssue(issue))
+                    .join("\n")}`
+                : null
+            ]
+              .filter((line): line is string => Boolean(line))
+              .join("\n")
       ).toBe(0);
     }
   };
@@ -208,6 +251,27 @@ function formatInssaIssue(issue: InssaIssue | ClassifiedInssaIssue["issue"]): st
 
   attributes.push(issue.message);
   return attributes.join(" ");
+}
+
+function formatLifecycleNetworkIssue(issue: ClassifiedInssaLifecycleNetworkIssue): string {
+  return [
+    formatInssaIssue(issue.issue),
+    `classification="${issue.classification}"`,
+    `impact="${issue.impact}"`,
+    `stage="${issue.lifecycleStage}"`,
+    `reason="${issue.reason}"`
+  ].join(" ");
+}
+
+function formatIssueKey(issue: InssaIssue | ClassifiedInssaIssue["issue"]): string {
+  return [
+    issue.kind,
+    issue.action,
+    issue.message,
+    issue.method ?? "",
+    issue.requestUrl ?? "",
+    issue.resourceType ?? ""
+  ].join("\n");
 }
 
 function classifyIssue(issue: InssaIssue, ignorePatterns: RegExp[]): ClassifiedInssaIssue {

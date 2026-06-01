@@ -47,6 +47,14 @@ import {
 
 const DEFAULT_TIMEOUT = 15_000;
 const POST_CONTINUE_SUCCESS_TIMEOUT = 45_000;
+const INSSA_BROWSER_SESSION_WARNING_PATTERN = /heads up about this browser session/i;
+const INSSA_BROWSER_SESSION_WARNING_DISMISS_PATTERN = /^got it$/i;
+const INSSA_CONTACT_SHARE_DECISION_TITLE_PATTERN = /send to my contacts/i;
+const INSSA_CONTACT_SHARE_DECISION_STEP_PATTERN = /\b\d+\s+selected\s*[·•-]?\s*step\s*2\s*of\s*2|step\s*2\s*of\s*2/i;
+const INSSA_SEND_SELECTED_CONTACTS_PATTERN = /^send to selected contacts\s*&\s*bury$/i;
+const INSSA_SKIP_CONTACTS_SHARE_LINK_PATTERN = /^skip contacts\s*&\s*share link with others$/i;
+const INSSA_SHARE_LINK_WITH_OTHERS_PATTERN =
+  /^(?:skip contacts\s*&\s*share link with others|bury\s*&\s*share link with others)$/i;
 
 export type InssaDraftValueKind = "empty" | "other" | "qa" | "template";
 
@@ -156,9 +164,12 @@ export type InssaMediaAttachmentEvidence = {
 };
 
 export type InssaRevealSettingsModalSnapshot = {
+  browserSessionWarningDismissed: boolean;
   cancelVisible: boolean;
+  contactShareDecisionVisible: boolean;
   contactSelectionVisible: boolean;
   continueVisible: boolean;
+  contactControls: string[];
   currentUrl: string;
   dialogVisible: boolean;
   finalShareLinkCandidate: string | null;
@@ -167,11 +178,21 @@ export type InssaRevealSettingsModalSnapshot = {
   revealLaterVisible: boolean;
   revealNowVisible: boolean;
   safeFollowupLabels: string[];
+  schedulingControls: string[];
+  selectedContactsStepLabel: string | null;
+  sendToContactsVisible: boolean;
   shareLinkButtonVisible: boolean;
   sharedCapsuleVisible: boolean;
+  skipContactsShareLinkVisible: boolean;
   stepLabel: string | null;
+  titleText: string | null;
   titleVisible: boolean;
   visibleButtons: string[];
+  visibleDateFields: string[];
+  visibleInputs: string[];
+  visibleTimeFields: string[];
+  visibleText: string;
+  validationMessages: string[];
 };
 
 export type InssaRevealSettingsSelection = {
@@ -197,8 +218,18 @@ export type InssaRevealLaterScheduleEvidence = {
   visibleScheduleButtons: string[];
 };
 
+export type InssaRevealLaterFlowClassification =
+  | "contact-share-step"
+  | "scheduling-and-contact-step"
+  | "scheduling-step"
+  | "unknown";
+
 export type InssaRevealLaterSettingsSelection = InssaRevealSettingsSelection & {
+  continueClicked: boolean;
+  flowClassification: InssaRevealLaterFlowClassification;
   schedule: InssaRevealLaterScheduleEvidence;
+  step1Snapshot: InssaRevealSettingsModalSnapshot;
+  stepTwoSnapshot: InssaRevealSettingsModalSnapshot;
 };
 
 export type InssaLiveCapsuleShareEvidence = {
@@ -792,6 +823,24 @@ export class TimeCapsulePage {
     await this.page.waitForLoadState("domcontentloaded").catch(() => {});
   }
 
+  async dismissVideoRecorderModalIfVisible(): Promise<boolean> {
+    const recordHeading = this.page.getByRole("heading", { name: /^Record Video$/i }).first();
+    if (!(await recordHeading.isVisible().catch(() => false))) {
+      return false;
+    }
+
+    const cancelButton = this.page.getByRole("button", { name: /^Cancel$/i }).last();
+    await expect(cancelButton, "Expected the Record Video overlay to expose a Cancel button.").toBeVisible({
+      timeout: DEFAULT_TIMEOUT
+    });
+    await cancelButton.click();
+    await expect(recordHeading, "Expected the Record Video overlay to close before advancing to Share.").toBeHidden({
+      timeout: DEFAULT_TIMEOUT
+    });
+
+    return true;
+  }
+
   async fillRemoteImageUrl(url: string): Promise<void> {
     await this.expectMediaStep();
     await expect(
@@ -1104,6 +1153,39 @@ export class TimeCapsulePage {
     return inspection.candidateLabels.find((label) => /^bury$/i.test(label)) ?? null;
   }
 
+  async dismissBrowserSessionWarningIfPresent(): Promise<boolean> {
+    const warning = this.page.getByText(INSSA_BROWSER_SESSION_WARNING_PATTERN).first();
+    if (!(await warning.isVisible().catch(() => false))) {
+      return false;
+    }
+
+    await warning.waitFor({ state: "hidden", timeout: 1_000 }).catch(() => undefined);
+    if (!(await warning.isVisible().catch(() => false))) {
+      return false;
+    }
+
+    const scopedDismissButton = this.page
+      .locator("[role='status'], [role='alert'], [aria-live]")
+      .filter({ hasText: INSSA_BROWSER_SESSION_WARNING_PATTERN })
+      .getByRole("button", { name: INSSA_BROWSER_SESSION_WARNING_DISMISS_PATTERN });
+    const dismissButton = await this.firstVisibleLocator([
+      scopedDismissButton,
+      this.page.getByRole("button", { name: INSSA_BROWSER_SESSION_WARNING_DISMISS_PATTERN })
+    ]);
+
+    if (!dismissButton) {
+      console.warn('INSSA browser session warning is visible, but its "Got it" dismiss action was not found.');
+      return false;
+    }
+
+    await dismissButton.click();
+    await expect(warning, "Expected the browser session warning to dismiss before inspecting Reveal settings.").not.toBeVisible({
+      timeout: 3_000
+    });
+
+    return true;
+  }
+
   private async firstVisibleLocator(locators: Locator[]): Promise<Locator | null> {
     for (const locator of locators) {
       if ((await locator.count().catch(() => 0)) > 0 && (await locator.first().isVisible().catch(() => false))) {
@@ -1202,26 +1284,57 @@ export class TimeCapsulePage {
       this.page.getByText(INSSA_REVEAL_SETTINGS_TITLE_PATTERN).first(),
       'Expected clicking "Bury" to open the Reveal settings modal.'
     ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    await this.dismissBrowserSessionWarningIfPresent();
     await expect(this.page.getByRole("button", { name: INSSA_REVEAL_CONTINUE_PATTERN }).first()).toBeVisible({
       timeout: DEFAULT_TIMEOUT
     });
   }
 
   async snapshotRevealSettingsModal(): Promise<InssaRevealSettingsModalSnapshot> {
+    const browserSessionWarningDismissed = await this.dismissBrowserSessionWarningIfPresent();
     const visibleButtons = await this.listVisibleButtonLabels();
+    const visibleInputs = await this.listVisibleInputDescriptors();
+    const visibleDateFields = visibleInputs.filter((descriptor) => /\bdate\b|datetime|calendar/i.test(descriptor));
+    const visibleTimeFields = visibleInputs.filter((descriptor) => /\btime\b|datetime|hh:mm|hour|minute/i.test(descriptor));
     const bodyText = await this.page.locator("body").innerText().catch(() => "");
     const titleVisible = await this.page.getByText(INSSA_REVEAL_SETTINGS_TITLE_PATTERN).first().isVisible().catch(() => false);
+    const titleText = titleVisible
+      ? (await this.page.getByRole("heading", { name: INSSA_REVEAL_SETTINGS_TITLE_PATTERN }).first().innerText().catch(() => null))?.trim() ??
+        (await this.page.getByText(INSSA_REVEAL_SETTINGS_TITLE_PATTERN).first().innerText().catch(() => null))?.trim() ??
+        null
+      : null;
     const stepLabel = (await this.page.getByText(INSSA_REVEAL_SETTINGS_STEP_PATTERN).first().textContent().catch(() => null))?.trim() ?? null;
+    const selectedContactsStepLabel =
+      bodyText
+        .split(/\n+/)
+        .map((line) => line.replace(/\s+/g, " ").trim())
+        .find((line) => INSSA_CONTACT_SHARE_DECISION_STEP_PATTERN.test(line)) ?? null;
+    const contactShareDecisionVisible =
+      (await this.page.getByText(INSSA_CONTACT_SHARE_DECISION_TITLE_PATTERN).first().isVisible().catch(() => false)) ||
+      (Boolean(selectedContactsStepLabel) &&
+        visibleButtons.some((label) => INSSA_SHARE_LINK_WITH_OTHERS_PATTERN.test(label)));
     const copyShareLinkVisible = await this.isCopyShareLinkVisible();
     const shareLinkButtonVisible = await this.isShareLinkButtonVisible();
     const homeVisible = await this.isHomeVisible();
+    const schedulingControls = [
+      ...(await this.listVisibleTemporalControls()),
+      ...visibleButtons.filter((label) => /later|minute|min|hour|tomorrow|date|time|schedule|reveal/i.test(label))
+    ];
+    const contactControls = [
+      ...visibleButtons.filter((label) => /contacts?|selected|select all|people|friends|shared capsule|personal memory|share link/i.test(label)),
+      ...visibleInputs.filter((descriptor) => /contacts?|people|friends|recipient|search/i.test(descriptor))
+    ];
 
     return {
+      browserSessionWarningDismissed,
       cancelVisible: await this.page.getByRole("button", { name: INSSA_REVEAL_CANCEL_PATTERN }).first().isVisible().catch(() => false),
+      contactShareDecisionVisible,
       contactSelectionVisible: await this.page.getByText(INSSA_CONTACT_SELECTION_PATTERN).first().isVisible().catch(() => false),
       continueVisible: await this.page.getByRole("button", { name: INSSA_REVEAL_CONTINUE_PATTERN }).first().isVisible().catch(() => false),
+      contactControls: Array.from(new Set(contactControls)),
       currentUrl: this.page.url(),
       dialogVisible:
+        contactShareDecisionVisible ||
         titleVisible ||
         (await this.page.locator("[role='dialog'], [aria-modal='true']").filter({ hasText: INSSA_REVEAL_SETTINGS_TITLE_PATTERN }).first().isVisible().catch(() => false)),
       finalShareLinkCandidate: extractVisibleShareLink(bodyText),
@@ -1229,25 +1342,47 @@ export class TimeCapsulePage {
       personalMemoryVisible: await this.page.getByText(INSSA_PERSONAL_MEMORY_PATTERN).first().isVisible().catch(() => false),
       revealLaterVisible: await this.page.getByText(INSSA_REVEAL_LATER_PATTERN).first().isVisible().catch(() => false),
       revealNowVisible: await this.page.getByText(INSSA_REVEAL_NOW_PATTERN).first().isVisible().catch(() => false),
-      safeFollowupLabels: visibleButtons.filter((label) => INSSA_SAFE_REVEAL_FOLLOWUP_PATTERN.test(label)),
+      safeFollowupLabels: visibleButtons.filter((label) => this.isSafeRevealFollowupLabel(label)),
+      schedulingControls: Array.from(new Set(schedulingControls)),
+      selectedContactsStepLabel,
+      sendToContactsVisible: visibleButtons.some((label) => INSSA_SEND_SELECTED_CONTACTS_PATTERN.test(label)),
       shareLinkButtonVisible: copyShareLinkVisible || shareLinkButtonVisible,
       sharedCapsuleVisible: await this.page.getByText(INSSA_SHARED_CAPSULE_PATTERN).first().isVisible().catch(() => false),
+      skipContactsShareLinkVisible: visibleButtons.some((label) => INSSA_SHARE_LINK_WITH_OTHERS_PATTERN.test(label)),
       stepLabel,
+      titleText,
       titleVisible,
-      visibleButtons
+      visibleButtons,
+      visibleDateFields,
+      visibleInputs,
+      visibleTimeFields,
+      visibleText: bodyText,
+      validationMessages: extractValidationMessages(bodyText)
     };
   }
 
   async chooseRevealSettingsForQaLiveCapsule(): Promise<InssaRevealSettingsSelection> {
+    await this.dismissBrowserSessionWarningIfPresent();
     await expect(
       this.page.getByText(INSSA_REVEAL_SETTINGS_TITLE_PATTERN).first(),
       "Expected the Reveal settings modal before selecting QA live capsule options."
     ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
 
-    const revealAudience = (await this.ensureRevealOptionSelected(
-      INSSA_SHARED_CAPSULE_PATTERN,
-      "shared-capsule"
-    )) as InssaRevealSettingsSelection["revealAudience"];
+    const step1Snapshot = await this.snapshotRevealSettingsModal();
+    if (step1Snapshot.sharedCapsuleVisible !== step1Snapshot.personalMemoryVisible) {
+      throw new Error(
+        `QA live capsule reveal-now flow exposed a partial audience selection state. ` +
+          `Observed sharedCapsuleVisible=${step1Snapshot.sharedCapsuleVisible}, ` +
+          `personalMemoryVisible=${step1Snapshot.personalMemoryVisible}, visibleButtons=${step1Snapshot.visibleButtons.join(", ")}.`
+      );
+    }
+
+    const revealAudience = step1Snapshot.sharedCapsuleVisible
+      ? ((await this.ensureRevealOptionSelected(
+          INSSA_SHARED_CAPSULE_PATTERN,
+          "shared-capsule"
+        )) as InssaRevealSettingsSelection["revealAudience"])
+      : null;
     const revealTiming = (await this.ensureRevealOptionSelected(
       INSSA_REVEAL_NOW_PATTERN,
       "reveal-now"
@@ -1262,28 +1397,171 @@ export class TimeCapsulePage {
   async chooseRevealSettingsForQaRevealLaterCapsule(input: {
     futureOffsetMinutes?: number;
   } = {}): Promise<InssaRevealLaterSettingsSelection> {
+    void input;
+    await this.dismissBrowserSessionWarningIfPresent();
     await expect(
       this.page.getByText(INSSA_REVEAL_SETTINGS_TITLE_PATTERN).first(),
       "Expected the Reveal settings modal before selecting QA reveal-later capsule options."
     ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
 
-    const revealAudience = (await this.ensureRevealOptionSelected(
-      INSSA_SHARED_CAPSULE_PATTERN,
-      "shared-capsule"
-    )) as InssaRevealSettingsSelection["revealAudience"];
+    await expect(
+      this.page.getByText(INSSA_REVEAL_LATER_PATTERN).first(),
+      'Expected Reveal settings Step 1 to expose "Reveal later".'
+    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
     const revealTiming = (await this.ensureRevealOptionSelected(
       INSSA_REVEAL_LATER_PATTERN,
       "reveal-later"
     )) as InssaRevealSettingsSelection["revealTiming"];
-    const schedule = await this.configureRevealLaterSchedule({
-      futureOffsetMinutes: input.futureOffsetMinutes ?? 15
+    const step1Snapshot = await this.snapshotRevealSettingsModal();
+
+    if (step1Snapshot.sharedCapsuleVisible || step1Snapshot.personalMemoryVisible) {
+      throw new Error(
+        `Expected the current reveal-later Step 1 flow to be timing-first without audience selection. ` +
+          `Observed Step 1 snapshot: ${this.formatRevealSettingsSnapshotForError(step1Snapshot)}`
+      );
+    }
+
+    await this.continueRevealSettingsOnce();
+    const stepTwoSnapshot = await this.waitForRevealSettingsStepTwoSnapshot();
+    const flowClassification = this.classifyRevealLaterFlow(stepTwoSnapshot);
+    const schedule = this.buildRevealLaterScheduleEvidenceFromSnapshots({
+      step1Snapshot,
+      stepTwoSnapshot
     });
 
+    if (flowClassification === "unknown") {
+      throw new Error(
+        `Expected Reveal settings Step 2 to expose scheduling, contact/share, or combined controls after selecting "Reveal later". ` +
+          `Step 1 snapshot: ${this.formatRevealSettingsSnapshotForError(step1Snapshot)}. ` +
+          `Step 2 snapshot: ${this.formatRevealSettingsSnapshotForError(stepTwoSnapshot)}.`
+      );
+    }
+
     return {
-      revealAudience,
+      continueClicked: true,
+      flowClassification,
+      revealAudience: null,
       revealTiming,
-      schedule
+      schedule,
+      step1Snapshot,
+      stepTwoSnapshot
     };
+  }
+
+  private hasActionableRevealLaterSchedule(schedule: InssaRevealLaterScheduleEvidence): boolean {
+    return Boolean(schedule.chosenIntervalLabel || schedule.dateTimeInputFilled || schedule.dateInputFilled || schedule.timeInputFilled);
+  }
+
+  private classifyRevealLaterFlow(snapshot: InssaRevealSettingsModalSnapshot): InssaRevealLaterFlowClassification {
+    const hasSchedulingControls =
+      snapshot.schedulingControls.length > 0 || snapshot.visibleDateFields.length > 0 || snapshot.visibleTimeFields.length > 0;
+    const hasContactControls = snapshot.contactShareDecisionVisible || snapshot.contactControls.length > 0;
+
+    if (hasSchedulingControls && hasContactControls) {
+      return "scheduling-and-contact-step";
+    }
+
+    if (hasSchedulingControls) {
+      return "scheduling-step";
+    }
+
+    if (hasContactControls) {
+      return "contact-share-step";
+    }
+
+    return "unknown";
+  }
+
+  private buildRevealLaterScheduleEvidenceFromSnapshots(input: {
+    step1Snapshot: InssaRevealSettingsModalSnapshot;
+    stepTwoSnapshot: InssaRevealSettingsModalSnapshot;
+  }): InssaRevealLaterScheduleEvidence {
+    const visibleDateTimeControls = Array.from(
+      new Set([
+        ...input.step1Snapshot.schedulingControls,
+        ...input.step1Snapshot.visibleDateFields,
+        ...input.step1Snapshot.visibleTimeFields,
+        ...input.stepTwoSnapshot.schedulingControls,
+        ...input.stepTwoSnapshot.visibleDateFields,
+        ...input.stepTwoSnapshot.visibleTimeFields
+      ])
+    );
+    const visibleScheduleButtons = Array.from(
+      new Set(
+        [...input.step1Snapshot.visibleButtons, ...input.stepTwoSnapshot.visibleButtons].filter((label) =>
+          /later|minute|min|hour|tomorrow|date|time|schedule|reveal/i.test(label)
+        )
+      )
+    );
+
+    return {
+      chosenIntervalLabel: null,
+      dateInputFilled: false,
+      dateTimeInputFilled: false,
+      scheduledAtIso: null,
+      scheduledAtText: this.extractRevealLaterScheduleTextFromSnapshots(input.step1Snapshot, input.stepTwoSnapshot),
+      timeInputFilled: false,
+      visibleDateTimeControls,
+      visibleScheduleButtons
+    };
+  }
+
+  private extractRevealLaterScheduleTextFromSnapshots(
+    ...snapshots: InssaRevealSettingsModalSnapshot[]
+  ): string | null {
+    return (
+      snapshots
+        .flatMap((snapshot) => snapshot.visibleText.split(/\n+/))
+        .map((value) => value.replace(/\s+/g, " ").trim())
+        .find((value) => /reveal later|scheduled|schedule|tomorrow|\b(?:min|minute|hour|date|time)\b/i.test(value)) ?? null
+    );
+  }
+
+  private async waitForRevealSettingsStepTwoSnapshot(): Promise<InssaRevealSettingsModalSnapshot> {
+    const deadline = Date.now() + DEFAULT_TIMEOUT;
+    let lastSnapshot: InssaRevealSettingsModalSnapshot | null = null;
+
+    while (Date.now() < deadline) {
+      const snapshot = await this.snapshotRevealSettingsModal();
+      lastSnapshot = snapshot;
+      if (this.isRevealSettingsStepTwoSnapshot(snapshot)) {
+        return snapshot;
+      }
+
+      await this.page.waitForTimeout(250);
+    }
+
+    throw new Error(
+      `Expected Reveal settings to advance to Step 2 of 2 after selecting "Reveal later" and clicking Continue. Last snapshot: ${
+        lastSnapshot ? this.formatRevealSettingsSnapshotForError(lastSnapshot) : "none"
+      }`
+    );
+  }
+
+  private isRevealSettingsStepTwoSnapshot(snapshot: InssaRevealSettingsModalSnapshot): boolean {
+    return /step\s*2\s*of\s*2/i.test(
+      [snapshot.titleText, snapshot.stepLabel, snapshot.selectedContactsStepLabel, snapshot.visibleText].filter(Boolean).join("\n")
+    );
+  }
+
+  private formatRevealSettingsSnapshotForError(snapshot: InssaRevealSettingsModalSnapshot): string {
+    return JSON.stringify({
+      contactControls: snapshot.contactControls,
+      personalMemoryVisible: snapshot.personalMemoryVisible,
+      revealLaterVisible: snapshot.revealLaterVisible,
+      revealNowVisible: snapshot.revealNowVisible,
+      schedulingControls: snapshot.schedulingControls,
+      selectedContactsStepLabel: snapshot.selectedContactsStepLabel,
+      sharedCapsuleVisible: snapshot.sharedCapsuleVisible,
+      stepLabel: snapshot.stepLabel,
+      titleText: snapshot.titleText,
+      visibleButtons: snapshot.visibleButtons,
+      visibleDateFields: snapshot.visibleDateFields,
+      visibleInputs: snapshot.visibleInputs,
+      visibleTimeFields: snapshot.visibleTimeFields,
+      visibleText: snapshot.visibleText,
+      validationMessages: snapshot.validationMessages
+    });
   }
 
   private async configureRevealLaterSchedule(input: { futureOffsetMinutes: number }): Promise<InssaRevealLaterScheduleEvidence> {
@@ -1347,6 +1625,28 @@ export class TimeCapsulePage {
     return false;
   }
 
+  private async listVisibleInputDescriptors(): Promise<string[]> {
+    return await this.page.locator("input, textarea, select").evaluateAll((elements) =>
+      elements
+        .filter((element) => {
+          if (!(element instanceof HTMLElement)) {
+            return false;
+          }
+
+          const style = window.getComputedStyle(element);
+          return style.visibility !== "hidden" && style.display !== "none";
+        })
+        .map((element) => {
+          const type = element.getAttribute("type")?.trim() ?? "";
+          const name = element.getAttribute("name")?.trim() ?? "";
+          const ariaLabel = element.getAttribute("aria-label")?.trim() ?? "";
+          const placeholder = element.getAttribute("placeholder")?.trim() ?? "";
+          const value = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value?.trim() ?? "" : "";
+          return [element.tagName.toLowerCase(), type, name, ariaLabel, placeholder, value ? "has-value" : ""].filter(Boolean).join(" | ");
+        })
+    );
+  }
+
   private async listVisibleTemporalControls(): Promise<string[]> {
     return await this.page.locator("input, select").evaluateAll((elements) =>
       elements
@@ -1380,6 +1680,7 @@ export class TimeCapsulePage {
   }
 
   async continueRevealSettingsOnce(): Promise<void> {
+    await this.dismissBrowserSessionWarningIfPresent();
     const continueButton = this.page.getByRole("button", { name: INSSA_REVEAL_CONTINUE_PATTERN }).first();
     await expect(continueButton, 'Expected the Reveal settings modal to expose a visible "Continue" action.').toBeVisible({
       timeout: DEFAULT_TIMEOUT
@@ -1391,14 +1692,21 @@ export class TimeCapsulePage {
   async waitForLiveCapsuleShareLinkEvidence(): Promise<{
     followupClickedLabel: string | null;
     revealSettingsSnapshots: InssaRevealSettingsModalSnapshot[];
+    sendToContactsClicked: boolean;
     shareEvidence: InssaLiveCapsuleShareEvidence;
+    shareDecisionStepReached: boolean;
+    skipContactsClicked: boolean;
   }> {
     const revealSettingsSnapshots: InssaRevealSettingsModalSnapshot[] = [];
     let followupClickedLabel: string | null = null;
+    let sendToContactsClicked = false;
+    let shareDecisionStepReached = false;
+    let skipContactsClicked = false;
     const deadline = Date.now() + POST_CONTINUE_SUCCESS_TIMEOUT;
 
     while (Date.now() < deadline) {
       const snapshot = await this.snapshotRevealSettingsModal();
+      shareDecisionStepReached = shareDecisionStepReached || snapshot.contactShareDecisionVisible;
       const lastSnapshot = revealSettingsSnapshots[revealSettingsSnapshots.length - 1];
       if (!lastSnapshot || JSON.stringify(lastSnapshot) !== JSON.stringify(snapshot)) {
         revealSettingsSnapshots.push(snapshot);
@@ -1409,15 +1717,34 @@ export class TimeCapsulePage {
         return {
           followupClickedLabel,
           revealSettingsSnapshots,
-          shareEvidence
+          sendToContactsClicked,
+          shareEvidence,
+          shareDecisionStepReached,
+          skipContactsClicked
         };
+      }
+
+      if (snapshot.contactShareDecisionVisible && !skipContactsClicked && !followupClickedLabel) {
+        if (!snapshot.skipContactsShareLinkVisible) {
+          throw new Error(
+            `Expected Step 2 contact/share decision to expose a share-link finalization action. Visible buttons: ${snapshot.visibleButtons.join(
+              ", "
+            )}`
+          );
+        }
+
+        followupClickedLabel = await this.chooseSkipContactsAndShareLink();
+        skipContactsClicked = INSSA_SKIP_CONTACTS_SHARE_LINK_PATTERN.test(followupClickedLabel);
+        sendToContactsClicked = false;
+        await this.page.waitForLoadState("domcontentloaded").catch(() => {});
+        continue;
       }
 
       if (snapshot.titleVisible && !followupClickedLabel) {
         const eligibleFollowups = Array.from(
           new Set(
             snapshot.safeFollowupLabels.filter((label) => {
-              if (!INSSA_SAFE_REVEAL_FOLLOWUP_PATTERN.test(label)) {
+              if (!this.isSafeRevealFollowupLabel(label)) {
                 return false;
               }
 
@@ -1431,7 +1758,8 @@ export class TimeCapsulePage {
         ).sort((left, right) => {
           const priority = (value: string) => {
             if (/^share by link$/i.test(value)) return 0;
-            if (/^skip contacts$/i.test(value)) return 1;
+            if (/^skip contacts(?:\s*&\s*share link with others)?$/i.test(value)) return 1;
+            if (/^bury\s*&\s*share link with others$/i.test(value)) return 1;
             if (/^done$/i.test(value)) return 2;
             if (/^continue$/i.test(value)) return 3;
             return 4;
@@ -1447,7 +1775,10 @@ export class TimeCapsulePage {
 
         if (eligibleFollowups.length === 1) {
           followupClickedLabel = eligibleFollowups[0];
+          await this.dismissBrowserSessionWarningIfPresent();
           await this.clickLiveCreateActionOnce(followupClickedLabel);
+          skipContactsClicked = INSSA_SKIP_CONTACTS_SHARE_LINK_PATTERN.test(followupClickedLabel);
+          sendToContactsClicked = INSSA_SEND_SELECTED_CONTACTS_PATTERN.test(followupClickedLabel);
           await this.page.waitForLoadState("domcontentloaded").catch(() => {});
           continue;
         }
@@ -1460,8 +1791,61 @@ export class TimeCapsulePage {
     throw new Error(
       `Expected live capsule creation to expose share-link evidence after Reveal settings. Final snapshot: titleVisible=${
         finalSnapshot.titleVisible
-      }, step="${finalSnapshot.stepLabel ?? "unknown"}", visibleButtons=${finalSnapshot.visibleButtons.join(", ")}`
+      }, contactShareDecisionVisible=${finalSnapshot.contactShareDecisionVisible}, step="${
+        finalSnapshot.selectedContactsStepLabel ?? finalSnapshot.stepLabel ?? "unknown"
+      }", visibleButtons=${finalSnapshot.visibleButtons.join(", ")}`
     );
+  }
+
+  async waitForContactShareDecisionStep(): Promise<InssaRevealSettingsModalSnapshot> {
+    const deadline = Date.now() + DEFAULT_TIMEOUT;
+    let lastSnapshot: InssaRevealSettingsModalSnapshot | null = null;
+
+    while (Date.now() < deadline) {
+      const snapshot = await this.snapshotRevealSettingsModal();
+      lastSnapshot = snapshot;
+      if (snapshot.contactShareDecisionVisible && snapshot.skipContactsShareLinkVisible) {
+        return snapshot;
+      }
+
+      await this.page.waitForTimeout(250);
+    }
+
+    throw new Error(
+      `Expected Reveal settings Step 2 of 2 contact/share decision. Last visible buttons: ${
+        lastSnapshot?.visibleButtons.join(", ") ?? "none"
+      }`
+    );
+  }
+
+  async chooseSkipContactsAndShareLink(): Promise<string> {
+    await this.waitForContactShareDecisionStep();
+    const buttons = this.page.getByRole("button", { name: INSSA_SHARE_LINK_WITH_OTHERS_PATTERN });
+    const visibleIndexes: number[] = [];
+    const count = await buttons.count();
+    for (let index = 0; index < count; index += 1) {
+      if (await buttons.nth(index).isVisible().catch(() => false)) {
+        visibleIndexes.push(index);
+      }
+    }
+
+    if (visibleIndexes.length !== 1) {
+      const snapshot = await this.snapshotRevealSettingsModal();
+      throw new Error(
+        `Expected exactly one share-link finalization action. Found ${visibleIndexes.length}. Visible buttons: ${snapshot.visibleButtons.join(
+          ", "
+        )}`
+      );
+    }
+
+    const button = buttons.nth(visibleIndexes[0]);
+    const label = (await button.innerText().catch(() => "")) || "share link with others";
+    await button.click();
+    return label.replace(/\s+/g, " ").trim();
+  }
+
+  private isSafeRevealFollowupLabel(label: string): boolean {
+    return INSSA_SAFE_REVEAL_FOLLOWUP_PATTERN.test(label) || INSSA_SHARE_LINK_WITH_OTHERS_PATTERN.test(label);
   }
 
   async readLiveCapsuleShareEvidence(): Promise<InssaLiveCapsuleShareEvidence> {
@@ -1655,13 +2039,36 @@ function escapeRegExp(value: string): string {
 }
 
 function extractVisibleSuccessText(bodyText: string): string | null {
-  const match = bodyText.match(/copy share link|share link|shared|created|success|home/i);
+  const match = bodyText
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(
+      (line) =>
+        line &&
+        !/automated playwright test|qa_live_|qa live|QA_LIVE_/i.test(line) &&
+        !/^\s*(subject|message)\s*:/i.test(line)
+    )
+    .join("\n")
+    .match(
+      /capsule (?:created|ready|shared|buried)|your capsule (?:is )?(?:ready|live|created)|ready to share|successfully (?:created|shared|buried)|created|success/i
+    );
   return match?.[0] ?? null;
 }
 
 function extractVisibleShareLink(bodyText: string): string | null {
   const match = bodyText.match(INSSA_CAPSULE_SHARE_LINK_PATTERN);
   return match?.[0] ?? null;
+}
+
+function extractValidationMessages(bodyText: string): string[] {
+  return Array.from(
+    new Set(
+      bodyText
+        .split(/\n+/)
+        .map((line) => line.replace(/\s+/g, " ").trim())
+        .filter((line) => /required|invalid|select|choose|missing|enter|must|error/i.test(line))
+    )
+  );
 }
 
 function extractCapsuleIdFromCandidate(candidate: string | null): string | null {
