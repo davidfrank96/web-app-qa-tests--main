@@ -3,7 +3,7 @@
 This QA harness tests the hosted INSSA staging app at `https://staging.inssa.us`.
 Live lifecycle tests intentionally create staging data and must never run against production.
 
-For a consolidated handoff view, start with [INSSA QA Harness Current State](inssa-current-state.md).
+For the authoritative operations entry point, start with [INSSA QA Operations Guide](inssa-qa-operations-guide.md).
 
 ## Current Validated State
 

@@ -1,6 +1,8 @@
 # INSSA QA Harness Current State
 
-Last updated: 2026-05-31
+Last updated: 2026-06-05
+
+This is a historical current-state summary. The authoritative entry point is now [INSSA QA Operations Guide](inssa-qa-operations-guide.md).
 
 This repository is the Playwright QA harness for INSSA staging. It is not the INSSA app source repository. All INSSA tests exercise the hosted staging app over HTTPS at `https://staging.inssa.us`.
 
@@ -66,22 +68,23 @@ INSSA_ENABLE_REVEAL_LATER_CAPSULE_TESTS=1
 INSSA_US_MARKET_LOCATION=nyc
 ```
 
-The real INSSA lifecycle flow modeled by the harness is:
+The current INSSA lifecycle flow modeled by the harness is:
 
 ```text
 Compose
 -> Media
--> Share
+-> Add media & bury / Share
 -> Bury
 -> Reveal settings
--> Shared capsule / Reveal now or Reveal later
+-> Reveal now or Reveal later
 -> Continue
--> Send to my contacts / Skip contacts & share link
--> Skip contacts & share link with others
--> final share-link state
+-> Send or save contact step
+-> optional contact selection
+-> Bury, then choose who to share with
+-> success/share surface
 ```
 
-The harness intentionally uses the share-link path, not contact delivery.
+The old `Skip contacts & share link with others` path is not currently visible in the latest audited contact-share flow. Cross-user validation now uses targeted contact delivery to the configured secondary QA account.
 
 ## Lifecycle Campaigns
 
@@ -194,7 +197,7 @@ Latest validated security findings:
 - Authenticated direct retrieval works.
 - Feed/search/messages/profile do not expose the capsule, producing share-link-only visibility classifications.
 - Media and video Firebase Storage media bytes were accessible without token from captured artifact URLs.
-- Reveal-later premature-access protection was not classifiable from the latest artifact because its scheduled reveal time had already elapsed.
+- Reveal-later pre-reveal access was protected for the latest future-scheduled artifact. After-reveal validation remains pending until the scheduled reveal time.
 
 Latest security summary classification:
 
