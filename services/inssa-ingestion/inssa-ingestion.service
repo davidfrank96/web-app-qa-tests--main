@@ -1,0 +1,24 @@
+[Unit]
+Description=INSSA QA event ingestion receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/web-app-qa-tests
+ExecStart=/usr/bin/node /opt/web-app-qa-tests/services/inssa-ingestion/server.js
+Environment=INSSA_INGEST_HOST=127.0.0.1
+Environment=INSSA_INGEST_PORT=8088
+Environment=INSSA_INGEST_PATH=/inssa
+Environment=INSSA_INGEST_EVENT_LOG_PATH=/var/ossec/logs/inssa-qa.log
+Environment=INSSA_INGEST_REQUEST_LOG_PATH=/var/ossec/logs/inssa-qa-ingestion-requests.log
+Environment=INSSA_INGEST_FAILURE_LOG_PATH=/var/ossec/logs/inssa-qa-ingestion-errors.log
+Environment=INSSA_INGEST_MAX_BODY_BYTES=1048576
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ReadWritePaths=/var/ossec/logs
+
+[Install]
+WantedBy=multi-user.target

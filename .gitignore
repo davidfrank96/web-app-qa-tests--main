@@ -1,13 +1,36 @@
 node_modules/
+
+# Local environment and secret-bearing config. Keep example templates tracked.
 .env
+.env.*
+!.env.example
+!.env.inssa.live-staging.example
 .env.inssa.live-staging
+
+# Playwright/generated QA output.
 playwright-report/
 test-results/
 lifecycle-artifacts/
 lifecycle-campaigns/
+lifecycle-investigations/
 security-campaigns/
 reports/
+
+# Local build output.
 .next/
 dashboard/.next/
+
+# IDE / OS / temporary files.
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
 *.log
+*.tmp
+*.bak
+*.swp
+
+# Browser evidence artifacts should live under ignored output directories.
+trace.zip
+*.trace.zip
+*.webm
