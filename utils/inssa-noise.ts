@@ -70,6 +70,8 @@ const FIRESTORE_CHANNEL_PATTERN =
 const FAILED_RESOURCE_4XX_PATTERN = /Failed to load resource: the server responded with a status of (400|404)/i;
 const TELEMETRY_NOISE_PATTERN =
   /csp\.withgoogle\.com|report-only Content Security Policy|google-analytics\.com\/g\/collect|sentry\.io\/api\/|google\.com\/recaptcha|firebaseinstallations\.googleapis\.com/i;
+const GOOGLE_MAPS_VECTOR_FALLBACK_PATTERN =
+  /Attempted to load a Vector Map, but failed\. Falling back to Raster|developers\.google\.com\/maps\/documentation\/javascript\/webgl\/support/i;
 const AZURE_PROFILE_FAILURE_PATTERN =
   /Error fetching Azure profile: TypeError: Failed to fetch|Error signing in with email and password: Failed to fetch \(kbeanbetastaging\.azurewebsites\.net\)|kbeanbetastaging\.azurewebsites\.net\/api\/public\/GetUserProfileByEmail|kbeanbetastaging\.azurewebsites\.net\/Account\/SocialLoginJWT/i;
 const AUTH_FAILURE_PATTERN = /401|403|unauthorized|forbidden|sign in failed|invalid login|wrong password/i;
@@ -156,6 +158,14 @@ export function classifyInssaIssue(issue: InssaIssueLike): ClassifiedInssaIssue 
   }
 
   if (TELEMETRY_NOISE_PATTERN.test(searchable)) {
+    return {
+      category: "acceptable-staging-noise",
+      issue,
+      severity: "acceptable"
+    };
+  }
+
+  if (issue.kind === "console" && GOOGLE_MAPS_VECTOR_FALLBACK_PATTERN.test(searchable)) {
     return {
       category: "acceptable-staging-noise",
       issue,

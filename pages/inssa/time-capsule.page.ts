@@ -50,8 +50,12 @@ const POST_CONTINUE_SUCCESS_TIMEOUT = 45_000;
 const INSSA_BROWSER_SESSION_WARNING_PATTERN = /heads up about this browser session/i;
 const INSSA_BROWSER_SESSION_WARNING_DISMISS_PATTERN = /^got it$/i;
 const INSSA_CONTACT_SHARE_DECISION_TITLE_PATTERN = /send to my contacts/i;
+const INSSA_CONTACT_SELECTION_CURRENT_TITLE_PATTERN = /send or save/i;
 const INSSA_CONTACT_SHARE_DECISION_STEP_PATTERN = /\b\d+\s+selected\s*[·•-]?\s*step\s*2\s*of\s*2|step\s*2\s*of\s*2/i;
 const INSSA_SEND_SELECTED_CONTACTS_PATTERN = /^send to selected contacts\s*&\s*bury$/i;
+const INSSA_SELECT_ALL_CONTACTS_PATTERN = /^select all$/i;
+const INSSA_BURY_THEN_CHOOSE_SHARE_PATTERN =
+  /^bury,\s*(?:then choose who to share with|send to \d+ contacts?, then share more)$/i;
 const INSSA_SKIP_CONTACTS_SHARE_LINK_PATTERN = /^skip contacts\s*&\s*share link with others$/i;
 const INSSA_SHARE_LINK_WITH_OTHERS_PATTERN =
   /^(?:skip contacts\s*&\s*share link with others|bury\s*&\s*share link with others)$/i;
@@ -104,6 +108,7 @@ export type InssaComposeStepSnapshot = {
   candidateFinalActionLabels: string[];
   currentUrl: string;
   finalActionLabel: string | null;
+  mediaControls: string[];
   mediaSelectedSummaryText: string | null;
   messageVisible: boolean;
   nextStepVisible: boolean;
@@ -168,6 +173,7 @@ export type InssaRevealSettingsModalSnapshot = {
   cancelVisible: boolean;
   contactShareDecisionVisible: boolean;
   contactSelectionVisible: boolean;
+  contactCount: number | null;
   continueVisible: boolean;
   contactControls: string[];
   currentUrl: string;
@@ -180,14 +186,17 @@ export type InssaRevealSettingsModalSnapshot = {
   safeFollowupLabels: string[];
   schedulingControls: string[];
   selectedContactsStepLabel: string | null;
+  selectedContactsCount: number | null;
   sendToContactsVisible: boolean;
   shareLinkButtonVisible: boolean;
   sharedCapsuleVisible: boolean;
   skipContactsShareLinkVisible: boolean;
   stepLabel: string | null;
+  stepTitle: string | null;
   titleText: string | null;
   titleVisible: boolean;
   visibleButtons: string[];
+  visibleContacts: string[];
   visibleDateFields: string[];
   visibleInputs: string[];
   visibleTimeFields: string[];
@@ -207,15 +216,45 @@ export type InssaRevealSettingsProgress = {
   snapshots: InssaRevealSettingsModalSnapshot[];
 };
 
+export type InssaContactSelectionDiagnostic = {
+  afterSnapshot: InssaRevealSettingsModalSnapshot;
+  beforeSnapshot: InssaRevealSettingsModalSnapshot;
+  selectedContactLabel: string;
+  selectedCountChanged: boolean;
+  visibleButtonsChanged: boolean;
+};
+
 export type InssaRevealLaterScheduleEvidence = {
   chosenIntervalLabel: string | null;
   dateInputFilled: boolean;
   dateTimeInputFilled: boolean;
   scheduledAtIso: string | null;
   scheduledAtText: string | null;
+  textDateTimeInputFilled: boolean;
   timeInputFilled: boolean;
   visibleDateTimeControls: string[];
   visibleScheduleButtons: string[];
+};
+
+export type InssaRevealTimestampCandidate = {
+  context: string;
+  normalizedIso: string | null;
+  source: "dom-hidden-input" | "dom-visible-input" | "network" | "session-storage" | "local-storage" | "visible-text";
+  value: string;
+};
+
+export type InssaRevealTimestampEvidence = {
+  candidateTimestamps: InssaRevealTimestampCandidate[];
+  hiddenSchedulingValues: string[];
+  localStorageCandidates: InssaRevealTimestampCandidate[];
+  networkCandidates: InssaRevealTimestampCandidate[];
+  scheduledAtIso: string | null;
+  selectedDateText: string | null;
+  selectedTimeText: string | null;
+  sessionStorageCandidates: InssaRevealTimestampCandidate[];
+  source: string | null;
+  visibleSchedulingControls: string[];
+  visibleSchedulingValues: string[];
 };
 
 export type InssaRevealLaterFlowClassification =
@@ -230,6 +269,7 @@ export type InssaRevealLaterSettingsSelection = InssaRevealSettingsSelection & {
   schedule: InssaRevealLaterScheduleEvidence;
   step1Snapshot: InssaRevealSettingsModalSnapshot;
   stepTwoSnapshot: InssaRevealSettingsModalSnapshot;
+  timestampEvidence: InssaRevealTimestampEvidence;
 };
 
 export type InssaLiveCapsuleShareEvidence = {
@@ -702,10 +742,6 @@ export class TimeCapsulePage {
   }
 
   async waitForMediaStepReady(): Promise<void> {
-    await expect(
-      this.page.getByText(INSSA_COMPOSE_STEP_MEDIA_PATTERN).first(),
-      "Expected the compose flow to expose Step 2: Media."
-    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
     await expect
       .poll(
         async () => {
@@ -721,13 +757,26 @@ export class TimeCapsulePage {
   }
 
   async expectMediaStep(): Promise<void> {
-    await expect(
-      this.page.getByText(INSSA_COMPOSE_STEP_MEDIA_PATTERN).first(),
-      "Expected the compose flow to expose Step 2: Media."
-    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    await expect
+      .poll(
+        async () => {
+          const snapshot = await this.snapshotComposeStepState();
+          return this.isMediaStepContentReady(snapshot);
+        },
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: "Expected the compose flow to expose Step 2 media content."
+        }
+      )
+      .toBe(true);
   }
 
   async advanceToShareStep(): Promise<void> {
+    const currentSnapshot = await this.snapshotComposeStepState();
+    if (this.isCurrentCombinedMediaBuryStep(currentSnapshot)) {
+      return;
+    }
+
     await expect(this.nextStepButton(), "Expected Next step to be visible on the Media step.").toBeVisible({
       timeout: DEFAULT_TIMEOUT
     });
@@ -739,10 +788,19 @@ export class TimeCapsulePage {
   }
 
   async expectShareStep(): Promise<void> {
-    await expect(
-      this.page.getByText(INSSA_COMPOSE_STEP_SHARE_PATTERN).first(),
-      "Expected the compose flow to expose Step 3: Share."
-    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    await expect
+      .poll(
+        async () => {
+          const snapshot = await this.snapshotComposeStepState();
+          return this.isShareStep(snapshot) || this.isCurrentCombinedMediaBuryStep(snapshot);
+        },
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message:
+            "Expected the compose flow to expose Step 3: Share or the current Step 2 Add media & bury finalization surface."
+        }
+      )
+      .toBe(true);
   }
 
   async inspectMediaStepCapabilities(): Promise<InssaMediaStepCapabilities> {
@@ -923,11 +981,13 @@ export class TimeCapsulePage {
       candidateFinalActionLabels.length === 1
         ? candidateFinalActionLabels.find((label) => /^bury$/i.test(label)) ?? candidateFinalActionLabels[0]
         : null;
+    const mediaControls = await this.listVisibleMediaControlLabels();
 
     return {
       candidateFinalActionLabels,
       currentUrl: this.page.url(),
       finalActionLabel,
+      mediaControls,
       mediaSelectedSummaryText:
         (await this.page.locator("text=/Selected\\s+\\d+\\/12\\s+files/i").first().textContent().catch(() => null))?.trim() ??
         null,
@@ -944,6 +1004,7 @@ export class TimeCapsulePage {
       buttons: snapshot.visibleButtons,
       currentUrl: snapshot.currentUrl,
       finalActionLabel: snapshot.finalActionLabel,
+      mediaControls: snapshot.mediaControls,
       mediaSelectedSummaryText: snapshot.mediaSelectedSummaryText,
       messageVisible: snapshot.messageVisible,
       nextStepVisible: snapshot.nextStepVisible,
@@ -967,7 +1028,24 @@ export class TimeCapsulePage {
   }
 
   private isMediaStep(snapshot: InssaComposeStepSnapshot): boolean {
-    return INSSA_COMPOSE_STEP_MEDIA_PATTERN.test(snapshot.step ?? "");
+    return INSSA_COMPOSE_STEP_MEDIA_PATTERN.test(snapshot.step ?? "") || snapshot.mediaControls.length > 0;
+  }
+
+  private async listVisibleMediaControlLabels(): Promise<string[]> {
+    const candidates = [
+      { label: "Photo", pattern: /^photo$/i },
+      { label: "Video", pattern: /^video$/i },
+      { label: "Gallery", pattern: /^gallery$/i }
+    ];
+    const labels: string[] = [];
+
+    for (const candidate of candidates) {
+      if (await this.page.getByRole("button", { name: candidate.pattern }).first().isVisible().catch(() => false)) {
+        labels.push(candidate.label);
+      }
+    }
+
+    return labels;
   }
 
   private isShareStep(snapshot: InssaComposeStepSnapshot): boolean {
@@ -978,7 +1056,15 @@ export class TimeCapsulePage {
     return (
       this.isMediaStep(snapshot) &&
       (Boolean(snapshot.mediaSelectedSummaryText) ||
-        snapshot.visibleButtons.some((label) => /^photo$|^video$|^gallery$/i.test(label)))
+        snapshot.mediaControls.length > 0)
+    );
+  }
+
+  private isCurrentCombinedMediaBuryStep(snapshot: InssaComposeStepSnapshot): boolean {
+    return (
+      this.isMediaStepContentReady(snapshot) &&
+      /^bury$/i.test(snapshot.finalActionLabel ?? "") &&
+      !snapshot.nextStepVisible
     );
   }
 
@@ -1045,7 +1131,9 @@ export class TimeCapsulePage {
     throw new InssaFinalLiveCreateStepError(
       `Expected Step 2: Media to render media controls before advancing. Last step="${
         failedSnapshot?.step ?? "unknown"
-      }". Visible buttons: ${failedSnapshot?.visibleButtons.join(", ") ?? ""}`,
+      }". Media controls: ${failedSnapshot?.mediaControls.join(", ") ?? ""}. Selected summary: ${
+        failedSnapshot?.mediaSelectedSummaryText ?? "none"
+      }. Visible buttons: ${failedSnapshot?.visibleButtons.join(", ") ?? ""}`,
       snapshots
     );
   }
@@ -1170,7 +1258,8 @@ export class TimeCapsulePage {
       .getByRole("button", { name: INSSA_BROWSER_SESSION_WARNING_DISMISS_PATTERN });
     const dismissButton = await this.firstVisibleLocator([
       scopedDismissButton,
-      this.page.getByRole("button", { name: INSSA_BROWSER_SESSION_WARNING_DISMISS_PATTERN })
+      this.page.getByRole("button", { name: INSSA_BROWSER_SESSION_WARNING_DISMISS_PATTERN }),
+      this.page.getByText(INSSA_BROWSER_SESSION_WARNING_DISMISS_PATTERN).first()
     ]);
 
     if (!dismissButton) {
@@ -1309,10 +1398,27 @@ export class TimeCapsulePage {
         .split(/\n+/)
         .map((line) => line.replace(/\s+/g, " ").trim())
         .find((line) => INSSA_CONTACT_SHARE_DECISION_STEP_PATTERN.test(line)) ?? null;
+    const stepTitle =
+      bodyText
+        .split(/\n+/)
+        .map((line) => line.replace(/\s+/g, " ").trim())
+        .find((line) => INSSA_CONTACT_SELECTION_CURRENT_TITLE_PATTERN.test(line) || INSSA_CONTACT_SHARE_DECISION_TITLE_PATTERN.test(line)) ??
+      titleText;
+    const selectedContactsCount = selectedContactsStepLabel
+      ? Number(selectedContactsStepLabel.match(/\b(\d+)\s+selected\b/i)?.[1] ?? "")
+      : null;
+    const visibleContacts = extractVisibleContactLabels(bodyText);
+    const totalContactCount = Number(bodyText.match(/\b\d+\s+of\s+(\d+)\s+contacts?\s+selected\b/i)?.[1] ?? "");
+    const currentContactSelectionVisible =
+      Boolean(selectedContactsStepLabel) ||
+      Boolean(stepTitle && INSSA_CONTACT_SELECTION_CURRENT_TITLE_PATTERN.test(stepTitle)) ||
+      visibleInputs.some((descriptor) => /search by name or email|search/i.test(descriptor)) ||
+      visibleButtons.some((label) => INSSA_SELECT_ALL_CONTACTS_PATTERN.test(label)) ||
+      visibleButtons.some((label) => INSSA_BURY_THEN_CHOOSE_SHARE_PATTERN.test(label)) ||
+      visibleContacts.length > 0;
     const contactShareDecisionVisible =
       (await this.page.getByText(INSSA_CONTACT_SHARE_DECISION_TITLE_PATTERN).first().isVisible().catch(() => false)) ||
-      (Boolean(selectedContactsStepLabel) &&
-        visibleButtons.some((label) => INSSA_SHARE_LINK_WITH_OTHERS_PATTERN.test(label)));
+      currentContactSelectionVisible;
     const copyShareLinkVisible = await this.isCopyShareLinkVisible();
     const shareLinkButtonVisible = await this.isShareLinkButtonVisible();
     const homeVisible = await this.isHomeVisible();
@@ -1321,7 +1427,11 @@ export class TimeCapsulePage {
       ...visibleButtons.filter((label) => /later|minute|min|hour|tomorrow|date|time|schedule|reveal/i.test(label))
     ];
     const contactControls = [
-      ...visibleButtons.filter((label) => /contacts?|selected|select all|people|friends|shared capsule|personal memory|share link/i.test(label)),
+      ...visibleButtons.filter((label) =>
+        /contacts?|selected|select all|people|friends|shared capsule|personal memory|share link|send or save|choose who to share|bury,\s*then/i.test(
+          label
+        )
+      ),
       ...visibleInputs.filter((descriptor) => /contacts?|people|friends|recipient|search/i.test(descriptor))
     ];
 
@@ -1329,7 +1439,10 @@ export class TimeCapsulePage {
       browserSessionWarningDismissed,
       cancelVisible: await this.page.getByRole("button", { name: INSSA_REVEAL_CANCEL_PATTERN }).first().isVisible().catch(() => false),
       contactShareDecisionVisible,
-      contactSelectionVisible: await this.page.getByText(INSSA_CONTACT_SELECTION_PATTERN).first().isVisible().catch(() => false),
+      contactSelectionVisible:
+        currentContactSelectionVisible ||
+        (await this.page.getByText(INSSA_CONTACT_SELECTION_PATTERN).first().isVisible().catch(() => false)),
+      contactCount: Number.isFinite(totalContactCount) ? totalContactCount : visibleContacts.length,
       continueVisible: await this.page.getByRole("button", { name: INSSA_REVEAL_CONTINUE_PATTERN }).first().isVisible().catch(() => false),
       contactControls: Array.from(new Set(contactControls)),
       currentUrl: this.page.url(),
@@ -1345,14 +1458,17 @@ export class TimeCapsulePage {
       safeFollowupLabels: visibleButtons.filter((label) => this.isSafeRevealFollowupLabel(label)),
       schedulingControls: Array.from(new Set(schedulingControls)),
       selectedContactsStepLabel,
+      selectedContactsCount: Number.isFinite(selectedContactsCount) ? selectedContactsCount : null,
       sendToContactsVisible: visibleButtons.some((label) => INSSA_SEND_SELECTED_CONTACTS_PATTERN.test(label)),
       shareLinkButtonVisible: copyShareLinkVisible || shareLinkButtonVisible,
       sharedCapsuleVisible: await this.page.getByText(INSSA_SHARED_CAPSULE_PATTERN).first().isVisible().catch(() => false),
       skipContactsShareLinkVisible: visibleButtons.some((label) => INSSA_SHARE_LINK_WITH_OTHERS_PATTERN.test(label)),
       stepLabel,
+      stepTitle,
       titleText,
       titleVisible,
       visibleButtons,
+      visibleContacts,
       visibleDateFields,
       visibleInputs,
       visibleTimeFields,
@@ -1397,7 +1513,7 @@ export class TimeCapsulePage {
   async chooseRevealSettingsForQaRevealLaterCapsule(input: {
     futureOffsetMinutes?: number;
   } = {}): Promise<InssaRevealLaterSettingsSelection> {
-    void input;
+    const futureOffsetMinutes = input.futureOffsetMinutes ?? 24 * 60;
     await this.dismissBrowserSessionWarningIfPresent();
     await expect(
       this.page.getByText(INSSA_REVEAL_SETTINGS_TITLE_PATTERN).first(),
@@ -1412,6 +1528,15 @@ export class TimeCapsulePage {
       INSSA_REVEAL_LATER_PATTERN,
       "reveal-later"
     )) as InssaRevealSettingsSelection["revealTiming"];
+    const scheduledAt = new Date(Date.now() + futureOffsetMinutes * 60_000);
+    let configuredSchedule = await this.configureRevealLaterSchedule({ scheduledAt });
+    const timestampEvidence = await this.readRevealTimestampEvidence();
+    if (timestampEvidence.scheduledAtIso && !configuredSchedule.scheduledAtIso) {
+      configuredSchedule = {
+        ...configuredSchedule,
+        scheduledAtIso: timestampEvidence.scheduledAtIso
+      };
+    }
     const step1Snapshot = await this.snapshotRevealSettingsModal();
 
     if (step1Snapshot.sharedCapsuleVisible || step1Snapshot.personalMemoryVisible) {
@@ -1424,10 +1549,18 @@ export class TimeCapsulePage {
     await this.continueRevealSettingsOnce();
     const stepTwoSnapshot = await this.waitForRevealSettingsStepTwoSnapshot();
     const flowClassification = this.classifyRevealLaterFlow(stepTwoSnapshot);
-    const schedule = this.buildRevealLaterScheduleEvidenceFromSnapshots({
+    let schedule = this.buildRevealLaterScheduleEvidenceFromSnapshots({
       step1Snapshot,
       stepTwoSnapshot
     });
+    schedule = {
+      ...schedule,
+      ...configuredSchedule,
+      visibleDateTimeControls: Array.from(
+        new Set([...schedule.visibleDateTimeControls, ...configuredSchedule.visibleDateTimeControls])
+      ),
+      visibleScheduleButtons: Array.from(new Set([...schedule.visibleScheduleButtons, ...configuredSchedule.visibleScheduleButtons]))
+    };
 
     if (flowClassification === "unknown") {
       throw new Error(
@@ -1444,7 +1577,8 @@ export class TimeCapsulePage {
       revealTiming,
       schedule,
       step1Snapshot,
-      stepTwoSnapshot
+      stepTwoSnapshot,
+      timestampEvidence
     };
   }
 
@@ -1500,6 +1634,7 @@ export class TimeCapsulePage {
       dateTimeInputFilled: false,
       scheduledAtIso: null,
       scheduledAtText: this.extractRevealLaterScheduleTextFromSnapshots(input.step1Snapshot, input.stepTwoSnapshot),
+      textDateTimeInputFilled: false,
       timeInputFilled: false,
       visibleDateTimeControls,
       visibleScheduleButtons
@@ -1547,15 +1682,19 @@ export class TimeCapsulePage {
   private formatRevealSettingsSnapshotForError(snapshot: InssaRevealSettingsModalSnapshot): string {
     return JSON.stringify({
       contactControls: snapshot.contactControls,
+      contactCount: snapshot.contactCount,
       personalMemoryVisible: snapshot.personalMemoryVisible,
       revealLaterVisible: snapshot.revealLaterVisible,
       revealNowVisible: snapshot.revealNowVisible,
       schedulingControls: snapshot.schedulingControls,
       selectedContactsStepLabel: snapshot.selectedContactsStepLabel,
+      selectedContactsCount: snapshot.selectedContactsCount,
       sharedCapsuleVisible: snapshot.sharedCapsuleVisible,
       stepLabel: snapshot.stepLabel,
+      stepTitle: snapshot.stepTitle,
       titleText: snapshot.titleText,
       visibleButtons: snapshot.visibleButtons,
+      visibleContacts: snapshot.visibleContacts,
       visibleDateFields: snapshot.visibleDateFields,
       visibleInputs: snapshot.visibleInputs,
       visibleTimeFields: snapshot.visibleTimeFields,
@@ -1564,12 +1703,13 @@ export class TimeCapsulePage {
     });
   }
 
-  private async configureRevealLaterSchedule(input: { futureOffsetMinutes: number }): Promise<InssaRevealLaterScheduleEvidence> {
-    const scheduledAt = new Date(Date.now() + input.futureOffsetMinutes * 60_000);
+  private async configureRevealLaterSchedule(input: { scheduledAt: Date }): Promise<InssaRevealLaterScheduleEvidence> {
+    const scheduledAt = input.scheduledAt;
     const intervalOption = await this.findRevealLaterIntervalOption();
     let chosenIntervalLabel: string | null = null;
     let dateTimeInputFilled = false;
     let dateInputFilled = false;
+    let textDateTimeInputFilled = false;
     let timeInputFilled = false;
 
     if (intervalOption) {
@@ -1581,14 +1721,20 @@ export class TimeCapsulePage {
       dateTimeInputFilled = await this.fillFirstVisibleTemporalInput("input[type='datetime-local']", formatDateTimeLocal(scheduledAt));
       dateInputFilled = await this.fillFirstVisibleTemporalInput("input[type='date']", formatDateInput(scheduledAt));
       timeInputFilled = await this.fillFirstVisibleTemporalInput("input[type='time']", formatTimeInput(scheduledAt));
+      if (!dateTimeInputFilled && !dateInputFilled && !timeInputFilled) {
+        textDateTimeInputFilled = await this.fillFirstVisibleTemporalTextInput(formatUsDateTimeInput(scheduledAt));
+      }
     }
 
     return {
       chosenIntervalLabel: chosenIntervalLabel?.replace(/\s+/g, " ").trim() ?? null,
       dateInputFilled,
       dateTimeInputFilled,
-      scheduledAtIso: scheduledAt.toISOString(),
+      scheduledAtIso: chosenIntervalLabel || dateTimeInputFilled || dateInputFilled || timeInputFilled || textDateTimeInputFilled
+        ? scheduledAt.toISOString()
+        : null,
       scheduledAtText: await this.extractRevealLaterScheduleText(),
+      textDateTimeInputFilled,
       timeInputFilled,
       visibleDateTimeControls: await this.listVisibleTemporalControls(),
       visibleScheduleButtons: (await this.listVisibleButtonLabels()).filter((label) =>
@@ -1625,6 +1771,35 @@ export class TimeCapsulePage {
     return false;
   }
 
+  private async fillFirstVisibleTemporalTextInput(value: string): Promise<boolean> {
+    const input = this.page.locator("input, textarea");
+    const total = await input.count();
+    for (let index = 0; index < total; index += 1) {
+      const candidate = input.nth(index);
+      if (!(await candidate.isVisible().catch(() => false))) {
+        continue;
+      }
+
+      const descriptor = await candidate
+        .evaluate((element) => {
+          const type = element.getAttribute("type")?.trim() ?? "";
+          const name = element.getAttribute("name")?.trim() ?? "";
+          const ariaLabel = element.getAttribute("aria-label")?.trim() ?? "";
+          const placeholder = element.getAttribute("placeholder")?.trim() ?? "";
+          return [element.tagName.toLowerCase(), type, name, ariaLabel, placeholder].filter(Boolean).join(" | ");
+        })
+        .catch(() => "");
+      if (!/MM\/DD\/YYYY|date|time|reveal|schedule/i.test(descriptor)) {
+        continue;
+      }
+
+      await candidate.fill(value);
+      return true;
+    }
+
+    return false;
+  }
+
   private async listVisibleInputDescriptors(): Promise<string[]> {
     return await this.page.locator("input, textarea, select").evaluateAll((elements) =>
       elements
@@ -1642,7 +1817,19 @@ export class TimeCapsulePage {
           const ariaLabel = element.getAttribute("aria-label")?.trim() ?? "";
           const placeholder = element.getAttribute("placeholder")?.trim() ?? "";
           const value = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement ? element.value?.trim() ?? "" : "";
-          return [element.tagName.toLowerCase(), type, name, ariaLabel, placeholder, value ? "has-value" : ""].filter(Boolean).join(" | ");
+          const temporalValue = /MM\/DD\/YYYY|date|time|reveal|schedule/i.test([type, name, ariaLabel, placeholder].join(" "))
+            ? value
+            : "";
+          return [
+            element.tagName.toLowerCase(),
+            type,
+            name,
+            ariaLabel,
+            placeholder,
+            temporalValue ? `value=${temporalValue}` : value ? "has-value" : ""
+          ]
+            .filter(Boolean)
+            .join(" | ");
         })
     );
   }
@@ -1663,10 +1850,108 @@ export class TimeCapsulePage {
           const name = element.getAttribute("name")?.trim() ?? "";
           const ariaLabel = element.getAttribute("aria-label")?.trim() ?? "";
           const placeholder = element.getAttribute("placeholder")?.trim() ?? "";
-          return [element.tagName.toLowerCase(), type, name, ariaLabel, placeholder].filter(Boolean).join(" | ");
+          const value = element instanceof HTMLInputElement ? element.value?.trim() ?? "" : "";
+          return [element.tagName.toLowerCase(), type, name, ariaLabel, placeholder, value ? `value=${value}` : ""]
+            .filter(Boolean)
+            .join(" | ");
         })
         .filter((descriptor) => /date|time|reveal|schedule/i.test(descriptor))
     );
+  }
+
+  async readRevealTimestampEvidence(input: { networkPayloads?: string[] } = {}): Promise<InssaRevealTimestampEvidence> {
+    const visibleSchedulingControls = await this.listVisibleTemporalControls();
+    const bodyText = await this.page.locator("body").innerText().catch(() => "");
+    const visibleTextCandidates = collectRevealTimestampCandidates("visible-text", bodyText, "body");
+    const inputValues = await this.page.locator("input, textarea, select").evaluateAll((elements) =>
+      elements
+        .filter((element) => element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)
+        .map((element) => {
+          const htmlElement = element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+          const style = window.getComputedStyle(htmlElement);
+          const visible = style.visibility !== "hidden" && style.display !== "none";
+          const type = htmlElement.getAttribute("type")?.trim() ?? "";
+          const name = htmlElement.getAttribute("name")?.trim() ?? "";
+          const ariaLabel = htmlElement.getAttribute("aria-label")?.trim() ?? "";
+          const placeholder = htmlElement.getAttribute("placeholder")?.trim() ?? "";
+          return {
+            descriptor: [htmlElement.tagName.toLowerCase(), type, name, ariaLabel, placeholder].filter(Boolean).join(" | "),
+            value: htmlElement.value?.trim() ?? "",
+            visible
+          };
+        })
+        .filter((entry) => /reveal|schedule|date|time|MM\/DD\/YYYY/i.test(`${entry.descriptor} ${entry.value}`))
+    );
+    const storage = await this.page.evaluate(() => {
+      const collect = (store: Storage) => {
+        const entries: Array<{ key: string; value: string }> = [];
+        for (let index = 0; index < store.length; index += 1) {
+          const key = store.key(index) ?? "";
+          const value = store.getItem(key) ?? "";
+          if (/reveal|schedule|date|time|capsule|draft/i.test(`${key} ${value}`)) {
+            entries.push({ key, value });
+          }
+        }
+        return entries;
+      };
+
+      return {
+        localStorage: collect(window.localStorage),
+        sessionStorage: collect(window.sessionStorage)
+      };
+    });
+
+    const visibleSchedulingValues = inputValues
+      .filter((entry) => entry.visible && entry.value)
+      .map((entry) => `${entry.descriptor} = ${entry.value}`);
+    const hiddenSchedulingValues = inputValues
+      .filter((entry) => !entry.visible && entry.value)
+      .map((entry) => `${entry.descriptor} = ${entry.value}`);
+    const domCandidates = inputValues.flatMap((entry) =>
+      collectRevealTimestampCandidates(entry.visible ? "dom-visible-input" : "dom-hidden-input", entry.value, entry.descriptor)
+    );
+    const localStorageCandidates = storage.localStorage.flatMap((entry) =>
+      collectRevealTimestampCandidates("local-storage", entry.value, entry.key)
+    );
+    const sessionStorageCandidates = storage.sessionStorage.flatMap((entry) =>
+      collectRevealTimestampCandidates("session-storage", entry.value, entry.key)
+    );
+    const networkCandidates = (input.networkPayloads ?? []).flatMap((payload, index) =>
+      collectRevealTimestampCandidates("network", payload, `payload-${index + 1}`)
+    );
+    const candidateTimestamps = [
+      ...domCandidates,
+      ...visibleTextCandidates,
+      ...localStorageCandidates,
+      ...sessionStorageCandidates,
+      ...networkCandidates
+    ];
+    const strongestCandidate =
+      candidateTimestamps.find(
+        (candidate) =>
+          candidate.normalizedIso &&
+          candidate.source === "network" &&
+          /revealDate|scheduledAt|scheduledFor|deliverAt|deliveryAt|availableAt|unlockAt|opensAt/i.test(candidate.context)
+      ) ??
+      candidateTimestamps.find((candidate) => candidate.normalizedIso && candidate.source === "dom-visible-input") ??
+      candidateTimestamps.find((candidate) => candidate.normalizedIso && candidate.source === "visible-text") ??
+      candidateTimestamps.find((candidate) => candidate.normalizedIso && candidate.source === "network") ??
+      candidateTimestamps.find((candidate) => candidate.normalizedIso) ??
+      null;
+
+    return {
+      candidateTimestamps,
+      hiddenSchedulingValues,
+      localStorageCandidates,
+      networkCandidates,
+      scheduledAtIso: strongestCandidate?.normalizedIso ?? null,
+      selectedDateText: extractSelectedDateText(bodyText, visibleSchedulingValues),
+      selectedTimeText: extractSelectedTimeText(bodyText, visibleSchedulingValues),
+      sessionStorageCandidates,
+      source: strongestCandidate ? `${strongestCandidate.source}:${strongestCandidate.context}` : null,
+      visibleSchedulingControls,
+      visibleSchedulingValues
+    };
   }
 
   private async extractRevealLaterScheduleText(): Promise<string | null> {
@@ -1727,9 +2012,13 @@ export class TimeCapsulePage {
       if (snapshot.contactShareDecisionVisible && !skipContactsClicked && !followupClickedLabel) {
         if (!snapshot.skipContactsShareLinkVisible) {
           throw new Error(
-            `Expected Step 2 contact/share decision to expose a share-link finalization action. Visible buttons: ${snapshot.visibleButtons.join(
-              ", "
-            )}`
+            `Expected Step 2 contact/share decision to expose a share-link finalization action. ` +
+              `The current product UI appears to require contact handling before share-link generation. ` +
+              `Step title="${snapshot.stepTitle ?? "unknown"}", step="${snapshot.selectedContactsStepLabel ?? snapshot.stepLabel ?? "unknown"}", ` +
+              `selectedContacts=${snapshot.selectedContactsCount ?? "unknown"}, contactCount=${snapshot.contactCount ?? "unknown"}, ` +
+              `visibleContacts=${snapshot.visibleContacts.join(", ") || "none"}, ` +
+              `visibleInputs=${snapshot.visibleInputs.join(", ") || "none"}, ` +
+              `visibleButtons=${snapshot.visibleButtons.join(", ") || "none"}`
           );
         }
 
@@ -1793,7 +2082,11 @@ export class TimeCapsulePage {
         finalSnapshot.titleVisible
       }, contactShareDecisionVisible=${finalSnapshot.contactShareDecisionVisible}, step="${
         finalSnapshot.selectedContactsStepLabel ?? finalSnapshot.stepLabel ?? "unknown"
-      }", visibleButtons=${finalSnapshot.visibleButtons.join(", ")}`
+      }", stepTitle="${finalSnapshot.stepTitle ?? "unknown"}", selectedContacts=${
+        finalSnapshot.selectedContactsCount ?? "unknown"
+      }, contactCount=${finalSnapshot.contactCount ?? "unknown"}, visibleContacts=${
+        finalSnapshot.visibleContacts.join(", ") || "none"
+      }, visibleInputs=${finalSnapshot.visibleInputs.join(", ") || "none"}, visibleButtons=${finalSnapshot.visibleButtons.join(", ")}`
     );
   }
 
@@ -1804,7 +2097,7 @@ export class TimeCapsulePage {
     while (Date.now() < deadline) {
       const snapshot = await this.snapshotRevealSettingsModal();
       lastSnapshot = snapshot;
-      if (snapshot.contactShareDecisionVisible && snapshot.skipContactsShareLinkVisible) {
+      if (snapshot.contactShareDecisionVisible) {
         return snapshot;
       }
 
@@ -1814,8 +2107,139 @@ export class TimeCapsulePage {
     throw new Error(
       `Expected Reveal settings Step 2 of 2 contact/share decision. Last visible buttons: ${
         lastSnapshot?.visibleButtons.join(", ") ?? "none"
+      }. Last visible inputs: ${lastSnapshot?.visibleInputs.join(", ") ?? "none"}. Last visible contacts: ${
+        lastSnapshot?.visibleContacts.join(", ") ?? "none"
       }`
     );
+  }
+
+  async selectFirstVisibleContactForDiagnostic(input: { targetLabelPattern?: RegExp } = {}): Promise<InssaContactSelectionDiagnostic> {
+    const beforeSnapshot = await this.waitForContactListReadyForDiagnostic();
+    const bodyText = await this.page.locator("body").innerText().catch(() => "");
+    const rawContactLabels = extractVisibleContactLabels(bodyText, { maskEmails: false });
+    const selectableLabels = input.targetLabelPattern
+      ? rawContactLabels.filter((label) => input.targetLabelPattern?.test(label))
+      : rawContactLabels;
+
+    if (selectableLabels.length === 0) {
+      throw new Error(
+        `Expected at least one selectable contact row${
+          input.targetLabelPattern ? ` matching ${input.targetLabelPattern}` : ""
+        } before contact-share finalization. ` +
+          `Step title="${beforeSnapshot.stepTitle ?? "unknown"}", step="${
+            beforeSnapshot.selectedContactsStepLabel ?? beforeSnapshot.stepLabel ?? "unknown"
+          }", visibleContacts=${beforeSnapshot.visibleContacts.join(", ") || "none"}, ` +
+          `visibleInputs=${beforeSnapshot.visibleInputs.join(", ") || "none"}, ` +
+          `visibleButtons=${beforeSnapshot.visibleButtons.join(", ") || "none"}`
+      );
+    }
+
+    let selectedRawLabel: string | null = null;
+    let selectedLocator: Locator | null = null;
+    for (const rawLabel of selectableLabels) {
+      const locator = await this.findVisibleContactSelectionLocator(rawLabel);
+      if (locator) {
+        selectedRawLabel = rawLabel;
+        selectedLocator = locator;
+        break;
+      }
+    }
+
+    if (!selectedRawLabel || !selectedLocator) {
+      throw new Error(
+        `Expected exactly one visible contact to be selectable, but no safe contact locator was found. ` +
+          `Visible contacts=${beforeSnapshot.visibleContacts.join(", ") || "none"}, ` +
+          `visibleInputs=${beforeSnapshot.visibleInputs.join(", ") || "none"}, ` +
+          `visibleButtons=${beforeSnapshot.visibleButtons.join(", ") || "none"}`
+      );
+    }
+
+    await selectedLocator.click();
+    await expect
+      .poll(
+        async () => {
+          const snapshot = await this.snapshotRevealSettingsModal();
+          return snapshot.selectedContactsCount;
+        },
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: "Expected selecting one contact to update the selected contact count before finalization."
+        }
+      )
+      .toBe(1);
+
+    const afterSnapshot = await this.snapshotRevealSettingsModal();
+    const selectedCountChanged = beforeSnapshot.selectedContactsCount !== afterSnapshot.selectedContactsCount;
+    const visibleButtonsChanged = beforeSnapshot.visibleButtons.join("\n") !== afterSnapshot.visibleButtons.join("\n");
+
+    return {
+      afterSnapshot,
+      beforeSnapshot,
+      selectedContactLabel: maskContactDiagnostic(selectedRawLabel),
+      selectedCountChanged,
+      visibleButtonsChanged
+    };
+  }
+
+  private async waitForContactListReadyForDiagnostic(): Promise<InssaRevealSettingsModalSnapshot> {
+    const deadline = Date.now() + DEFAULT_TIMEOUT;
+    let lastSnapshot: InssaRevealSettingsModalSnapshot | null = null;
+
+    while (Date.now() < deadline) {
+      const snapshot = await this.waitForContactShareDecisionStep();
+      lastSnapshot = snapshot;
+      const hasRealContactRows =
+        (snapshot.contactCount ?? 0) > 0 &&
+        snapshot.visibleContacts.some((label) => !/no saved contacts yet|loading connections/i.test(label));
+
+      if (hasRealContactRows) {
+        return snapshot;
+      }
+
+      await this.page.waitForTimeout(250);
+    }
+
+    throw new Error(
+      `Expected contact list to finish loading with at least one real contact before selection. ` +
+        `Last step="${lastSnapshot?.selectedContactsStepLabel ?? lastSnapshot?.stepLabel ?? "unknown"}", ` +
+        `contactCount=${lastSnapshot?.contactCount ?? "unknown"}, visibleContacts=${
+          lastSnapshot?.visibleContacts.join(", ") || "none"
+        }, visibleButtons=${lastSnapshot?.visibleButtons.join(", ") || "none"}`
+    );
+  }
+
+  async clickBuryThenChooseWhoToShareWithOnce(): Promise<string> {
+    const buttons = this.page.getByRole("button", { name: INSSA_BURY_THEN_CHOOSE_SHARE_PATTERN });
+    const visibleEnabledIndexes: number[] = [];
+    const count = await buttons.count();
+
+    for (let index = 0; index < count; index += 1) {
+      const candidate = buttons.nth(index);
+      if (
+        (await candidate.isVisible().catch(() => false)) &&
+        (await candidate.isEnabled().catch(() => false))
+      ) {
+        visibleEnabledIndexes.push(index);
+      }
+    }
+
+    if (visibleEnabledIndexes.length !== 1) {
+      const snapshot = await this.snapshotRevealSettingsModal();
+      throw new Error(
+        `Expected exactly one enabled contact-share Bury action. Found ${visibleEnabledIndexes.length}. ` +
+          `Step title="${snapshot.stepTitle ?? "unknown"}", step="${
+            snapshot.selectedContactsStepLabel ?? snapshot.stepLabel ?? "unknown"
+          }", selectedContacts=${snapshot.selectedContactsCount ?? "unknown"}, contactCount=${
+            snapshot.contactCount ?? "unknown"
+          }, visibleContacts=${snapshot.visibleContacts.join(", ") || "none"}, ` +
+          `visibleInputs=${snapshot.visibleInputs.join(", ") || "none"}, visibleButtons=${snapshot.visibleButtons.join(", ")}`
+      );
+    }
+
+    const button = buttons.nth(visibleEnabledIndexes[0]);
+    const label = (await button.innerText().catch(() => "")) || "Bury contact-share action";
+    await button.click();
+    return label.replace(/\s+/g, " ").trim();
   }
 
   async chooseSkipContactsAndShareLink(): Promise<string> {
@@ -1832,9 +2256,11 @@ export class TimeCapsulePage {
     if (visibleIndexes.length !== 1) {
       const snapshot = await this.snapshotRevealSettingsModal();
       throw new Error(
-        `Expected exactly one share-link finalization action. Found ${visibleIndexes.length}. Visible buttons: ${snapshot.visibleButtons.join(
-          ", "
-        )}`
+        `Expected exactly one share-link finalization action. Found ${visibleIndexes.length}. ` +
+          `Step title="${snapshot.stepTitle ?? "unknown"}", step="${snapshot.selectedContactsStepLabel ?? snapshot.stepLabel ?? "unknown"}", ` +
+          `selectedContacts=${snapshot.selectedContactsCount ?? "unknown"}, contactCount=${snapshot.contactCount ?? "unknown"}, ` +
+          `visibleContacts=${snapshot.visibleContacts.join(", ") || "none"}, ` +
+          `visibleInputs=${snapshot.visibleInputs.join(", ") || "none"}, visibleButtons=${snapshot.visibleButtons.join(", ")}`
       );
     }
 
@@ -1846,6 +2272,27 @@ export class TimeCapsulePage {
 
   private isSafeRevealFollowupLabel(label: string): boolean {
     return INSSA_SAFE_REVEAL_FOLLOWUP_PATTERN.test(label) || INSSA_SHARE_LINK_WITH_OTHERS_PATTERN.test(label);
+  }
+
+  private async findVisibleContactSelectionLocator(rawLabel: string): Promise<Locator | null> {
+    const labelPattern = new RegExp(escapeRegExp(rawLabel), "i");
+    const exactLabelPattern = new RegExp(`^${escapeRegExp(rawLabel)}$`, "i");
+    const candidates = [
+      this.page.getByRole("checkbox", { name: labelPattern }).first(),
+      this.page.getByRole("button", { name: labelPattern }).first(),
+      this.page.getByRole("option", { name: labelPattern }).first(),
+      this.page.getByRole("listitem").filter({ hasText: labelPattern }).first(),
+      this.page.locator("label").filter({ hasText: labelPattern }).first(),
+      this.page.getByText(exactLabelPattern).first()
+    ];
+
+    for (const candidate of candidates) {
+      if (await candidate.isVisible().catch(() => false)) {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   async readLiveCapsuleShareEvidence(): Promise<InssaLiveCapsuleShareEvidence> {
@@ -2071,6 +2518,49 @@ function extractValidationMessages(bodyText: string): string[] {
   );
 }
 
+function extractVisibleContactLabels(
+  bodyText: string,
+  input: {
+    maskEmails?: boolean;
+  } = {}
+): string[] {
+  const maskEmails = input.maskEmails ?? true;
+  const rawLines = bodyText
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const contactStepIndex = rawLines.findIndex((line) => INSSA_CONTACT_SELECTION_CURRENT_TITLE_PATTERN.test(line));
+
+  if (contactStepIndex < 0) {
+    return [];
+  }
+
+  const contactStepLines = rawLines.slice(contactStepIndex);
+  const selectAllIndex = contactStepLines.findIndex((line) => INSSA_SELECT_ALL_CONTACTS_PATTERN.test(line));
+  const finalActionIndex = contactStepLines.findIndex((line) => INSSA_BURY_THEN_CHOOSE_SHARE_PATTERN.test(line));
+  const contactCandidateLines =
+    selectAllIndex >= 0 && finalActionIndex > selectAllIndex
+      ? contactStepLines.slice(selectAllIndex + 1, finalActionIndex)
+      : contactStepLines;
+  const nonContactLinePattern =
+    /^(?:reveal settings|send or save|send to my contacts|select all|back|continue|cancel|bury|bury,\s*then choose who to share with|search by name or email|\d+\s+selected\s*[·•-]?\s*step\s*2\s*of\s*2|step\s*\d+\s*of\s*\d+|reveal timing|reveal now|reveal later|personal memory|shared capsule|copy share link|share link|home|choose contacts now|after burying|your phone will open sharing|selected \d+\/12 files|add media|compose|photo|video|gallery|save & exit|discard draft|got it)$/i;
+
+  const contactLikeLines = contactCandidateLines
+    .filter((line) => !nonContactLinePattern.test(line))
+    .filter((line) => !/^\d+\s+of\s+\d+\s+contacts?\s+selected$/i.test(line))
+    .filter((line) => !/heads up about this browser session|private browsing|sign-in|app preferences|got it/i.test(line))
+    .filter((line) => !/no saved contacts yet|loading connections/i.test(line))
+    .filter((line) => /@|^[A-Za-z][A-Za-z .'-]{1,80}$/.test(line))
+    .filter((line) => line.length > 1)
+    .map((line) => (maskEmails ? maskContactDiagnostic(line) : line));
+
+  return Array.from(new Set(contactLikeLines)).slice(0, 20);
+}
+
+function maskContactDiagnostic(value: string): string {
+  return value.replace(/\b([A-Z0-9._%+-])[A-Z0-9._%+-]*(@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi, "$1***$2");
+}
+
 function extractCapsuleIdFromCandidate(candidate: string | null): string | null {
   if (!candidate) {
     return null;
@@ -2093,6 +2583,17 @@ function formatDateTimeLocal(value: Date): string {
   return `${formatDateInput(value)}T${formatTimeInput(value)}`;
 }
 
+function formatUsDateTimeInput(value: Date): string {
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  const year = value.getFullYear();
+  const hours24 = value.getHours();
+  const hours12 = hours24 % 12 || 12;
+  const minutes = String(value.getMinutes()).padStart(2, "0");
+  const suffix = hours24 >= 12 ? "PM" : "AM";
+  return `${month}/${day}/${year} ${hours12}:${minutes} ${suffix}`;
+}
+
 function formatDateInput(value: Date): string {
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, "0");
@@ -2104,4 +2605,91 @@ function formatTimeInput(value: Date): string {
   const hours = String(value.getHours()).padStart(2, "0");
   const minutes = String(value.getMinutes()).padStart(2, "0");
   return `${hours}:${minutes}`;
+}
+
+function collectRevealTimestampCandidates(
+  source: InssaRevealTimestampCandidate["source"],
+  value: string,
+  context: string
+): InssaRevealTimestampCandidate[] {
+  const candidates: InssaRevealTimestampCandidate[] = [];
+  const text = String(value ?? "");
+  const namedTimestampMatches = text.matchAll(
+    /"(revealDate|scheduledAt|scheduledFor|deliverAt|deliveryAt|availableAt|unlockAt|opensAt)"\s*:\s*\{[^}]*"timestampValue"\s*:\s*"([^"]+)"/gi
+  );
+  for (const match of namedTimestampMatches) {
+    const normalizedIso = normalizeTimestampCandidate(match[2]);
+    candidates.push({ context: `${context}:${match[1]}`, normalizedIso, source, value: match[2] });
+  }
+
+  const flatNamedTimestampMatches = text.matchAll(
+    /"(revealDate|scheduledAt|scheduledFor|deliverAt|deliveryAt|availableAt|unlockAt|opensAt)"\s*:\s*"([^"]+)"/gi
+  );
+  for (const match of flatNamedTimestampMatches) {
+    const normalizedIso = normalizeTimestampCandidate(match[2]);
+    candidates.push({ context: `${context}:${match[1]}`, normalizedIso, source, value: match[2] });
+  }
+
+  const isoMatches = text.matchAll(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:?\d{2})?\b/g);
+  for (const match of isoMatches) {
+    const normalizedIso = normalizeTimestampCandidate(match[0]);
+    candidates.push({ context, normalizedIso, source, value: match[0] });
+  }
+
+  const usDateMatches = text.matchAll(
+    /\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])\/(\d{4})\s+(\d{1,2}):(\d{2})\s*([AP]M)\b/gi
+  );
+  for (const match of usDateMatches) {
+    const normalizedIso = normalizeUsDateTimeCandidate(match[0]);
+    candidates.push({ context, normalizedIso, source, value: match[0] });
+  }
+
+  const selectedDateMatches = text.matchAll(/\bselected date is ([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4})\b/gi);
+  for (const match of selectedDateMatches) {
+    const normalizedIso = normalizeDateOnlyCandidate(match[1]);
+    candidates.push({ context, normalizedIso, source, value: match[1] });
+  }
+
+  return candidates;
+}
+
+function normalizeTimestampCandidate(value: string): string | null {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function normalizeUsDateTimeCandidate(value: string): string | null {
+  const match = value.match(
+    /\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])\/(\d{4})\s+(\d{1,2}):(\d{2})\s*([AP]M)\b/i
+  );
+  if (!match) {
+    return null;
+  }
+
+  const [, month, day, year, hour, minute, meridiem] = match;
+  let hour24 = Number(hour);
+  if (/pm/i.test(meridiem) && hour24 < 12) {
+    hour24 += 12;
+  }
+  if (/am/i.test(meridiem) && hour24 === 12) {
+    hour24 = 0;
+  }
+
+  const parsed = new Date(Number(year), Number(month) - 1, Number(day), hour24, Number(minute), 0, 0);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function normalizeDateOnlyCandidate(value: string): string | null {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function extractSelectedDateText(bodyText: string, values: string[]): string | null {
+  const combined = [bodyText, ...values].join("\n");
+  return combined.match(/selected date is [^\n]+/i)?.[0] ?? combined.match(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/)?.[0] ?? null;
+}
+
+function extractSelectedTimeText(bodyText: string, values: string[]): string | null {
+  const combined = [bodyText, ...values].join("\n");
+  return combined.match(/\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/i)?.[0] ?? combined.match(/\b\d{2}:\d{2}\b/)?.[0] ?? null;
 }
