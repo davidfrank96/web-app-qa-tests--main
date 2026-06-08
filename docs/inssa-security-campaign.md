@@ -2,7 +2,7 @@
 
 This campaign is black-box QA against `https://staging.inssa.us`. It has no source, backend, database, or cloud access. It is validation and detection only.
 
-For the full INSSA handoff state, see [INSSA QA Harness Current State](inssa-current-state.md).
+For the authoritative operations entry point, see [INSSA QA Operations Guide](inssa-qa-operations-guide.md).
 
 ## Command
 
@@ -180,6 +180,46 @@ Run the full security campaign:
 ```bash
 npm run test:inssa:campaign:security
 ```
+
+Run cross-user access-control verification:
+
+```bash
+npm run test:inssa:campaign:cross-user
+```
+
+This campaign intentionally creates one QA-tagged staging capsule with the primary QA account, then signs in with the secondary QA account and probes exact known routes/surfaces. It requires:
+
+```text
+INSSA_TEST_EMAIL=
+INSSA_TEST_PASSWORD=
+INSSA_SECONDARY_TEST_EMAIL=
+INSSA_SECONDARY_TEST_PASSWORD=
+INSSA_ENABLE_LIVE_CAPSULE_TESTS=1
+INSSA_LIVE_CAPSULE_MANUAL_CLEANUP_APPROVED=1
+```
+
+Cross-user outputs:
+
+```text
+security-campaigns/cross-user/latest-cross-user-verification.json
+security-campaigns/cross-user/<runId>-cross-user-verification.json
+reports/security/cross-user-security.html
+```
+
+Cross-user classifications:
+
+| Area | Classifications |
+| --- | --- |
+| Capsule routes | `isolated`, `expected-share-access`, `unauthorized-visible`, `public-by-design`, `token-required`, `token-optional` |
+| Media | `media-isolated`, `media-publicly-accessible`, `media-authenticated-only` |
+
+Hard failures:
+
+- `unauthorized-visible`
+- `unexpected-authenticated-access`
+- `media-publicly-accessible`
+
+Manual cleanup remains required for the capsule created by User A.
 
 List the OWASP baseline spec only:
 
