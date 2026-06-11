@@ -40,6 +40,27 @@ flowchart LR
   Wazuh --> Dashboards["Dashboards and Alerts"]
 ```
 
+The local INSSA QA Operations Dashboard wraps the existing scripts without replacing them:
+
+```text
+Authenticated Dashboard
+-> Command Registry
+-> Runner
+-> Whitelisted npm script
+-> Logs and artifact indexing
+-> Report archive
+```
+
+Current dashboard source-of-truth documents:
+
+- [Current Platform State](docs/inssa-platform-current-state.md)
+- [Dashboard Architecture](docs/inssa-dashboard-architecture.md)
+- [V1 Definition](docs/inssa-v1-definition.md)
+- [Command Matrix](docs/inssa-command-matrix.md)
+- [Dashboard Decisions](docs/inssa-dashboard-decisions.md)
+- [Dashboard Roadmap](docs/inssa-dashboard-roadmap.md)
+- [2026 Handoff](docs/inssa-handoff-2026.md)
+
 ## Campaign Types
 
 | Campaign | Purpose | Mutates Staging | Command |
@@ -53,6 +74,8 @@ flowchart LR
 | Security verification | Verify known security findings from artifacts. | No | `npm run test:inssa:campaign:security:verify` |
 | Cross-user campaign | Verify primary/secondary QA user access-control behavior. | Yes | `npm run test:inssa:campaign:cross-user` |
 | Reveal-later security | Verify reveal-later access-control behavior. | No unless artifact creation is separately run | `npm run test:inssa:campaign:reveal-later-security` |
+
+Dashboard exposure is intentionally narrower than CLI capability. The dashboard currently exposes only V1 safe/read-only actions, artifact validation, report rendering, SIEM export, and healthcheck. Live lifecycle, cross-user, reveal-later security, and SIEM send actions remain visible-but-disabled or hidden until approval/cleanup/transmission workflows exist.
 
 ## Security Coverage
 
@@ -176,6 +199,14 @@ Run platform healthcheck:
 npm run platform:healthcheck
 ```
 
+Run the local Operations Dashboard:
+
+```bash
+npm run dashboard:dev
+```
+
+The dashboard requires Supabase Auth configuration and `INSSA_URL=https://staging.inssa.us` before command execution.
+
 ## Environment Setup
 
 Copy non-secret examples:
@@ -291,6 +322,13 @@ Primary references:
 
 ## Major Documentation
 
+- [Current Platform State](docs/inssa-platform-current-state.md)
+- [Dashboard Architecture](docs/inssa-dashboard-architecture.md)
+- [Dashboard Roadmap](docs/inssa-dashboard-roadmap.md)
+- [Command Matrix](docs/inssa-command-matrix.md)
+- [Dashboard Decisions](docs/inssa-dashboard-decisions.md)
+- [V1 Definition](docs/inssa-v1-definition.md)
+- [2026 Handoff](docs/inssa-handoff-2026.md)
 - [INSSA Platform Operations](docs/inssa-platform-operations.md)
 - [Final Program Report](docs/inssa-final-program-report.md)
 - [QA Operations Guide](docs/inssa-qa-operations-guide.md)

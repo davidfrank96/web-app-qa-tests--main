@@ -1,6 +1,13 @@
 # INSSA QA Operations Guide
 
-This is the primary entry point for operating the INSSA QA harness.
+This guide remains a broad operations reference for the INSSA QA harness.
+
+For the current dashboard implementation and V1 command exposure, start with:
+
+- [INSSA Platform Current State](inssa-platform-current-state.md)
+- [INSSA Dashboard Architecture](inssa-dashboard-architecture.md)
+- [INSSA V1 Definition](inssa-v1-definition.md)
+- [INSSA Command Matrix](inssa-command-matrix.md)
 
 The repo is a Playwright QA harness for the hosted INSSA staging app. It is not the INSSA application source repository and has no backend, database, or cloud access.
 
@@ -43,7 +50,10 @@ Related docs:
 | [Product Behavior Audit](inssa-product-behavior-audit.md) | Black-box staging product behavior map. |
 | [Contact Share State Machine](inssa-contact-share-state-machine.md) | Current contact-share delivery flow. |
 | [Gitignore Audit](release-gate-gitignore-audit.md) | Secrets/generated artifact release-gate audit. |
-| [Current State](inssa-current-state.md) | Historical state summary; this guide is now authoritative. |
+| [Platform Current State](inssa-platform-current-state.md) | Current dashboard/platform source of truth. |
+| [Command Matrix](inssa-command-matrix.md) | Current CLI and dashboard command exposure. |
+| [V1 Definition](inssa-v1-definition.md) | Approved dashboard V1 scope. |
+| [Historical Current State](inssa-current-state.md) | Earlier state summary retained for context. |
 
 ## 2. Architecture
 

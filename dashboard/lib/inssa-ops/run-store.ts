@@ -1,0 +1,530 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import { getLocalRunStorePath } from "./paths";
+import type {
+  CreateRunInput,
+  InssaArtifactRecord,
+  InssaAuditEventRecord,
+  InssaRunLogRecord,
+  InssaRunRecord,
+  RunPatch
+} from "./types";
+
+type StoreSnapshot = {
+  artifacts: InssaArtifactRecord[];
+  auditEvents: InssaAuditEventRecord[];
+  logs: InssaRunLogRecord[];
+  runs: InssaRunRecord[];
+};
+
+export type InssaRunStoreSummary = {
+  backend: "local-json" | "supabase";
+  backendLabel: "Local JSON" | "Supabase";
+  counts: {
+    artifacts: number;
+    logs: number;
+    runs: number;
+  } | null;
+  error: string | null;
+  storePath: string | null;
+};
+
+export type InssaRunStore = {
+  appendLog(runId: string, stream: InssaRunLogRecord["stream"], message: string): Promise<InssaRunLogRecord>;
+  appendAuditEvent(event: Omit<InssaAuditEventRecord, "createdAt" | "id">): Promise<InssaAuditEventRecord>;
+  createRun(input: CreateRunInput): Promise<InssaRunRecord>;
+  getArtifact(id: string): Promise<InssaArtifactRecord | null>;
+  getArtifacts(runId: string): Promise<InssaArtifactRecord[]>;
+  getLogs(runId: string): Promise<InssaRunLogRecord[]>;
+  getRun(id: string): Promise<InssaRunRecord | null>;
+  listRuns(): Promise<InssaRunRecord[]>;
+  replaceRunArtifacts(runId: string, artifacts: InssaArtifactRecord[]): Promise<InssaArtifactRecord[]>;
+  updateRun(id: string, patch: RunPatch): Promise<InssaRunRecord>;
+};
+
+let storeSingleton: InssaRunStore | null = null;
+
+export function getInssaRunStore(): InssaRunStore {
+  if (!storeSingleton) {
+    storeSingleton = shouldUseSupabaseStore() ? new SupabaseRunStore() : new LocalJsonRunStore();
+  }
+
+  return storeSingleton;
+}
+
+function shouldUseSupabaseStore() {
+  return (
+    process.env.INSSA_OPS_METADATA_STORE === "supabase" &&
+    Boolean(process.env.SUPABASE_URL) &&
+    Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
+  );
+}
+
+export async function getInssaRunStoreSummary(): Promise<InssaRunStoreSummary> {
+  if (!shouldUseSupabaseStore()) {
+    const storePath = getLocalRunStorePath();
+    try {
+      const snapshot = await readLocalSnapshot(storePath);
+      return {
+        backend: "local-json",
+        backendLabel: "Local JSON",
+        counts: {
+          artifacts: snapshot.artifacts.length,
+          logs: snapshot.logs.length,
+          runs: snapshot.runs.length
+        },
+        error: null,
+        storePath
+      };
+    } catch (error) {
+      return {
+        backend: "local-json",
+        backendLabel: "Local JSON",
+        counts: null,
+        error: error instanceof Error ? error.message : String(error),
+        storePath
+      };
+    }
+  }
+
+  const summary: InssaRunStoreSummary = {
+    backend: "supabase",
+    backendLabel: "Supabase",
+    counts: null,
+    error: null,
+    storePath: null
+  };
+
+  try {
+    const [runs, logs, artifacts] = await Promise.all([
+      countSupabaseRows("campaign_runs"),
+      countSupabaseRows("run_logs"),
+      countSupabaseRows("artifacts")
+    ]);
+    summary.counts = { artifacts, logs, runs };
+  } catch (error) {
+    summary.error = error instanceof Error ? error.message : String(error);
+  }
+
+  return summary;
+}
+
+class LocalJsonRunStore implements InssaRunStore {
+  private writeChain: Promise<unknown> = Promise.resolve();
+
+  async appendAuditEvent(event: Omit<InssaAuditEventRecord, "createdAt" | "id">) {
+    return this.withWrite(async (snapshot) => {
+      const record: InssaAuditEventRecord = {
+        ...event,
+        createdAt: new Date().toISOString(),
+        id: crypto.randomUUID()
+      };
+      snapshot.auditEvents.push(record);
+      return record;
+    });
+  }
+
+  async appendLog(runId: string, stream: InssaRunLogRecord["stream"], message: string) {
+    return this.withWrite(async (snapshot) => {
+      const sequence = snapshot.logs.filter((log) => log.runId === runId).length + 1;
+      const record: InssaRunLogRecord = {
+        createdAt: new Date().toISOString(),
+        id: crypto.randomUUID(),
+        message,
+        runId,
+        sequence,
+        stream
+      };
+      snapshot.logs.push(record);
+      return record;
+    });
+  }
+
+  async createRun(input: CreateRunInput) {
+    return this.withWrite(async (snapshot) => {
+      const now = new Date().toISOString();
+      const record: InssaRunRecord = {
+        campaignKey: input.campaignKey,
+        commandSnapshot: input.commandSnapshot,
+        completedAt: null,
+        createdAt: now,
+        durationMs: null,
+        exitCode: null,
+        id: crypto.randomUUID(),
+        requestedBy: input.requestedBy,
+        startedAt: null,
+        status: "queued",
+        updatedAt: now
+      };
+      snapshot.runs.push(record);
+      return record;
+    });
+  }
+
+  async getArtifact(id: string) {
+    const snapshot = await this.readSnapshot();
+    return snapshot.artifacts.find((artifact) => artifact.id === id) ?? null;
+  }
+
+  async getArtifacts(runId: string) {
+    const snapshot = await this.readSnapshot();
+    return snapshot.artifacts
+      .filter((artifact) => artifact.runId === runId)
+      .sort((left, right) => left.filePath.localeCompare(right.filePath));
+  }
+
+  async getLogs(runId: string) {
+    const snapshot = await this.readSnapshot();
+    return snapshot.logs
+      .filter((log) => log.runId === runId)
+      .sort((left, right) => left.sequence - right.sequence);
+  }
+
+  async getRun(id: string) {
+    const snapshot = await this.readSnapshot();
+    return snapshot.runs.find((run) => run.id === id) ?? null;
+  }
+
+  async listRuns() {
+    const snapshot = await this.readSnapshot();
+    return [...snapshot.runs].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async replaceRunArtifacts(runId: string, artifacts: InssaArtifactRecord[]) {
+    return this.withWrite(async (snapshot) => {
+      snapshot.artifacts = snapshot.artifacts.filter((artifact) => artifact.runId !== runId);
+      snapshot.artifacts.push(...artifacts);
+      return artifacts;
+    });
+  }
+
+  async updateRun(id: string, patch: RunPatch) {
+    return this.withWrite(async (snapshot) => {
+      const index = snapshot.runs.findIndex((run) => run.id === id);
+      if (index < 0) {
+        throw new Error(`Run not found: ${id}`);
+      }
+
+      const updated: InssaRunRecord = {
+        ...snapshot.runs[index],
+        ...patch,
+        updatedAt: new Date().toISOString()
+      };
+      snapshot.runs[index] = updated;
+      return updated;
+    });
+  }
+
+  private async readSnapshot(): Promise<StoreSnapshot> {
+    const storePath = getLocalRunStorePath();
+    return readLocalSnapshot(storePath);
+  }
+
+  private async writeSnapshot(snapshot: StoreSnapshot) {
+    const storePath = getLocalRunStorePath();
+    await fs.mkdir(path.dirname(storePath), { recursive: true });
+    await fs.writeFile(storePath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+  }
+
+  private async withWrite<T>(operation: (snapshot: StoreSnapshot) => T | Promise<T>) {
+    const resultPromise = this.writeChain.then(async () => {
+      const snapshot = await this.readSnapshot();
+      const result = await operation(snapshot);
+      await this.writeSnapshot(snapshot);
+      return result;
+    });
+
+    this.writeChain = resultPromise.catch(() => {});
+    return resultPromise;
+  }
+}
+
+async function readLocalSnapshot(storePath: string): Promise<StoreSnapshot> {
+  try {
+    const raw = await fs.readFile(storePath, "utf8");
+    const parsed = JSON.parse(raw) as Partial<StoreSnapshot>;
+    return {
+      artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
+      auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
+      logs: Array.isArray(parsed.logs) ? parsed.logs : [],
+      runs: Array.isArray(parsed.runs) ? parsed.runs : []
+    };
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return { artifacts: [], auditEvents: [], logs: [], runs: [] };
+    }
+    throw error;
+  }
+}
+
+async function countSupabaseRows(table: string) {
+  const apiKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
+  const baseUrl = `${process.env.SUPABASE_URL}/rest/v1`;
+  const response = await fetch(`${baseUrl}/${table}?select=id`, {
+    headers: {
+      apikey: apiKey,
+      authorization: `Bearer ${apiKey}`,
+      prefer: "count=exact",
+      range: "0-0"
+    }
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Supabase metadata count failed for ${table}: ${response.status} ${response.statusText}${text ? ` ${text}` : ""}`);
+  }
+
+  const contentRange = response.headers.get("content-range") ?? "";
+  const count = Number(contentRange.split("/")[1]);
+  return Number.isFinite(count) ? count : 0;
+}
+
+class SupabaseRunStore implements InssaRunStore {
+  private readonly apiKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
+  private readonly baseUrl = `${process.env.SUPABASE_URL}/rest/v1`;
+
+  async appendAuditEvent(event: Omit<InssaAuditEventRecord, "createdAt" | "id">) {
+    const record: InssaAuditEventRecord = {
+      ...event,
+      createdAt: new Date().toISOString(),
+      id: crypto.randomUUID()
+    };
+    await this.request("audit_events", {
+      body: JSON.stringify(toSupabaseAuditEvent(record)),
+      method: "POST"
+    });
+    return record;
+  }
+
+  async appendLog(runId: string, stream: InssaRunLogRecord["stream"], message: string) {
+    const sequence = (await this.getLogs(runId)).length + 1;
+    const record: InssaRunLogRecord = {
+      createdAt: new Date().toISOString(),
+      id: crypto.randomUUID(),
+      message,
+      runId,
+      sequence,
+      stream
+    };
+    await this.request("run_logs", {
+      body: JSON.stringify(toSupabaseLog(record)),
+      method: "POST"
+    });
+    return record;
+  }
+
+  async createRun(input: CreateRunInput) {
+    const now = new Date().toISOString();
+    const record: InssaRunRecord = {
+      campaignKey: input.campaignKey,
+      commandSnapshot: input.commandSnapshot,
+      completedAt: null,
+      createdAt: now,
+      durationMs: null,
+      exitCode: null,
+      id: crypto.randomUUID(),
+      requestedBy: input.requestedBy,
+      startedAt: null,
+      status: "queued",
+      updatedAt: now
+    };
+    await this.request("campaign_runs", {
+      body: JSON.stringify(toSupabaseRun(record)),
+      method: "POST"
+    });
+    return record;
+  }
+
+  async getArtifact(id: string) {
+    const rows = await this.request(`artifacts?id=eq.${encodeURIComponent(id)}&limit=1`);
+    return rows[0] ? fromSupabaseArtifact(rows[0]) : null;
+  }
+
+  async getArtifacts(runId: string) {
+    const rows = await this.request(`artifacts?run_id=eq.${encodeURIComponent(runId)}&order=file_path.asc`);
+    return rows.map(fromSupabaseArtifact);
+  }
+
+  async getLogs(runId: string) {
+    const rows = await this.request(`run_logs?run_id=eq.${encodeURIComponent(runId)}&order=sequence.asc`);
+    return rows.map(fromSupabaseLog);
+  }
+
+  async getRun(id: string) {
+    const rows = await this.request(`campaign_runs?id=eq.${encodeURIComponent(id)}&limit=1`);
+    return rows[0] ? fromSupabaseRun(rows[0]) : null;
+  }
+
+  async listRuns() {
+    const rows = await this.request("campaign_runs?order=created_at.desc");
+    return rows.map(fromSupabaseRun);
+  }
+
+  async replaceRunArtifacts(runId: string, artifacts: InssaArtifactRecord[]) {
+    await this.request(`artifacts?run_id=eq.${encodeURIComponent(runId)}`, {
+      method: "DELETE"
+    });
+
+    if (artifacts.length > 0) {
+      await this.request("artifacts", {
+        body: JSON.stringify(artifacts.map(toSupabaseArtifact)),
+        method: "POST"
+      });
+    }
+
+    return artifacts;
+  }
+
+  async updateRun(id: string, patch: RunPatch) {
+    const current = await this.getRun(id);
+    if (!current) {
+      throw new Error(`Run not found: ${id}`);
+    }
+
+    const updated: InssaRunRecord = {
+      ...current,
+      ...patch,
+      updatedAt: new Date().toISOString()
+    };
+    await this.request(`campaign_runs?id=eq.${encodeURIComponent(id)}`, {
+      body: JSON.stringify(toSupabaseRun(updated)),
+      method: "PATCH"
+    });
+    return updated;
+  }
+
+  private async request(resource: string, init: RequestInit = {}) {
+    const response = await fetch(`${this.baseUrl}/${resource}`, {
+      ...init,
+      headers: {
+        apikey: this.apiKey,
+        authorization: `Bearer ${this.apiKey}`,
+        "content-type": "application/json",
+        prefer: "return=minimal",
+        ...init.headers
+      }
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Supabase metadata request failed: ${response.status} ${response.statusText}${text ? ` ${text}` : ""}`);
+    }
+
+    if (response.status === 204 || response.headers.get("content-length") === "0") {
+      return [];
+    }
+
+    return response.json();
+  }
+}
+
+function toSupabaseRun(run: InssaRunRecord) {
+  return {
+    campaign_key: run.campaignKey,
+    command_snapshot: run.commandSnapshot,
+    completed_at: run.completedAt,
+    created_at: run.createdAt,
+    duration_ms: run.durationMs,
+    exit_code: run.exitCode,
+    id: run.id,
+    requested_by: run.requestedBy,
+    started_at: run.startedAt,
+    status: run.status,
+    updated_at: run.updatedAt
+  };
+}
+
+function fromSupabaseRun(row: Record<string, unknown>): InssaRunRecord {
+  return {
+    campaignKey: String(row.campaign_key),
+    commandSnapshot: row.command_snapshot as InssaRunRecord["commandSnapshot"],
+    completedAt: nullableString(row.completed_at),
+    createdAt: String(row.created_at),
+    durationMs: nullableNumber(row.duration_ms),
+    exitCode: nullableNumber(row.exit_code),
+    id: String(row.id),
+    requestedBy: String(row.requested_by),
+    startedAt: nullableString(row.started_at),
+    status: row.status as InssaRunRecord["status"],
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function toSupabaseLog(log: InssaRunLogRecord) {
+  return {
+    created_at: log.createdAt,
+    id: log.id,
+    message: log.message,
+    run_id: log.runId,
+    sequence: log.sequence,
+    stream: log.stream
+  };
+}
+
+function fromSupabaseLog(row: Record<string, unknown>): InssaRunLogRecord {
+  return {
+    createdAt: String(row.created_at),
+    id: String(row.id),
+    message: String(row.message),
+    runId: String(row.run_id),
+    sequence: Number(row.sequence),
+    stream: row.stream as InssaRunLogRecord["stream"]
+  };
+}
+
+function toSupabaseArtifact(artifact: InssaArtifactRecord) {
+  return {
+    artifact_type: artifact.artifactType,
+    content_type: artifact.contentType,
+    created_at: artifact.createdAt,
+    file_path: artifact.filePath,
+    file_size: artifact.fileSize,
+    id: artifact.id,
+    render_inline: artifact.renderInline,
+    run_id: artifact.runId,
+    sensitive: artifact.sensitive,
+    sha256: artifact.sha256
+  };
+}
+
+function fromSupabaseArtifact(row: Record<string, unknown>): InssaArtifactRecord {
+  return {
+    artifactType: String(row.artifact_type),
+    contentType: String(row.content_type),
+    createdAt: String(row.created_at),
+    filePath: String(row.file_path),
+    fileSize: Number(row.file_size),
+    id: String(row.id),
+    renderInline: Boolean(row.render_inline),
+    runId: String(row.run_id),
+    sensitive: Boolean(row.sensitive),
+    sha256: String(row.sha256)
+  };
+}
+
+function toSupabaseAuditEvent(event: InssaAuditEventRecord) {
+  return {
+    actor_email: event.actorEmail,
+    actor_user_id: event.actorUserId,
+    campaign_key: event.campaignKey,
+    created_at: event.createdAt,
+    event_type: event.eventType,
+    id: event.id,
+    metadata: event.metadata,
+    role: event.role,
+    run_id: event.runId,
+    status: event.status
+  };
+}
+
+function nullableString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function nullableNumber(value: unknown) {
+  return typeof value === "number" ? value : null;
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
