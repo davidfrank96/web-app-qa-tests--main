@@ -19,6 +19,7 @@ reports/
 # Local build output.
 .next/
 dashboard/.next/
+dashboard/.data/
 
 # IDE / OS / temporary files.
 .vscode/

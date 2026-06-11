@@ -1,6 +1,14 @@
 # INSSA Platform Operations
 
-This is the primary operations document for the INSSA QA Security Platform.
+This document covers INSSA QA Security Platform operations.
+
+For the current local Next.js Operations Dashboard source of truth, see:
+
+- [INSSA Platform Current State](inssa-platform-current-state.md)
+- [INSSA Dashboard Architecture](inssa-dashboard-architecture.md)
+- [INSSA Command Matrix](inssa-command-matrix.md)
+
+The dashboard currently exposes safe/read-only V1 commands only. Live lifecycle, cross-user, reveal-later security, and SIEM send workflows remain disabled or CLI-only until their approval/cleanup/transmission controls are implemented.
 
 ## Architecture
 
