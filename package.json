@@ -37,6 +37,8 @@
     "siem:export": "node scripts/siem/export-campaign-summary.js",
     "siem:send": "node scripts/siem/send-to-wazuh.js",
     "test:mobile": "playwright test --project=mobile-chrome",
+    "dashboard:doctor": "node dashboard/scripts/dashboard-runtime.mjs",
+    "dashboard:clean": "node dashboard/scripts/dashboard-runtime.mjs --clean",
     "dashboard:dev": "npm --prefix dashboard run dev",
     "dashboard:build": "npm --prefix dashboard run build",
     "dashboard:start": "npm --prefix dashboard run start",

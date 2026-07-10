@@ -3,9 +3,11 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": "next dev",
+    "doctor": "node scripts/dashboard-runtime.mjs",
+    "clean": "node scripts/dashboard-runtime.mjs --clean",
+    "dev": "node scripts/dashboard-runtime.mjs --mode=dev --startup && next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "node scripts/dashboard-runtime.mjs --mode=start --startup && next start"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
