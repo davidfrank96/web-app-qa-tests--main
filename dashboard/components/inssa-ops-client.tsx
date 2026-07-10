@@ -216,6 +216,7 @@ export function InssaOpsClient({
   const [selectedArtifactValidationActionKey, setSelectedArtifactValidationActionKey] = useState("");
   const [selectedLifecycleActionKey, setSelectedLifecycleActionKey] = useState(DISABLED_LIFECYCLE_COMMANDS[0]?.npmScript ?? "");
   const [selectedReportCategory, setSelectedReportCategory] = useState<ReportCategory>("Security");
+  const [selectedReportArtifactId, setSelectedReportArtifactId] = useState("");
   const [selectedSecurityActionKey, setSelectedSecurityActionKey] = useState("");
   const [selectedSiemActionKey, setSelectedSiemActionKey] = useState("");
   const [runDetailError, setRunDetailError] = useState("");
@@ -295,6 +296,13 @@ export function InssaOpsClient({
   const visibleReportArtifacts = useMemo(() => {
     return reportArchiveArtifacts.filter((artifact) => reportCategoryForArtifact(artifact) === selectedReportCategory);
   }, [reportArchiveArtifacts, selectedReportCategory]);
+  const selectedReportArtifact = useMemo(() => {
+    return (
+      visibleReportArtifacts.find((artifact) => artifact.id === selectedReportArtifactId) ??
+      visibleReportArtifacts[0] ??
+      null
+    );
+  }, [selectedReportArtifactId, visibleReportArtifacts]);
   const canStartRuns = currentUser.role === "operator" || currentUser.role === "admin";
 
   async function refreshCampaigns() {
@@ -509,39 +517,57 @@ export function InssaOpsClient({
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-6 text-slate-100 md:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <header className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/40">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-cyan-300">INSSA QA Operations</p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] md:text-5xl">
-                Safe campaign runner console
-              </h1>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-                V1 read-only operations console for safe campaign execution, run history, live logs,
-                indexed artifacts, report viewing, SIEM export generation, and platform health checks.
-              </p>
+    <main className="min-h-screen bg-[#060c17] text-slate-100">
+      <div className="ops-shell">
+        <header className="ops-topbar">
+          <div className="flex min-w-[18rem] items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-300/30 bg-cyan-300/10 text-sm font-bold text-cyan-100">
+              IQ
             </div>
-            <nav className="flex flex-wrap gap-2 text-sm">
-              <a className="nav-pill" href="#overview">Overview</a>
-              <a className="nav-pill" href="#safe-tests">Safe Tests</a>
-              <a className="nav-pill" href="#security">Security</a>
-              <a className="nav-pill" href="#lifecycle">Lifecycle</a>
-              <a className="nav-pill" href="#artifact-validation">Artifact Validation</a>
-              <a className="nav-pill" href="#reports">Reports</a>
-              <a className="nav-pill" href="#siem">SIEM</a>
-              <a className="nav-pill" href="#operations">Operations</a>
-              <a className="nav-pill" href="#history">Run History</a>
-              <a className="nav-pill" href="#details">Run Details</a>
-              <a className="nav-pill" href="/logout">Logout</a>
-            </nav>
+            <div>
+              <p className="text-base font-semibold tracking-[-0.02em]">INSSA QA Operations</p>
+              <p className="text-xs text-slate-400">Safe campaign runner console</p>
+            </div>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-400">
-            <span className="rounded-full bg-slate-950 px-3 py-1">Signed in: {currentUser.email || currentUser.id}</span>
-            <span className="rounded-full bg-slate-950 px-3 py-1">Role: {currentUser.role}</span>
+          <div className="ops-status-strip">
+            <TopMetric label="Environment" value="Staging" tone="pass" />
+            <TopMetric label="Runner Status" value={overview.running > 0 ? "Running" : "Idle"} tone={overview.running > 0 ? "active" : "neutral"} />
+            <TopMetric label="Metadata Backend" value={metadataBackend.backendLabel} tone="neutral" />
+            <TopMetric label="Last Run" value={runs[0] ? formatRelativeTime(runs[0].createdAt) : "None"} tone="neutral" />
+          </div>
+          <div className="flex items-center gap-3 border-t border-slate-800/80 pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-sm font-semibold">
+              {initialsForUser(currentUser.email || currentUser.id)}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{currentUser.email || currentUser.id}</p>
+              <p className="text-xs capitalize text-slate-400">{currentUser.role}</p>
+            </div>
+            <a className="icon-button" href="/logout" title="Logout">Logout</a>
           </div>
         </header>
+
+        <div className="ops-body">
+          <aside className="ops-sidebar">
+            <nav className="space-y-1">
+              <a className="side-link side-link-active" href="#overview">Overview</a>
+              <p className="side-label">Testing</p>
+              <a className="side-link" href="#safe-tests">Safe Tests</a>
+              <a className="side-link" href="#security">Security</a>
+              <a className="side-link" href="#lifecycle">Lifecycle</a>
+              <p className="side-label">Evidence</p>
+              <a className="side-link" href="#artifact-validation">Artifact Validation</a>
+              <a className="side-link" href="#reports">Reports</a>
+              <p className="side-label">Integrations</p>
+              <a className="side-link" href="#siem">SIEM</a>
+              <p className="side-label">Operations</p>
+              <a className="side-link" href="#operations">Operations</a>
+              <a className="side-link" href="#history">Run History</a>
+              <a className="side-link" href="#details">Run Detail</a>
+            </nav>
+          </aside>
+
+          <div className="min-w-0 space-y-5">
 
         <section className="grid gap-3 md:grid-cols-4" id="overview">
           <OverviewCard label="Total Runs" value={overview.total} />
@@ -750,12 +776,9 @@ export function InssaOpsClient({
         </section>
 
         <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5" id="reports">
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
-            <div className="min-w-0">
-              <SectionHeader title="Reports" subtitle="Review generated evidence without confusing it with campaign execution." />
-              <p className="mt-2 text-sm leading-6 text-slate-400">
-                Report archive entries are indexed artifacts. Opening a report does not run Playwright or create fresh findings.
-              </p>
+          <div className="grid min-w-0 gap-5 2xl:grid-cols-[24rem_minmax(0,1fr)]">
+            <div className="min-w-0 rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
+              <SectionHeader title="Reports Explorer" subtitle="Browse and review generated evidence and reports." />
               <div className="mt-4 flex flex-wrap gap-2">
                 {(["Playwright", "Security", "Lifecycle", "SIEM"] as ReportCategory[]).map((category) => (
                   <button
@@ -765,14 +788,21 @@ export function InssaOpsClient({
                         : "bg-slate-950 text-slate-300 ring-1 ring-slate-800 hover:ring-cyan-300/40"
                     }`}
                     key={category}
-                    onClick={() => setSelectedReportCategory(category)}
+                    onClick={() => {
+                      setSelectedReportCategory(category);
+                      setSelectedReportArtifactId("");
+                    }}
                     type="button"
                   >
                     {category} ({reportCategoryCounts[category]})
                   </button>
                 ))}
               </div>
-              <div className="mt-4 max-h-[36rem] space-y-3 overflow-auto overscroll-contain pr-1">
+              <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-500">
+                <span className="min-w-0 flex-1">Search reports...</span>
+                <span aria-hidden="true">⌕</span>
+              </div>
+              <div className="mt-4 h-[34rem] space-y-3 overflow-auto overscroll-contain pr-1">
                 {visibleReportArtifacts.length === 0 ? (
                   <p className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
                     No {selectedReportCategory.toLowerCase()} report artifacts are currently indexed.
@@ -780,76 +810,159 @@ export function InssaOpsClient({
                 ) : (
                   visibleReportArtifacts.map((artifact) => {
                     const dashboardRun = runs.find((run) => run.id === artifact.runId);
-                    const sourceCampaignRun = resolveReportSource(artifact, reportArchiveArtifacts);
                     const latestAlias = isLatestReportAlias(artifact);
+                    const selected = selectedReportArtifact?.id === artifact.id;
 
                     return (
-                      <article className="min-w-0 rounded-2xl border border-slate-800 bg-slate-950/60 p-4" key={artifact.id}>
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="font-semibold">{reportTitle(artifact)}</h3>
-                              {latestAlias ? (
-                                <span className="rounded-full bg-amber-300/15 px-2.5 py-1 text-xs font-semibold text-amber-100 ring-1 ring-amber-300/20">
-                                  latest alias
-                                </span>
-                              ) : null}
-                            </div>
-                            <p className="mt-1 break-words font-mono text-xs text-slate-400">{artifact.filePath}</p>
-                          </div>
-                          {canOpenArtifact(artifact) ? (
-                            <a
-                              className="shrink-0 rounded-lg border border-cyan-300/30 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/10"
-                              href={`/api/artifacts/${artifact.id}/file`}
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              Open report
-                            </a>
-                          ) : null}
-                        </div>
-                        <dl className="mt-4 grid gap-2 text-sm text-slate-300 md:grid-cols-2">
-                          <Metadata label="Generated date" value={formatDate(artifact.createdAt)} />
-                          <Metadata label="Source campaign run" value={sourceCampaignRun ?? "unknown"} mono />
-                          <Metadata label="Generated by" value={dashboardRun ? `${dashboardRun.campaignKey} / ${dashboardRun.id}` : artifact.runId} mono />
-                          <Metadata label="Artifact type" value={artifact.artifactType} />
-                          <Metadata label="Size" value={formatBytes(artifact.fileSize)} />
-                        </dl>
-                      </article>
+                      <button
+                        className={`report-list-item ${selected ? "report-list-item-active" : ""}`}
+                        key={artifact.id}
+                        onClick={() => setSelectedReportArtifactId(artifact.id)}
+                        type="button"
+                      >
+                        <span className="report-file-icon" aria-hidden="true">▤</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold">{reportTitle(artifact)}</span>
+                            {latestAlias ? <span className="report-chip report-chip-warn">latest</span> : null}
+                          </span>
+                          <span className="mt-2 block text-xs text-slate-400">{formatDate(artifact.createdAt)}</span>
+                          <span className="mt-1 block break-words font-mono text-xs text-slate-500">
+                            {dashboardRun?.campaignKey ?? artifact.runId}
+                          </span>
+                          <span className="mt-1 block text-xs text-slate-400">{formatBytes(artifact.fileSize)}</span>
+                        </span>
+                        <span className="flex shrink-0 flex-col items-end gap-2">
+                          <span className="report-chip">{artifact.contentType.includes("json") ? "JSON" : "HTML"}</span>
+                          {dashboardRun ? <StatusBadge status={dashboardRun.status} /> : null}
+                        </span>
+                      </button>
                     );
                   })
                 )}
               </div>
+              <p className="mt-3 text-xs text-slate-500">
+                Showing {visibleReportArtifacts.length === 0 ? 0 : 1} to {visibleReportArtifacts.length} of {visibleReportArtifacts.length} reports.
+              </p>
             </div>
 
-            <aside className="min-w-0 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-              <h3 className="font-semibold">Report Tools</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-400">
-                These actions work from existing evidence. They do not execute Playwright tests or create fresh findings.
-              </p>
-              <div className="mt-4 space-y-3">
-                {reportRenderCommands.map((campaign) => (
-                  <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-3" key={campaign.key}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h4 className="font-medium">{campaign.displayName}</h4>
-                        <p className="mt-1 font-mono text-xs text-slate-500">{campaign.npmScript}</p>
+            <div className="min-w-0 rounded-2xl border border-slate-800 bg-slate-950/50">
+              {selectedReportArtifact ? (() => {
+                const dashboardRun = runs.find((run) => run.id === selectedReportArtifact.runId);
+                const sourceCampaignRun = resolveReportSource(selectedReportArtifact, reportArchiveArtifacts);
+                const openHref = `/api/artifacts/${selectedReportArtifact.id}/file`;
+                const canPreview = canOpenArtifact(selectedReportArtifact) && !selectedReportArtifact.contentType.includes("json");
+
+                return (
+                  <div className="min-w-0">
+                    <div className="border-b border-slate-800 p-5">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Report Details</p>
+                          <div className="mt-4 flex flex-wrap items-center gap-3">
+                            <h3 className="text-2xl font-semibold tracking-[-0.03em]">{reportTitle(selectedReportArtifact)}</h3>
+                            <span className="report-chip">{selectedReportArtifact.contentType.includes("json") ? "JSON" : "HTML"}</span>
+                            {isLatestReportAlias(selectedReportArtifact) ? <span className="report-chip report-chip-warn">latest alias</span> : null}
+                          </div>
+                          <p className="mt-2 text-sm text-slate-400">
+                            Indexed evidence artifact. Opening it reviews existing evidence and does not execute a campaign.
+                          </p>
+                        </div>
+                        <span className="self-start rounded-full bg-slate-900 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-400 ring-1 ring-slate-800">
+                          Read only
+                        </span>
                       </div>
-                      <RiskBadge risk={campaign.riskLevel} />
+                      <dl className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        <MetadataCard label="Generated By" value={dashboardRun?.campaignKey ?? selectedReportArtifact.runId} />
+                        <MetadataCard label="Source Campaign Run" value={sourceCampaignRun ?? selectedReportArtifact.runId} />
+                        <MetadataCard label="Artifact Type" value={selectedReportArtifact.artifactType} />
+                        <MetadataCard label="Generated Date" value={formatDate(selectedReportArtifact.createdAt)} />
+                        <MetadataCard label="File Size" value={formatBytes(selectedReportArtifact.fileSize)} />
+                        <MetadataCard label="Artifact ID" value={selectedReportArtifact.id.slice(0, 24)} />
+                      </dl>
+                      <div className="mt-5 flex flex-wrap gap-3">
+                        {canOpenArtifact(selectedReportArtifact) ? (
+                          <a className="primary-action" href={openHref} rel="noreferrer" target="_blank">
+                            Open Report ↗
+                          </a>
+                        ) : null}
+                        {selectedReportArtifact.artifactType === "SIEM Export" ? (
+                          <a className="secondary-action" download href={openHref}>
+                            Download
+                          </a>
+                        ) : null}
+                        <span className="secondary-action cursor-default">Source artifact indexed</span>
+                      </div>
                     </div>
-                    <p className="mt-3 text-sm leading-6 text-slate-400">{campaign.operatorDescription}</p>
-                    <button
-                      className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-                      disabled={!canStartRuns || overview.running > 0}
-                      onClick={() => void runCampaign(campaign.key)}
-                      type="button"
-                    >
-                      {canStartRuns ? "Re-render Report" : "Viewer role cannot run"}
-                    </button>
-                  </article>
-                ))}
-              </div>
-            </aside>
+
+                    <div className="p-5">
+                      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
+                        <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+                          <h4 className="font-semibold">Report Preview</h4>
+                          {canOpenArtifact(selectedReportArtifact) ? (
+                            <a className="text-xs font-semibold text-cyan-200 hover:text-cyan-100" href={openHref} rel="noreferrer" target="_blank">
+                              Open in New Tab ↗
+                            </a>
+                          ) : null}
+                        </div>
+                        {canPreview ? (
+                          <iframe
+                            className="h-[28rem] w-full bg-white"
+                            src={openHref}
+                            title={`${reportTitle(selectedReportArtifact)} preview`}
+                          />
+                        ) : (
+                          <div className="flex h-[18rem] items-center justify-center p-6 text-center text-sm text-slate-400">
+                            Preview is not rendered inline for this artifact type. Use the open or download action above.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                        <h4 className="font-semibold">Report Timeline</h4>
+                        <div className="mt-4 grid gap-3 text-sm text-slate-300 md:grid-cols-4">
+                          <Metadata label="Campaign Executed" value={dashboardRun ? formatDate(dashboardRun.createdAt) : "unknown"} />
+                          <Metadata label="Artifact Created" value={formatDate(selectedReportArtifact.createdAt)} />
+                          <Metadata label="Report Generated" value={formatDate(selectedReportArtifact.createdAt)} />
+                          <Metadata label="SIEM Export" value={selectedReportArtifact.artifactType === "SIEM Export" ? "this artifact" : "separate export"} />
+                        </div>
+                      </div>
+
+                      <aside className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                        <h4 className="font-semibold">Report Tools</h4>
+                        <p className="mt-2 text-sm leading-6 text-slate-400">
+                          These actions work from existing evidence. They do not execute Playwright tests or create fresh findings.
+                        </p>
+                        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                          {reportRenderCommands.map((campaign) => (
+                            <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-3" key={campaign.key}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <h5 className="font-medium">{campaign.displayName}</h5>
+                                  <p className="mt-1 font-mono text-xs text-slate-500">{campaign.npmScript}</p>
+                                </div>
+                                <RiskBadge risk={campaign.riskLevel} />
+                              </div>
+                              <p className="mt-3 text-sm leading-6 text-slate-400">{campaign.operatorDescription}</p>
+                              <button
+                                className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                                disabled={!canStartRuns || overview.running > 0}
+                                onClick={() => void runCampaign(campaign.key)}
+                                type="button"
+                              >
+                                {canStartRuns ? "Re-render Report" : "Viewer role cannot run"}
+                              </button>
+                            </article>
+                          ))}
+                        </div>
+                      </aside>
+                    </div>
+                  </div>
+                );
+              })() : (
+                <div className="p-5 text-sm text-slate-400">Select a report artifact to inspect details.</div>
+              )}
+            </div>
           </div>
         </section>
 
@@ -1047,8 +1160,35 @@ export function InssaOpsClient({
             <p className="mt-4 text-sm text-slate-400">No run selected.</p>
           )}
         </section>
+          </div>
+        </div>
       </div>
     </main>
+  );
+}
+
+function TopMetric({
+  label,
+  tone = "neutral",
+  value
+}: {
+  label: string;
+  tone?: "active" | "neutral" | "pass";
+  value: string;
+}) {
+  const toneClass = {
+    active: "text-cyan-200 before:bg-cyan-300",
+    neutral: "text-slate-100 before:bg-slate-500",
+    pass: "text-emerald-200 before:bg-emerald-300"
+  }[tone];
+
+  return (
+    <div className="min-w-[9rem] border-slate-800/80 lg:border-l lg:px-6">
+      <p className="text-xs font-medium text-slate-500">{label}</p>
+      <p className={`mt-1 flex items-center gap-2 text-sm font-semibold ${toneClass} before:block before:h-2 before:w-2 before:rounded-full`}>
+        {value}
+      </p>
+    </div>
   );
 }
 
@@ -1488,6 +1628,26 @@ function formatDate(value: string) {
     dateStyle: "medium",
     timeStyle: "medium"
   }).format(new Date(value));
+}
+
+function formatRelativeTime(value: string) {
+  const diffMs = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(diffMs)) return "unknown";
+  const diffMinutes = Math.max(0, Math.round(diffMs / 60000));
+  if (diffMinutes < 1) return "just now";
+  if (diffMinutes < 60) return `${diffMinutes} min ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours} hr ago`;
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+}
+
+function initialsForUser(value: string) {
+  const [first = "I", second = "Q"] = value
+    .replace(/@.*/, "")
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+  return `${first.charAt(0)}${second.charAt(0)}`.toUpperCase();
 }
 
 async function readJsonResponse(response: Response): Promise<{ error?: string }> {
