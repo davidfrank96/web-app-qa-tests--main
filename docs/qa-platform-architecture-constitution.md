@@ -1,6 +1,6 @@
 # QA Platform Architecture Constitution
 
-Last updated: 2026-06-11
+Last updated: 2026-06-20
 
 This document is the governing architecture source of truth for the QA Platform. It exists to prevent architecture drift and to guide future development by humans and Codex agents.
 
@@ -743,4 +743,3 @@ Before approving a change, ask:
 - Does this require updates to the command matrix, V1 definition, or current-state docs?
 
 If the answer to any risk question is yes, stop and get explicit approval before implementing.
-
