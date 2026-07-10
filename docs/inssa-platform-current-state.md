@@ -1,8 +1,10 @@
 # INSSA QA Platform Current State
 
-Last updated: 2026-06-11
+Last updated: 2026-06-20
 
 This document is the current source-of-truth snapshot for the INSSA QA Operations Platform as implemented in this repository. It describes the dashboard, runner, command exposure, artifacts, reporting, and SIEM integration based on the repo state, not aspirational design.
+
+For governing architecture rules, see [QA Platform Architecture Constitution](qa-platform-architecture-constitution.md).
 
 ## What Exists
 
@@ -246,4 +248,3 @@ Screenshots, videos, traces, lifecycle JSON, and sensitive generated evidence ar
 - No formal dashboard visual regression checklist exists.
 - No dashboard artifact retention policy exists beyond metadata indexing and report serving rules.
 - No operator procedure exists for enabling disabled live lifecycle commands in the dashboard.
-
