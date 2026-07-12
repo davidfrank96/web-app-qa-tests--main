@@ -121,3 +121,109 @@ body {
 .secondary-action {
   @apply inline-flex rounded-xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/50 hover:text-cyan-100;
 }
+
+.ops-shell-workspace {
+  @apply flex min-h-screen flex-col;
+}
+
+.workspace-topbar {
+  @apply shrink-0;
+}
+
+.workspace-body {
+  @apply flex-1 items-start;
+}
+
+.workspace-sidebar {
+  @apply lg:top-24 lg:h-[calc(100vh-10.5rem)];
+}
+
+.workspace-main {
+  @apply min-w-0 overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-950/55 shadow-2xl shadow-black/20;
+  min-height: calc(100vh - 10.5rem);
+}
+
+.workspace-titlebar {
+  @apply flex flex-col gap-4 border-b border-slate-800/80 bg-slate-950/65 p-5 lg:flex-row lg:items-start lg:justify-between;
+}
+
+.workspace-message {
+  @apply max-w-full break-words rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-100 lg:max-w-[28rem];
+}
+
+.workspace-content {
+  @apply min-w-0 p-4 md:p-5;
+}
+
+.workspace-card {
+  @apply rounded-3xl border border-slate-800 bg-slate-900/75 p-5;
+}
+
+.reports-workspace {
+  @apply grid min-w-0 gap-4;
+}
+
+.report-explorer-pane,
+.report-detail-pane,
+.run-history-pane,
+.run-detail-pane {
+  @apply min-w-0 rounded-2xl border border-slate-800 bg-slate-950/50 p-4;
+}
+
+.report-detail-pane {
+  @apply overflow-hidden p-0;
+}
+
+.report-explorer-list {
+  @apply mt-4 space-y-3 overflow-auto overscroll-contain pr-1;
+  max-height: min(38rem, calc(100vh - 27rem));
+}
+
+.report-preview-grid {
+  @apply grid min-w-0 gap-4 p-5;
+}
+
+.run-workspace {
+  @apply grid min-w-0 gap-4;
+}
+
+.run-history-list {
+  @apply overflow-auto overscroll-contain;
+  max-height: min(42rem, calc(100vh - 25rem));
+}
+
+.log-card {
+  @apply min-w-0 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/70 p-4;
+}
+
+.log-scroll {
+  @apply mt-3 min-h-[16rem] overflow-auto overscroll-contain rounded-xl border border-slate-800 bg-black/60 p-3 font-mono text-xs leading-5;
+  max-height: min(42rem, calc(100vh - 29rem));
+}
+
+.run-artifact-sidebar {
+  @apply min-w-0 space-y-5 xl:w-[22rem] 2xl:w-[24rem];
+}
+
+.artifact-scroll {
+  @apply mt-3 space-y-2 overflow-auto overscroll-contain pr-1;
+  max-height: min(34rem, calc(100vh - 27rem));
+}
+
+.ops-footer {
+  @apply sticky bottom-0 z-20 mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-slate-800/80 bg-slate-950/90 px-4 py-3 text-xs text-slate-400 shadow-2xl shadow-black/20 backdrop-blur-xl;
+}
+
+@media (min-width: 1280px) {
+  .reports-workspace {
+    grid-template-columns: minmax(22rem, 28rem) minmax(0, 1fr);
+  }
+
+  .report-preview-grid {
+    grid-template-columns: minmax(0, 1fr) 22rem;
+  }
+
+  .run-workspace {
+    grid-template-columns: minmax(20rem, 26rem) minmax(0, 1fr);
+  }
+}

@@ -100,6 +100,82 @@ type InssaOpsClientProps = {
 
 type RunFilter = "all" | "running" | "passed" | "failed";
 type ReportCategory = "Lifecycle" | "Playwright" | "Security" | "SIEM";
+type WorkspaceKey =
+  | "overview"
+  | "testing"
+  | "security"
+  | "lifecycle"
+  | "artifact-validation"
+  | "reports"
+  | "siem"
+  | "operations"
+  | "runs";
+
+type WorkspaceNavItem = {
+  group?: string;
+  key: WorkspaceKey;
+  label: string;
+};
+
+const WORKSPACE_NAV: WorkspaceNavItem[] = [
+  { key: "overview", label: "Overview" },
+  { group: "Testing", key: "testing", label: "Testing" },
+  { key: "security", label: "Security" },
+  { key: "lifecycle", label: "Lifecycle" },
+  { group: "Evidence", key: "artifact-validation", label: "Artifact Validation" },
+  { key: "reports", label: "Reports" },
+  { group: "Integrations", key: "siem", label: "SIEM" },
+  { group: "Operations", key: "operations", label: "Operations" },
+  { key: "runs", label: "Runs" }
+];
+
+const WORKSPACE_COPY: Record<WorkspaceKey, { eyebrow: string; title: string; subtitle: string }> = {
+  "artifact-validation": {
+    eyebrow: "Evidence",
+    subtitle: "Run read-only discovery, public-share, and cleanup checks against selected lifecycle artifacts.",
+    title: "Artifact Validation"
+  },
+  lifecycle: {
+    eyebrow: "Live staging",
+    subtitle: "Review gated lifecycle campaigns that create staging data and require manual cleanup.",
+    title: "Lifecycle"
+  },
+  operations: {
+    eyebrow: "Platform",
+    subtitle: "Inspect metadata backend health, API failures, diagnostics, and admin-only health checks.",
+    title: "Operations"
+  },
+  overview: {
+    eyebrow: "Command center",
+    subtitle: "Monitor runner state, recent activity, backend status, and platform health at a glance.",
+    title: "Overview"
+  },
+  reports: {
+    eyebrow: "Evidence",
+    subtitle: "Browse generated reports without executing tests or changing staging data.",
+    title: "Reports Explorer"
+  },
+  runs: {
+    eyebrow: "Execution",
+    subtitle: "Inspect run history, live logs, generated artifacts, and Playwright report links.",
+    title: "Run Workspace"
+  },
+  security: {
+    eyebrow: "Security",
+    subtitle: "Execute read-only security campaigns and verification from existing approved commands.",
+    title: "Security"
+  },
+  siem: {
+    eyebrow: "Integration",
+    subtitle: "Generate metadata-only SIEM exports while keeping external send actions disabled.",
+    title: "SIEM"
+  },
+  testing: {
+    eyebrow: "Safe execution",
+    subtitle: "Run the non-mutating INSSA safe suite from the primary testing workspace.",
+    title: "Safe Tests"
+  }
+};
 
 const ACTIVE_STATUSES = new Set(["queued", "starting", "running", "indexing_artifacts"]);
 const PASSED_STATUSES = new Set(["passed", "passed_with_warnings"]);
@@ -222,6 +298,7 @@ export function InssaOpsClient({
   const [runDetailError, setRunDetailError] = useState("");
   const [runHistoryError, setRunHistoryError] = useState(initialLoadError ?? "");
   const [message, setMessage] = useState("");
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceKey>("overview");
 
   useEffect(() => {
     void refreshCampaigns();
@@ -516,10 +593,12 @@ export function InssaOpsClient({
     ].slice(0, 5));
   }
 
+  const workspaceCopy = WORKSPACE_COPY[activeWorkspace];
+
   return (
     <main className="min-h-screen bg-[#060c17] text-slate-100">
-      <div className="ops-shell">
-        <header className="ops-topbar">
+      <div className="ops-shell ops-shell-workspace">
+        <header className="ops-topbar workspace-topbar">
           <div className="flex min-w-[18rem] items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-300/30 bg-cyan-300/10 text-sm font-bold text-cyan-100">
               IQ
@@ -547,621 +626,682 @@ export function InssaOpsClient({
           </div>
         </header>
 
-        <div className="ops-body">
-          <aside className="ops-sidebar">
+        <div className="ops-body workspace-body">
+          <aside className="ops-sidebar workspace-sidebar">
             <nav className="space-y-1">
-              <a className="side-link side-link-active" href="#overview">Overview</a>
-              <p className="side-label">Testing</p>
-              <a className="side-link" href="#safe-tests">Safe Tests</a>
-              <a className="side-link" href="#security">Security</a>
-              <a className="side-link" href="#lifecycle">Lifecycle</a>
-              <p className="side-label">Evidence</p>
-              <a className="side-link" href="#artifact-validation">Artifact Validation</a>
-              <a className="side-link" href="#reports">Reports</a>
-              <p className="side-label">Integrations</p>
-              <a className="side-link" href="#siem">SIEM</a>
-              <p className="side-label">Operations</p>
-              <a className="side-link" href="#operations">Operations</a>
-              <a className="side-link" href="#history">Run History</a>
-              <a className="side-link" href="#details">Run Detail</a>
+              {WORKSPACE_NAV.map((item, index) => (
+                <div key={item.key}>
+                  {item.group && WORKSPACE_NAV[index - 1]?.group !== item.group ? (
+                    <p className="side-label">{item.group}</p>
+                  ) : null}
+                  <button
+                    className={`side-link w-full text-left ${activeWorkspace === item.key ? "side-link-active" : ""}`}
+                    onClick={() => setActiveWorkspace(item.key)}
+                    type="button"
+                  >
+                    {item.label}
+                  </button>
+                </div>
+              ))}
             </nav>
           </aside>
 
-          <div className="min-w-0 space-y-5">
-
-        <section className="grid gap-3 md:grid-cols-4" id="overview">
-          <OverviewCard label="Total Runs" value={overview.total} />
-          <OverviewCard label="Passed Runs" value={overview.passed} tone="pass" />
-          <OverviewCard label="Failed Runs" value={overview.failed} tone="fail" />
-          <OverviewCard label="Running Jobs" value={overview.running} tone="active" />
-        </section>
-
-        {apiFailures.length > 0 ? (
-          <section className="rounded-3xl border border-amber-300/30 bg-amber-300/10 p-5">
-            <h2 className="text-lg font-semibold text-amber-100">Dashboard API Failure</h2>
-            <p className="mt-1 text-sm text-amber-100/80">The dashboard is showing diagnostics instead of silently hiding failed requests.</p>
-            <div className="mt-3 space-y-2">
-              {apiFailures.map((failure) => (
-                <div className="rounded-2xl border border-amber-300/20 bg-slate-950/70 p-3 text-sm" key={`${failure.timestamp}-${failure.endpoint}`}>
-                  <p className="font-mono text-xs text-amber-100">{failure.endpoint}</p>
-                  <p className="mt-1 text-slate-300">Status: {failure.status} · {formatDate(failure.timestamp)}</p>
-                  <p className="mt-1 break-words text-slate-400">{failure.message}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5">
-          <SectionHeader title="Metadata Backend" subtitle="Current Operations Platform metadata source and record counts." />
-          <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <MetadataCard label="Backend" value={metadataBackend.backendLabel} />
-            <MetadataCard label="Runs" value={metadataBackend.counts ? String(metadataBackend.counts.runs) : "unavailable"} />
-            <MetadataCard label="Logs" value={metadataBackend.counts ? String(metadataBackend.counts.logs) : "unavailable"} />
-            <MetadataCard label="Artifacts" value={metadataBackend.counts ? String(metadataBackend.counts.artifacts) : "unavailable"} />
-          </div>
-          {metadataBackend.error ? (
-            <p className="mt-3 rounded-2xl border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
-              Metadata backend error: {metadataBackend.error}
-            </p>
-          ) : null}
-          {metadataBackend.storePath ? (
-            <p className="mt-3 break-words font-mono text-xs text-slate-500">{metadataBackend.storePath}</p>
-          ) : null}
-        </section>
-
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold">Latest Activity</h2>
-              <p className="text-sm text-slate-400">Most recent run activity from the operations metadata store.</p>
-            </div>
-            {message ? <p className="rounded-full bg-cyan-400/10 px-3 py-1 text-sm text-cyan-200">{message}</p> : null}
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            {runs.slice(0, 3).map((run) => (
-              <button
-                className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-left transition hover:border-cyan-400/60"
-                key={run.id}
-                onClick={() => setSelectedRunId(run.id)}
-                type="button"
-              >
-                <StatusBadge status={run.status} />
-                <p className="mt-3 font-mono text-xs text-slate-400">{run.id}</p>
-                <p className="mt-2 text-sm font-medium">{run.campaignKey}</p>
-                <p className="mt-1 text-xs text-slate-500">{formatDate(run.createdAt)}</p>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5" id="safe-tests">
-          <SectionHeader title="Safe Tests" subtitle="Non-mutating INSSA regression checks that are safe to run from the dashboard." />
-          <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
-            Campaigns execute tests. This section contains the safe baseline suite only.
-          </p>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {safeCommands.map((campaign) => (
-              <CommandCard
-                canStartRuns={canStartRuns}
-                campaign={campaign}
-                currentUserRole={currentUser.role}
-                key={campaign.key}
-                runningCount={overview.running}
-                runCampaign={runCampaign}
-              />
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5" id="security">
-          <SectionHeader title="Security" subtitle="Black-box security campaigns and read-only verification against existing evidence." />
-          <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
-            Security campaigns execute tests and can generate findings. Cross-user and reveal-later security remain disabled because they can create staging data.
-          </p>
-          <ActionSelectorPanel
-            canStartRuns={canStartRuns}
-            currentUserRole={currentUser.role}
-            disabledCommands={DISABLED_SECURITY_COMMANDS}
-            enabledCommands={securityCommands}
-            onSelect={setSelectedSecurityActionKey}
-            runningCount={overview.running}
-            runs={runs}
-            runCampaign={runCampaign}
-            selectedKey={selectedSecurityActionKey}
-          />
-        </section>
-
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5" id="lifecycle">
-          <SectionHeader title="Lifecycle" subtitle="Live capsule lifecycle campaigns are visible for orientation but disabled in the dashboard." />
-          <p className="mt-2 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
-            Lifecycle commands create staging data. They require live flags, one-run execution, no retry around final actions, and manual cleanup evidence.
-          </p>
-          <ActionSelectorPanel
-            canStartRuns={canStartRuns}
-            currentUserRole={currentUser.role}
-            disabledCommands={DISABLED_LIFECYCLE_COMMANDS}
-            enabledCommands={[]}
-            onSelect={setSelectedLifecycleActionKey}
-            runningCount={overview.running}
-            runs={runs}
-            runCampaign={runCampaign}
-            selectedKey={selectedLifecycleActionKey}
-          />
-        </section>
-
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5" id="artifact-validation">
-          <SectionHeader title="Artifact Validation" subtitle="Read-only lifecycle checks that consume a known creation artifact." />
-          <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
-            Artifact Validation consumes existing artifacts. It must not create capsules and should show the exact artifact path before execution.
-          </p>
-          <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
-            <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
-              <div>
-                <label className="text-xs uppercase tracking-[0.18em] text-slate-500" htmlFor="artifact-selection-mode">
-                  Selection mode
-                </label>
-                <select
-                  className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                  id="artifact-selection-mode"
-                  onChange={(event) => setArtifactSelectionMode(event.target.value === "explicit" ? "explicit" : "latest")}
-                  value={artifactSelectionMode}
-                >
-                  <option value="latest">Use latest usable artifact</option>
-                  <option value="explicit">Select explicit artifact</option>
-                </select>
-              </div>
+          <section className="workspace-main">
+            <div className="workspace-titlebar">
               <div className="min-w-0">
-                {artifactSelectionMode === "explicit" ? (
-                  <>
-                    <label className="text-xs uppercase tracking-[0.18em] text-slate-500" htmlFor="lifecycle-artifact">
-                      Lifecycle artifact
-                    </label>
-                    <select
-                      className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                      id="lifecycle-artifact"
-                      onChange={(event) => setSelectedLifecycleArtifactPath(event.target.value)}
-                      value={selectedLifecycleArtifactPath}
-                    >
-                      {usableLifecycleArtifacts.length === 0 ? (
-                        <option value="">No usable lifecycle artifacts found</option>
-                      ) : (
-                        usableLifecycleArtifacts.map((artifact) => (
-                          <option key={artifact.filePath} value={artifact.filePath}>
-                            {artifact.artifactType} · {artifact.timestamp} · {artifact.filePath}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </>
-                ) : (
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Latest usable artifact</p>
-                    <p className="mt-2 break-words rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-300">
-                      {latestLifecycleArtifact?.filePath ?? "No usable lifecycle artifact found"}
-                    </p>
-                  </div>
-                )}
+                <p className="text-xs uppercase tracking-[0.24em] text-cyan-200/80">{workspaceCopy.eyebrow}</p>
+                <h1 className="mt-2 text-2xl font-semibold tracking-[-0.04em] md:text-3xl">{workspaceCopy.title}</h1>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">{workspaceCopy.subtitle}</p>
               </div>
-            </div>
-            {selectedLifecycleArtifact ? (
-              <dl className="mt-4 grid gap-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-300 md:grid-cols-3">
-                <Metadata label="Artifact path" value={selectedLifecycleArtifact.filePath} mono />
-                <Metadata label="Artifact type" value={selectedLifecycleArtifact.artifactType} />
-                <Metadata label="Artifact timestamp" value={formatDate(selectedLifecycleArtifact.timestamp)} />
-              </dl>
-            ) : (
-              <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">
-                Artifact Validation is locked until a successful lifecycle artifact is selected.
-              </p>
-            )}
-            {lifecycleArtifactError ? (
-              <p className="mt-3 rounded-xl border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
-                Artifact catalog error: {lifecycleArtifactError}
-              </p>
-            ) : null}
-          </div>
-          <ArtifactValidationActionPanel
-            artifactSelection={buildLifecycleArtifactSelection(artifactSelectionMode, selectedLifecycleArtifact)}
-            canStartRuns={canStartRuns}
-            commands={artifactValidationCommands}
-            currentUserRole={currentUser.role}
-            onSelect={setSelectedArtifactValidationActionKey}
-            runningCount={overview.running}
-            runs={runs}
-            runCampaign={runCampaign}
-            selectedArtifact={selectedLifecycleArtifact}
-            selectedKey={selectedArtifactValidationActionKey}
-          />
-        </section>
-
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5" id="reports">
-          <div className="grid min-w-0 gap-5 2xl:grid-cols-[24rem_minmax(0,1fr)]">
-            <div className="min-w-0 rounded-2xl border border-slate-800 bg-slate-950/50 p-4">
-              <SectionHeader title="Reports Explorer" subtitle="Browse and review generated evidence and reports." />
-              <div className="mt-4 flex flex-wrap gap-2">
-                {(["Playwright", "Security", "Lifecycle", "SIEM"] as ReportCategory[]).map((category) => (
-                  <button
-                    className={`rounded-full px-3 py-1.5 text-sm transition ${
-                      selectedReportCategory === category
-                        ? "bg-cyan-300 text-slate-950"
-                        : "bg-slate-950 text-slate-300 ring-1 ring-slate-800 hover:ring-cyan-300/40"
-                    }`}
-                    key={category}
-                    onClick={() => {
-                      setSelectedReportCategory(category);
-                      setSelectedReportArtifactId("");
-                    }}
-                    type="button"
-                  >
-                    {category} ({reportCategoryCounts[category]})
-                  </button>
-                ))}
-              </div>
-              <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-500">
-                <span className="min-w-0 flex-1">Search reports...</span>
-                <span aria-hidden="true">⌕</span>
-              </div>
-              <div className="mt-4 h-[34rem] space-y-3 overflow-auto overscroll-contain pr-1">
-                {visibleReportArtifacts.length === 0 ? (
-                  <p className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
-                    No {selectedReportCategory.toLowerCase()} report artifacts are currently indexed.
-                  </p>
-                ) : (
-                  visibleReportArtifacts.map((artifact) => {
-                    const dashboardRun = runs.find((run) => run.id === artifact.runId);
-                    const latestAlias = isLatestReportAlias(artifact);
-                    const selected = selectedReportArtifact?.id === artifact.id;
-
-                    return (
-                      <button
-                        className={`report-list-item ${selected ? "report-list-item-active" : ""}`}
-                        key={artifact.id}
-                        onClick={() => setSelectedReportArtifactId(artifact.id)}
-                        type="button"
-                      >
-                        <span className="report-file-icon" aria-hidden="true">▤</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold">{reportTitle(artifact)}</span>
-                            {latestAlias ? <span className="report-chip report-chip-warn">latest</span> : null}
-                          </span>
-                          <span className="mt-2 block text-xs text-slate-400">{formatDate(artifact.createdAt)}</span>
-                          <span className="mt-1 block break-words font-mono text-xs text-slate-500">
-                            {dashboardRun?.campaignKey ?? artifact.runId}
-                          </span>
-                          <span className="mt-1 block text-xs text-slate-400">{formatBytes(artifact.fileSize)}</span>
-                        </span>
-                        <span className="flex shrink-0 flex-col items-end gap-2">
-                          <span className="report-chip">{artifact.contentType.includes("json") ? "JSON" : "HTML"}</span>
-                          {dashboardRun ? <StatusBadge status={dashboardRun.status} /> : null}
-                        </span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-              <p className="mt-3 text-xs text-slate-500">
-                Showing {visibleReportArtifacts.length === 0 ? 0 : 1} to {visibleReportArtifacts.length} of {visibleReportArtifacts.length} reports.
-              </p>
+              {message ? <p className="workspace-message">{message}</p> : null}
             </div>
 
-            <div className="min-w-0 rounded-2xl border border-slate-800 bg-slate-950/50">
-              {selectedReportArtifact ? (() => {
-                const dashboardRun = runs.find((run) => run.id === selectedReportArtifact.runId);
-                const sourceCampaignRun = resolveReportSource(selectedReportArtifact, reportArchiveArtifacts);
-                const openHref = `/api/artifacts/${selectedReportArtifact.id}/file`;
-                const canPreview = canOpenArtifact(selectedReportArtifact) && !selectedReportArtifact.contentType.includes("json");
+            <div className="workspace-content">
+              {activeWorkspace === "overview" ? (
+                <div className="space-y-5">
+                  <section className="grid gap-3 md:grid-cols-4">
+                    <OverviewCard label="Total Runs" value={overview.total} />
+                    <OverviewCard label="Passed Runs" value={overview.passed} tone="pass" />
+                    <OverviewCard label="Failed Runs" value={overview.failed} tone="fail" />
+                    <OverviewCard label="Running Jobs" value={overview.running} tone="active" />
+                  </section>
 
-                return (
-                  <div className="min-w-0">
-                    <div className="border-b border-slate-800 p-5">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="min-w-0">
-                          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Report Details</p>
-                          <div className="mt-4 flex flex-wrap items-center gap-3">
-                            <h3 className="text-2xl font-semibold tracking-[-0.03em]">{reportTitle(selectedReportArtifact)}</h3>
-                            <span className="report-chip">{selectedReportArtifact.contentType.includes("json") ? "JSON" : "HTML"}</span>
-                            {isLatestReportAlias(selectedReportArtifact) ? <span className="report-chip report-chip-warn">latest alias</span> : null}
-                          </div>
-                          <p className="mt-2 text-sm text-slate-400">
-                            Indexed evidence artifact. Opening it reviews existing evidence and does not execute a campaign.
-                          </p>
-                        </div>
-                        <span className="self-start rounded-full bg-slate-900 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-400 ring-1 ring-slate-800">
-                          Read only
-                        </span>
-                      </div>
-                      <dl className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                        <MetadataCard label="Generated By" value={dashboardRun?.campaignKey ?? selectedReportArtifact.runId} />
-                        <MetadataCard label="Source Campaign Run" value={sourceCampaignRun ?? selectedReportArtifact.runId} />
-                        <MetadataCard label="Artifact Type" value={selectedReportArtifact.artifactType} />
-                        <MetadataCard label="Generated Date" value={formatDate(selectedReportArtifact.createdAt)} />
-                        <MetadataCard label="File Size" value={formatBytes(selectedReportArtifact.fileSize)} />
-                        <MetadataCard label="Artifact ID" value={selectedReportArtifact.id.slice(0, 24)} />
-                      </dl>
-                      <div className="mt-5 flex flex-wrap gap-3">
-                        {canOpenArtifact(selectedReportArtifact) ? (
-                          <a className="primary-action" href={openHref} rel="noreferrer" target="_blank">
-                            Open Report ↗
-                          </a>
-                        ) : null}
-                        {selectedReportArtifact.artifactType === "SIEM Export" ? (
-                          <a className="secondary-action" download href={openHref}>
-                            Download
-                          </a>
-                        ) : null}
-                        <span className="secondary-action cursor-default">Source artifact indexed</span>
-                      </div>
-                    </div>
-
-                    <div className="p-5">
-                      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
-                        <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
-                          <h4 className="font-semibold">Report Preview</h4>
-                          {canOpenArtifact(selectedReportArtifact) ? (
-                            <a className="text-xs font-semibold text-cyan-200 hover:text-cyan-100" href={openHref} rel="noreferrer" target="_blank">
-                              Open in New Tab ↗
-                            </a>
-                          ) : null}
-                        </div>
-                        {canPreview ? (
-                          <iframe
-                            className="h-[28rem] w-full bg-white"
-                            src={openHref}
-                            title={`${reportTitle(selectedReportArtifact)} preview`}
-                          />
-                        ) : (
-                          <div className="flex h-[18rem] items-center justify-center p-6 text-center text-sm text-slate-400">
-                            Preview is not rendered inline for this artifact type. Use the open or download action above.
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                        <h4 className="font-semibold">Report Timeline</h4>
-                        <div className="mt-4 grid gap-3 text-sm text-slate-300 md:grid-cols-4">
-                          <Metadata label="Campaign Executed" value={dashboardRun ? formatDate(dashboardRun.createdAt) : "unknown"} />
-                          <Metadata label="Artifact Created" value={formatDate(selectedReportArtifact.createdAt)} />
-                          <Metadata label="Report Generated" value={formatDate(selectedReportArtifact.createdAt)} />
-                          <Metadata label="SIEM Export" value={selectedReportArtifact.artifactType === "SIEM Export" ? "this artifact" : "separate export"} />
-                        </div>
-                      </div>
-
-                      <aside className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                        <h4 className="font-semibold">Report Tools</h4>
-                        <p className="mt-2 text-sm leading-6 text-slate-400">
-                          These actions work from existing evidence. They do not execute Playwright tests or create fresh findings.
+                  <section className="workspace-card">
+                    <SectionHeader title="Latest Activity" subtitle="Most recent run activity from the operations metadata store." />
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      {runs.slice(0, 3).map((run) => (
+                        <button
+                          className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-left transition hover:border-cyan-400/60"
+                          key={run.id}
+                          onClick={() => {
+                            setSelectedRunId(run.id);
+                            setActiveWorkspace("runs");
+                          }}
+                          type="button"
+                        >
+                          <StatusBadge status={run.status} />
+                          <p className="mt-3 font-mono text-xs text-slate-400">{run.id}</p>
+                          <p className="mt-2 text-sm font-medium">{run.campaignKey}</p>
+                          <p className="mt-1 text-xs text-slate-500">{formatDate(run.createdAt)}</p>
+                        </button>
+                      ))}
+                      {runs.length === 0 ? (
+                        <p className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
+                          No runs recorded in the active metadata backend.
                         </p>
-                        <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                          {reportRenderCommands.map((campaign) => (
-                            <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-3" key={campaign.key}>
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <h5 className="font-medium">{campaign.displayName}</h5>
-                                  <p className="mt-1 font-mono text-xs text-slate-500">{campaign.npmScript}</p>
-                                </div>
-                                <RiskBadge risk={campaign.riskLevel} />
-                              </div>
-                              <p className="mt-3 text-sm leading-6 text-slate-400">{campaign.operatorDescription}</p>
-                              <button
-                                className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-                                disabled={!canStartRuns || overview.running > 0}
-                                onClick={() => void runCampaign(campaign.key)}
-                                type="button"
-                              >
-                                {canStartRuns ? "Re-render Report" : "Viewer role cannot run"}
-                              </button>
-                            </article>
-                          ))}
-                        </div>
-                      </aside>
+                      ) : null}
                     </div>
-                  </div>
-                );
-              })() : (
-                <div className="p-5 text-sm text-slate-400">Select a report artifact to inspect details.</div>
-              )}
-            </div>
-          </div>
-        </section>
+                  </section>
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5" id="siem">
-          <SectionHeader title="SIEM" subtitle="Generate metadata-only Wazuh payloads from existing campaign outputs." />
-          <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
-            SIEM export is read-only. SIEM send is an external transmission action and remains disabled until explicit confirmation exists.
-          </p>
-          <ActionSelectorPanel
-            canStartRuns={canStartRuns}
-            currentUserRole={currentUser.role}
-            disabledCommands={DISABLED_SIEM_COMMANDS}
-            enabledCommands={siemCommands}
-            onSelect={setSelectedSiemActionKey}
-            runningCount={overview.running}
-            runs={runs}
-            runCampaign={runCampaign}
-            selectedKey={selectedSiemActionKey}
-          />
-        </section>
+                  <section className="workspace-card">
+                    <SectionHeader title="Metadata Backend" subtitle="Current Operations Platform metadata source and record counts." />
+                    <div className="mt-4 grid gap-3 md:grid-cols-4">
+                      <MetadataCard label="Backend" value={metadataBackend.backendLabel} />
+                      <MetadataCard label="Runs" value={metadataBackend.counts ? String(metadataBackend.counts.runs) : "unavailable"} />
+                      <MetadataCard label="Logs" value={metadataBackend.counts ? String(metadataBackend.counts.logs) : "unavailable"} />
+                      <MetadataCard label="Artifacts" value={metadataBackend.counts ? String(metadataBackend.counts.artifacts) : "unavailable"} />
+                    </div>
+                    {metadataBackend.error ? (
+                      <p className="mt-3 rounded-2xl border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+                        Metadata backend error: {metadataBackend.error}
+                      </p>
+                    ) : null}
+                    {metadataBackend.storePath ? (
+                      <p className="mt-3 break-words font-mono text-xs text-slate-500">{metadataBackend.storePath}</p>
+                    ) : null}
+                  </section>
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5" id="operations">
-          <SectionHeader title="Operations" subtitle="Platform health checks and operational diagnostics." />
-          <p className="mt-2 rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
-            Operations commands validate local platform wiring. The healthcheck remains governed by the existing admin-only authorization rule.
-          </p>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {operationsCommands.map((campaign) => (
-              <CommandCard
-                canStartRuns={canStartRuns}
-                campaign={campaign}
-                currentUserRole={currentUser.role}
-                key={campaign.key}
-                runningCount={overview.running}
-                runCampaign={runCampaign}
-              />
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5" id="history">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <SectionHeader title="Run History" subtitle="Filter by coarse execution state." />
-            <div className="flex flex-wrap gap-2">
-              {(["all", "running", "passed", "failed"] as RunFilter[]).map((filter) => (
-                <button
-                  className={`rounded-full px-3 py-1.5 text-sm ${runFilter === filter ? "bg-cyan-300 text-slate-950" : "bg-slate-950 text-slate-300 ring-1 ring-slate-800"}`}
-                  key={filter}
-                  onClick={() => setRunFilter(filter)}
-                  type="button"
-                >
-                  {filter}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-800">
-            {runHistoryError ? (
-              <div className="bg-rose-300/10 p-4 text-sm text-rose-100">
-                <p className="font-semibold">Run History failed to load.</p>
-                <p className="mt-1 break-words">{runHistoryError}</p>
-                <p className="mt-2 text-rose-100/80">
-                  Backend: {metadataBackend.backendLabel} · Runs: {metadataBackend.counts ? metadataBackend.counts.runs : "unavailable"}
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="hidden grid-cols-[1.4fr_1fr_0.7fr_0.6fr_1fr] gap-3 bg-slate-950 px-4 py-3 text-xs uppercase tracking-[0.2em] text-slate-500 md:grid">
-                  <span>Run ID</span>
-                  <span>Campaign</span>
-                  <span>Status</span>
-                  <span>Duration</span>
-                  <span>Created</span>
-                </div>
-                <div className="divide-y divide-slate-800">
-                  {visibleRuns.length === 0 ? (
-                    <p className="bg-slate-950/50 p-4 text-sm text-slate-400">
-                      No runs found in the current metadata backend.
-                    </p>
-                  ) : (
-                    visibleRuns.map((run) => (
-                      <button
-                        className={`grid w-full gap-3 px-4 py-4 text-left text-sm transition hover:bg-slate-800/50 md:grid-cols-[1.4fr_1fr_0.7fr_0.6fr_1fr] ${selectedRunId === run.id ? "bg-cyan-400/10" : "bg-slate-900/30"}`}
-                        key={run.id}
-                        onClick={() => setSelectedRunId(run.id)}
-                        type="button"
-                      >
-                        <span className="break-all font-mono text-xs text-slate-300">{run.id}</span>
-                        <span>{run.campaignKey}</span>
-                        <span><StatusBadge status={run.status} /></span>
-                        <span>{formatDuration(run.durationMs)}</span>
-                        <span className="text-slate-400">{formatDate(run.createdAt)}</span>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5" id="details">
-          <SectionHeader title="Run Detail" subtitle={selectedRun ? selectedRun.id : selectedRunId ? selectedRunId : "Select a run to inspect."} />
-          {selectedRun ? (
-            <div className="mt-4 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]">
-              <div className="min-w-0 space-y-5">
-                <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <MetadataCard label="Status" value={selectedRun.status} />
-                  <MetadataCard label="Duration" value={formatDuration(selectedRun.durationMs)} />
-                  <MetadataCard label="Exit Code" value={selectedRun.exitCode === null ? "pending" : String(selectedRun.exitCode)} />
-                  <MetadataCard label="Artifacts" value={String(artifacts.length)} />
-                </div>
-
-                <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <h3 className="font-semibold">Live Logs</h3>
-                    <p className="text-xs text-slate-500">{logs.length} entries</p>
-                  </div>
-                  <div className="mt-3 max-h-[34rem] min-h-[14rem] overflow-auto overscroll-contain rounded-xl border border-slate-800 bg-black/60 p-3 font-mono text-xs leading-5">
-                    {logs.length === 0 ? (
-                      <p className="text-slate-500">No logs captured yet.</p>
-                    ) : (
-                      <div className="min-w-0 divide-y divide-slate-900/80">
-                        {logs.map((log) => (
-                          <div
-                            className={`grid min-w-0 grid-cols-[2.75rem_4.75rem_minmax(0,1fr)] gap-2 py-1.5 ${log.stream === "stderr" ? "text-amber-200" : log.stream === "system" ? "text-cyan-200" : "text-slate-300"}`}
-                            key={log.id}
-                          >
-                            <span className="text-right text-slate-600">{String(log.sequence).padStart(3, "0")}</span>
-                            <span className="truncate text-slate-500">{log.stream}</span>
-                            <span className="min-w-0 whitespace-pre-wrap break-words">{log.message}</span>
+                  {apiFailures.length > 0 ? (
+                    <section className="rounded-3xl border border-amber-300/30 bg-amber-300/10 p-5">
+                      <h2 className="text-lg font-semibold text-amber-100">Dashboard API Failure</h2>
+                      <p className="mt-1 text-sm text-amber-100/80">The dashboard is showing diagnostics instead of silently hiding failed requests.</p>
+                      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                        {apiFailures.map((failure) => (
+                          <div className="rounded-2xl border border-amber-300/20 bg-slate-950/70 p-3 text-sm" key={`${failure.timestamp}-${failure.endpoint}`}>
+                            <p className="font-mono text-xs text-amber-100">{failure.endpoint}</p>
+                            <p className="mt-1 text-slate-300">Status: {failure.status} · {formatDate(failure.timestamp)}</p>
+                            <p className="mt-1 break-words text-slate-400">{failure.message}</p>
                           </div>
                         ))}
                       </div>
-                    )}
-                  </div>
+                    </section>
+                  ) : null}
                 </div>
-              </div>
+              ) : null}
 
-              <aside className="min-w-0 space-y-5 xl:w-[22rem] 2xl:w-[24rem]">
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                  <h3 className="font-semibold">Playwright Report</h3>
-                  {playwrightReport ? (
-                    <a className="mt-3 block break-words rounded-xl border border-cyan-300/40 bg-cyan-300/10 p-3 text-sm text-cyan-100" href={`/api/artifacts/${playwrightReport.id}/file`} target="_blank" rel="noreferrer">
-                      {playwrightReport.filePath}
-                    </a>
-                  ) : (
-                    <p className="mt-3 text-sm text-slate-400">No Playwright report artifact indexed for this run.</p>
-                  )}
-                </div>
-
-                <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="font-semibold">Artifacts</h3>
-                    <p className="text-xs text-slate-500">{artifacts.length} total</p>
+              {activeWorkspace === "testing" ? (
+                <section className="workspace-card">
+                  <SectionHeader title="INSSA Safe Suite" subtitle="Non-mutating INSSA regression checks that are safe to run from the dashboard." />
+                  <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
+                    Campaigns execute tests. This workspace contains the safe baseline suite only.
+                  </p>
+                  <div className="mt-5 grid gap-3 md:grid-cols-2">
+                    {safeCommands.map((campaign) => (
+                      <CommandCard
+                        canStartRuns={canStartRuns}
+                        campaign={campaign}
+                        currentUserRole={currentUser.role}
+                        key={campaign.key}
+                        runningCount={overview.running}
+                        runCampaign={runCampaign}
+                      />
+                    ))}
                   </div>
-                  <div className="mt-3 max-h-[34rem] space-y-2 overflow-auto overscroll-contain pr-1">
-                    {artifacts.length === 0 ? (
-                      <p className="text-sm text-slate-400">No artifacts indexed yet.</p>
-                    ) : (
-                      artifacts.map((artifact) => (
-                        <div className="min-w-0 rounded-xl border border-slate-800 bg-slate-900/70 p-3" key={artifact.id}>
-                          <div className="flex items-start justify-between gap-3">
-                            <p className="min-w-0 break-words text-sm font-medium">{artifact.artifactType}</p>
-                            <p className="shrink-0 text-xs text-slate-500">{formatBytes(artifact.fileSize)}</p>
-                          </div>
-                          <p className="mt-1 min-w-0 break-words font-mono text-xs text-slate-400">{artifact.filePath}</p>
-                          <p className="mt-2 break-words text-xs text-slate-500">
-                            {artifact.contentType} · sensitive: {artifact.sensitive ? "yes" : "no"} · inline: {artifact.renderInline ? "yes" : "no"}
-                          </p>
-                          {canOpenArtifact(artifact) ? (
-                            <a
-                              className="mt-3 inline-flex rounded-lg border border-cyan-300/30 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/10"
-                              href={`/api/artifacts/${artifact.id}/file`}
-                              rel="noreferrer"
-                              target="_blank"
+                </section>
+              ) : null}
+
+              {activeWorkspace === "security" ? (
+                <section className="workspace-card">
+                  <SectionHeader title="Security Actions" subtitle="Black-box security campaigns and read-only verification against existing evidence." />
+                  <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
+                    Security campaigns execute tests and can generate findings. Cross-user and reveal-later security remain disabled because they can create staging data.
+                  </p>
+                  <ActionSelectorPanel
+                    canStartRuns={canStartRuns}
+                    currentUserRole={currentUser.role}
+                    disabledCommands={DISABLED_SECURITY_COMMANDS}
+                    enabledCommands={securityCommands}
+                    onSelect={setSelectedSecurityActionKey}
+                    runningCount={overview.running}
+                    runs={runs}
+                    runCampaign={runCampaign}
+                    selectedKey={selectedSecurityActionKey}
+                  />
+                </section>
+              ) : null}
+
+              {activeWorkspace === "lifecycle" ? (
+                <section className="workspace-card">
+                  <SectionHeader title="Lifecycle Campaigns" subtitle="Live capsule lifecycle campaigns are visible for orientation but disabled in the dashboard." />
+                  <p className="mt-2 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
+                    Lifecycle commands create staging data. They require live flags, one-run execution, no retry around final actions, and manual cleanup evidence.
+                  </p>
+                  <ActionSelectorPanel
+                    canStartRuns={canStartRuns}
+                    currentUserRole={currentUser.role}
+                    disabledCommands={DISABLED_LIFECYCLE_COMMANDS}
+                    enabledCommands={[]}
+                    onSelect={setSelectedLifecycleActionKey}
+                    runningCount={overview.running}
+                    runs={runs}
+                    runCampaign={runCampaign}
+                    selectedKey={selectedLifecycleActionKey}
+                  />
+                </section>
+              ) : null}
+
+              {activeWorkspace === "artifact-validation" ? (
+                <section className="workspace-card">
+                  <SectionHeader title="Artifact Validation" subtitle="Read-only lifecycle checks that consume a known creation artifact." />
+                  <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
+                    Artifact Validation consumes existing artifacts. It must not create capsules and should show the exact artifact path before execution.
+                  </p>
+                  <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                    <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
+                      <div>
+                        <label className="text-xs uppercase tracking-[0.18em] text-slate-500" htmlFor="artifact-selection-mode">
+                          Selection mode
+                        </label>
+                        <select
+                          className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                          id="artifact-selection-mode"
+                          onChange={(event) => setArtifactSelectionMode(event.target.value === "explicit" ? "explicit" : "latest")}
+                          value={artifactSelectionMode}
+                        >
+                          <option value="latest">Use latest usable artifact</option>
+                          <option value="explicit">Select explicit artifact</option>
+                        </select>
+                      </div>
+                      <div className="min-w-0">
+                        {artifactSelectionMode === "explicit" ? (
+                          <>
+                            <label className="text-xs uppercase tracking-[0.18em] text-slate-500" htmlFor="lifecycle-artifact">
+                              Lifecycle artifact
+                            </label>
+                            <select
+                              className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                              id="lifecycle-artifact"
+                              onChange={(event) => setSelectedLifecycleArtifactPath(event.target.value)}
+                              value={selectedLifecycleArtifactPath}
                             >
-                              {artifact.artifactType === "SIEM Export" ? "Download" : "Open"}
-                            </a>
-                          ) : null}
+                              {usableLifecycleArtifacts.length === 0 ? (
+                                <option value="">No usable lifecycle artifacts found</option>
+                              ) : (
+                                usableLifecycleArtifacts.map((artifact) => (
+                                  <option key={artifact.filePath} value={artifact.filePath}>
+                                    {artifact.artifactType} · {artifact.timestamp} · {artifact.filePath}
+                                  </option>
+                                ))
+                              )}
+                            </select>
+                          </>
+                        ) : (
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Latest usable artifact</p>
+                            <p className="mt-2 break-words rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-300">
+                              {latestLifecycleArtifact?.filePath ?? "No usable lifecycle artifact found"}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {selectedLifecycleArtifact ? (
+                      <dl className="mt-4 grid gap-3 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-300 md:grid-cols-3">
+                        <Metadata label="Artifact path" value={selectedLifecycleArtifact.filePath} mono />
+                        <Metadata label="Artifact type" value={selectedLifecycleArtifact.artifactType} />
+                        <Metadata label="Artifact timestamp" value={formatDate(selectedLifecycleArtifact.timestamp)} />
+                      </dl>
+                    ) : (
+                      <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">
+                        Artifact Validation is locked until a successful lifecycle artifact is selected.
+                      </p>
+                    )}
+                    {lifecycleArtifactError ? (
+                      <p className="mt-3 rounded-xl border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+                        Artifact catalog error: {lifecycleArtifactError}
+                      </p>
+                    ) : null}
+                  </div>
+                  <ArtifactValidationActionPanel
+                    artifactSelection={buildLifecycleArtifactSelection(artifactSelectionMode, selectedLifecycleArtifact)}
+                    canStartRuns={canStartRuns}
+                    commands={artifactValidationCommands}
+                    currentUserRole={currentUser.role}
+                    onSelect={setSelectedArtifactValidationActionKey}
+                    runningCount={overview.running}
+                    runs={runs}
+                    runCampaign={runCampaign}
+                    selectedArtifact={selectedLifecycleArtifact}
+                    selectedKey={selectedArtifactValidationActionKey}
+                  />
+                </section>
+              ) : null}
+
+              {activeWorkspace === "reports" ? (
+                <section className="reports-workspace">
+                  <div className="report-explorer-pane">
+                    <SectionHeader title="Reports Explorer" subtitle="Browse and review generated evidence and reports." />
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {(["Playwright", "Security", "Lifecycle", "SIEM"] as ReportCategory[]).map((category) => (
+                        <button
+                          className={`rounded-full px-3 py-1.5 text-sm transition ${
+                            selectedReportCategory === category
+                              ? "bg-cyan-300 text-slate-950"
+                              : "bg-slate-950 text-slate-300 ring-1 ring-slate-800 hover:ring-cyan-300/40"
+                          }`}
+                          key={category}
+                          onClick={() => {
+                            setSelectedReportCategory(category);
+                            setSelectedReportArtifactId("");
+                          }}
+                          type="button"
+                        >
+                          {category} ({reportCategoryCounts[category]})
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-500">
+                      <span className="min-w-0 flex-1">Search reports...</span>
+                      <span aria-hidden="true">⌕</span>
+                    </div>
+                    <div className="report-explorer-list">
+                      {visibleReportArtifacts.length === 0 ? (
+                        <p className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
+                          No {selectedReportCategory.toLowerCase()} report artifacts are currently indexed.
+                        </p>
+                      ) : (
+                        visibleReportArtifacts.map((artifact) => {
+                          const dashboardRun = runs.find((run) => run.id === artifact.runId);
+                          const latestAlias = isLatestReportAlias(artifact);
+                          const selected = selectedReportArtifact?.id === artifact.id;
+
+                          return (
+                            <button
+                              className={`report-list-item ${selected ? "report-list-item-active" : ""}`}
+                              key={artifact.id}
+                              onClick={() => setSelectedReportArtifactId(artifact.id)}
+                              type="button"
+                            >
+                              <span className="report-file-icon" aria-hidden="true">▤</span>
+                              <span className="min-w-0 flex-1">
+                                <span className="flex flex-wrap items-center gap-2">
+                                  <span className="font-semibold">{reportTitle(artifact)}</span>
+                                  {latestAlias ? <span className="report-chip report-chip-warn">latest</span> : null}
+                                </span>
+                                <span className="mt-2 block text-xs text-slate-400">{formatDate(artifact.createdAt)}</span>
+                                <span className="mt-1 block break-words font-mono text-xs text-slate-500">
+                                  {dashboardRun?.campaignKey ?? artifact.runId}
+                                </span>
+                                <span className="mt-1 block text-xs text-slate-400">{formatBytes(artifact.fileSize)}</span>
+                              </span>
+                              <span className="flex shrink-0 flex-col items-end gap-2">
+                                <span className="report-chip">{artifact.contentType.includes("json") ? "JSON" : "HTML"}</span>
+                                {dashboardRun ? <StatusBadge status={dashboardRun.status} /> : null}
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                    <p className="mt-3 text-xs text-slate-500">
+                      Showing {visibleReportArtifacts.length === 0 ? 0 : 1} to {visibleReportArtifacts.length} of {visibleReportArtifacts.length} reports.
+                    </p>
+                  </div>
+
+                  <div className="report-detail-pane">
+                    {selectedReportArtifact ? (() => {
+                      const dashboardRun = runs.find((run) => run.id === selectedReportArtifact.runId);
+                      const sourceCampaignRun = resolveReportSource(selectedReportArtifact, reportArchiveArtifacts);
+                      const openHref = `/api/artifacts/${selectedReportArtifact.id}/file`;
+                      const canPreview = canOpenArtifact(selectedReportArtifact) && !selectedReportArtifact.contentType.includes("json");
+
+                      return (
+                        <div className="min-w-0">
+                          <div className="border-b border-slate-800 p-5">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                              <div className="min-w-0">
+                                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Report Details</p>
+                                <div className="mt-4 flex flex-wrap items-center gap-3">
+                                  <h3 className="text-2xl font-semibold tracking-[-0.03em]">{reportTitle(selectedReportArtifact)}</h3>
+                                  <span className="report-chip">{selectedReportArtifact.contentType.includes("json") ? "JSON" : "HTML"}</span>
+                                  {isLatestReportAlias(selectedReportArtifact) ? <span className="report-chip report-chip-warn">latest alias</span> : null}
+                                </div>
+                                <p className="mt-2 text-sm text-slate-400">
+                                  Indexed evidence artifact. Opening it reviews existing evidence and does not execute a campaign.
+                                </p>
+                              </div>
+                              <span className="self-start rounded-full bg-slate-900 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-400 ring-1 ring-slate-800">
+                                Read only
+                              </span>
+                            </div>
+                            <dl className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                              <MetadataCard label="Generated By" value={dashboardRun?.campaignKey ?? selectedReportArtifact.runId} />
+                              <MetadataCard label="Source Campaign Run" value={sourceCampaignRun ?? selectedReportArtifact.runId} />
+                              <MetadataCard label="Artifact Type" value={selectedReportArtifact.artifactType} />
+                              <MetadataCard label="Generated Date" value={formatDate(selectedReportArtifact.createdAt)} />
+                              <MetadataCard label="File Size" value={formatBytes(selectedReportArtifact.fileSize)} />
+                              <MetadataCard label="Artifact ID" value={selectedReportArtifact.id.slice(0, 24)} />
+                            </dl>
+                            <div className="mt-5 flex flex-wrap gap-3">
+                              {canOpenArtifact(selectedReportArtifact) ? (
+                                <a className="primary-action" href={openHref} rel="noreferrer" target="_blank">
+                                  Open Report ↗
+                                </a>
+                              ) : null}
+                              {selectedReportArtifact.artifactType === "SIEM Export" ? (
+                                <a className="secondary-action" download href={openHref}>
+                                  Download
+                                </a>
+                              ) : null}
+                              <span className="secondary-action cursor-default">Source artifact indexed</span>
+                            </div>
+                          </div>
+
+                          <div className="report-preview-grid">
+                            <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
+                              <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+                                <h4 className="font-semibold">Report Preview</h4>
+                                {canOpenArtifact(selectedReportArtifact) ? (
+                                  <a className="text-xs font-semibold text-cyan-200 hover:text-cyan-100" href={openHref} rel="noreferrer" target="_blank">
+                                    Open in New Tab ↗
+                                  </a>
+                                ) : null}
+                              </div>
+                              {canPreview ? (
+                                <iframe
+                                  className="h-[34rem] w-full bg-white"
+                                  src={openHref}
+                                  title={`${reportTitle(selectedReportArtifact)} preview`}
+                                />
+                              ) : (
+                                <div className="flex h-[20rem] items-center justify-center p-6 text-center text-sm text-slate-400">
+                                  Preview is not rendered inline for this artifact type. Use the open or download action above.
+                                </div>
+                              )}
+                            </div>
+
+                            <aside className="space-y-4">
+                              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                                <h4 className="font-semibold">Report Metadata</h4>
+                                <div className="mt-4 space-y-3 text-sm text-slate-300">
+                                  <Metadata label="Campaign Executed" value={dashboardRun ? formatDate(dashboardRun.createdAt) : "unknown"} />
+                                  <Metadata label="Artifact Created" value={formatDate(selectedReportArtifact.createdAt)} />
+                                  <Metadata label="Report Generated" value={formatDate(selectedReportArtifact.createdAt)} />
+                                  <Metadata label="SIEM Export" value={selectedReportArtifact.artifactType === "SIEM Export" ? "this artifact" : "separate export"} />
+                                </div>
+                              </div>
+
+                              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                                <h4 className="font-semibold">Report Tools</h4>
+                                <p className="mt-2 text-sm leading-6 text-slate-400">
+                                  These actions work from existing evidence. They do not execute Playwright tests or create fresh findings.
+                                </p>
+                                <div className="mt-4 space-y-3">
+                                  {reportRenderCommands.map((campaign) => (
+                                    <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-3" key={campaign.key}>
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                          <h5 className="font-medium">{campaign.displayName}</h5>
+                                          <p className="mt-1 font-mono text-xs text-slate-500">{campaign.npmScript}</p>
+                                        </div>
+                                        <RiskBadge risk={campaign.riskLevel} />
+                                      </div>
+                                      <p className="mt-3 text-sm leading-6 text-slate-400">{campaign.operatorDescription}</p>
+                                      <button
+                                        className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                                        disabled={!canStartRuns || overview.running > 0}
+                                        onClick={() => void runCampaign(campaign.key)}
+                                        type="button"
+                                      >
+                                        {canStartRuns ? "Re-render Report" : "Viewer role cannot run"}
+                                      </button>
+                                    </article>
+                                  ))}
+                                </div>
+                              </div>
+                            </aside>
+                          </div>
                         </div>
-                      ))
+                      );
+                    })() : (
+                      <div className="p-5 text-sm text-slate-400">Select a report artifact to inspect details.</div>
                     )}
                   </div>
+                </section>
+              ) : null}
+
+              {activeWorkspace === "siem" ? (
+                <section className="workspace-card">
+                  <SectionHeader title="SIEM" subtitle="Generate metadata-only Wazuh payloads from existing campaign outputs." />
+                  <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
+                    SIEM export is read-only. SIEM send is an external transmission action and remains disabled until explicit confirmation exists.
+                  </p>
+                  <ActionSelectorPanel
+                    canStartRuns={canStartRuns}
+                    currentUserRole={currentUser.role}
+                    disabledCommands={DISABLED_SIEM_COMMANDS}
+                    enabledCommands={siemCommands}
+                    onSelect={setSelectedSiemActionKey}
+                    runningCount={overview.running}
+                    runs={runs}
+                    runCampaign={runCampaign}
+                    selectedKey={selectedSiemActionKey}
+                  />
+                </section>
+              ) : null}
+
+              {activeWorkspace === "operations" ? (
+                <div className="space-y-5">
+                  <section className="workspace-card">
+                    <SectionHeader title="Operations" subtitle="Platform health checks and operational diagnostics." />
+                    <p className="mt-2 rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
+                      Operations commands validate local platform wiring. The healthcheck remains governed by the existing admin-only authorization rule.
+                    </p>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      {operationsCommands.map((campaign) => (
+                        <CommandCard
+                          canStartRuns={canStartRuns}
+                          campaign={campaign}
+                          currentUserRole={currentUser.role}
+                          key={campaign.key}
+                          runningCount={overview.running}
+                          runCampaign={runCampaign}
+                        />
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="workspace-card">
+                    <SectionHeader title="Diagnostics" subtitle="Current backend state and recent API failures." />
+                    <div className="mt-4 grid gap-3 md:grid-cols-4">
+                      <MetadataCard label="Backend" value={metadataBackend.backendLabel} />
+                      <MetadataCard label="Runs" value={metadataBackend.counts ? String(metadataBackend.counts.runs) : "unavailable"} />
+                      <MetadataCard label="Logs" value={metadataBackend.counts ? String(metadataBackend.counts.logs) : "unavailable"} />
+                      <MetadataCard label="Artifacts" value={metadataBackend.counts ? String(metadataBackend.counts.artifacts) : "unavailable"} />
+                    </div>
+                    {apiFailures.length > 0 ? (
+                      <div className="mt-4 grid gap-2 lg:grid-cols-2">
+                        {apiFailures.map((failure) => (
+                          <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 p-3 text-sm" key={`${failure.timestamp}-${failure.endpoint}`}>
+                            <p className="font-mono text-xs text-amber-100">{failure.endpoint}</p>
+                            <p className="mt-1 text-slate-300">Status: {failure.status} · {formatDate(failure.timestamp)}</p>
+                            <p className="mt-1 break-words text-slate-400">{failure.message}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-3 text-sm text-emerald-100">
+                        No dashboard API failures recorded in this session.
+                      </p>
+                    )}
+                  </section>
                 </div>
-              </aside>
+              ) : null}
+
+              {activeWorkspace === "runs" ? (
+                <section className="run-workspace">
+                  <div className="run-history-pane">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                      <SectionHeader title="Run History" subtitle="Filter by coarse execution state." />
+                      <div className="flex flex-wrap gap-2">
+                        {(["all", "running", "passed", "failed"] as RunFilter[]).map((filter) => (
+                          <button
+                            className={`rounded-full px-3 py-1.5 text-sm ${runFilter === filter ? "bg-cyan-300 text-slate-950" : "bg-slate-950 text-slate-300 ring-1 ring-slate-800"}`}
+                            key={filter}
+                            onClick={() => setRunFilter(filter)}
+                            type="button"
+                          >
+                            {filter}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-slate-800">
+                      {runHistoryError ? (
+                        <div className="bg-rose-300/10 p-4 text-sm text-rose-100">
+                          <p className="font-semibold">Run History failed to load.</p>
+                          <p className="mt-1 break-words">{runHistoryError}</p>
+                          <p className="mt-2 text-rose-100/80">
+                            Backend: {metadataBackend.backendLabel} · Runs: {metadataBackend.counts ? metadataBackend.counts.runs : "unavailable"}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="run-history-list">
+                          {visibleRuns.length === 0 ? (
+                            <p className="bg-slate-950/50 p-4 text-sm text-slate-400">
+                              No runs found in the current metadata backend.
+                            </p>
+                          ) : (
+                            visibleRuns.map((run) => (
+                              <button
+                                className={`w-full rounded-none border-b border-slate-800 px-4 py-4 text-left text-sm transition last:border-b-0 hover:bg-slate-800/50 ${selectedRunId === run.id ? "bg-cyan-400/10" : "bg-slate-900/30"}`}
+                                key={run.id}
+                                onClick={() => setSelectedRunId(run.id)}
+                                type="button"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <span className="break-all font-mono text-xs text-slate-300">{run.id}</span>
+                                  <StatusBadge status={run.status} />
+                                </div>
+                                <p className="mt-2 font-medium">{run.campaignKey}</p>
+                                <p className="mt-1 text-xs text-slate-500">{formatDate(run.createdAt)} · {formatDuration(run.durationMs)}</p>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="run-detail-pane">
+                    <SectionHeader title="Run Detail" subtitle={selectedRun ? selectedRun.id : selectedRunId ? selectedRunId : "Select a run to inspect."} />
+                    {selectedRun ? (
+                      <div className="mt-4 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]">
+                        <div className="min-w-0 space-y-5">
+                          <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                            <MetadataCard label="Status" value={selectedRun.status} />
+                            <MetadataCard label="Duration" value={formatDuration(selectedRun.durationMs)} />
+                            <MetadataCard label="Exit Code" value={selectedRun.exitCode === null ? "pending" : String(selectedRun.exitCode)} />
+                            <MetadataCard label="Artifacts" value={String(artifacts.length)} />
+                          </div>
+
+                          <div className="log-card">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <h3 className="font-semibold">Live Logs</h3>
+                              <p className="text-xs text-slate-500">{logs.length} entries</p>
+                            </div>
+                            <div className="log-scroll">
+                              {logs.length === 0 ? (
+                                <p className="text-slate-500">No logs captured yet.</p>
+                              ) : (
+                                <div className="min-w-0 divide-y divide-slate-900/80">
+                                  {logs.map((log) => (
+                                    <div
+                                      className={`grid min-w-0 grid-cols-[2.75rem_4.75rem_minmax(0,1fr)] gap-2 py-1.5 ${log.stream === "stderr" ? "text-amber-200" : log.stream === "system" ? "text-cyan-200" : "text-slate-300"}`}
+                                      key={log.id}
+                                    >
+                                      <span className="text-right text-slate-600">{String(log.sequence).padStart(3, "0")}</span>
+                                      <span className="truncate text-slate-500">{log.stream}</span>
+                                      <span className="min-w-0 whitespace-pre-wrap break-words">{log.message}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <aside className="run-artifact-sidebar">
+                          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                            <h3 className="font-semibold">Playwright Report</h3>
+                            {playwrightReport ? (
+                              <a className="mt-3 block break-words rounded-xl border border-cyan-300/40 bg-cyan-300/10 p-3 text-sm text-cyan-100" href={`/api/artifacts/${playwrightReport.id}/file`} target="_blank" rel="noreferrer">
+                                {playwrightReport.filePath}
+                              </a>
+                            ) : (
+                              <p className="mt-3 text-sm text-slate-400">No Playwright report artifact indexed for this run.</p>
+                            )}
+                          </div>
+
+                          <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <h3 className="font-semibold">Artifacts</h3>
+                              <p className="text-xs text-slate-500">{artifacts.length} total</p>
+                            </div>
+                            <div className="artifact-scroll">
+                              {artifacts.length === 0 ? (
+                                <p className="text-sm text-slate-400">No artifacts indexed yet.</p>
+                              ) : (
+                                artifacts.map((artifact) => (
+                                  <div className="min-w-0 rounded-xl border border-slate-800 bg-slate-900/70 p-3" key={artifact.id}>
+                                    <div className="flex items-start justify-between gap-3">
+                                      <p className="min-w-0 break-words text-sm font-medium">{artifact.artifactType}</p>
+                                      <p className="shrink-0 text-xs text-slate-500">{formatBytes(artifact.fileSize)}</p>
+                                    </div>
+                                    <p className="mt-1 min-w-0 break-words font-mono text-xs text-slate-400">{artifact.filePath}</p>
+                                    <p className="mt-2 break-words text-xs text-slate-500">
+                                      {artifact.contentType} · sensitive: {artifact.sensitive ? "yes" : "no"} · inline: {artifact.renderInline ? "yes" : "no"}
+                                    </p>
+                                    {canOpenArtifact(artifact) ? (
+                                      <a
+                                        className="mt-3 inline-flex rounded-lg border border-cyan-300/30 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/10"
+                                        href={`/api/artifacts/${artifact.id}/file`}
+                                        rel="noreferrer"
+                                        target="_blank"
+                                      >
+                                        {artifact.artifactType === "SIEM Export" ? "Download" : "Open"}
+                                      </a>
+                                    ) : null}
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        </aside>
+                      </div>
+                    ) : runDetailError ? (
+                      <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-300/10 p-4 text-sm text-rose-100">
+                        <p className="font-semibold">Selected run could not be loaded.</p>
+                        <p className="mt-1 break-words">{runDetailError}</p>
+                        <p className="mt-2 font-mono text-xs text-rose-100/80">{selectedRunId}</p>
+                      </div>
+                    ) : (
+                      <p className="mt-4 text-sm text-slate-400">No run selected.</p>
+                    )}
+                  </div>
+                </section>
+              ) : null}
             </div>
-          ) : runDetailError ? (
-            <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-300/10 p-4 text-sm text-rose-100">
-              <p className="font-semibold">Selected run could not be loaded.</p>
-              <p className="mt-1 break-words">{runDetailError}</p>
-              <p className="mt-2 font-mono text-xs text-rose-100/80">{selectedRunId}</p>
-            </div>
-          ) : (
-            <p className="mt-4 text-sm text-slate-400">No run selected.</p>
-          )}
-        </section>
-          </div>
+          </section>
         </div>
+
+        <footer className="ops-footer">
+          <span>Environment: staging</span>
+          <span>Runner: {overview.running > 0 ? "running" : "idle"}</span>
+          <span>Backend: {metadataBackend.backendLabel}</span>
+          <span>Role: {currentUser.role}</span>
+          <span>Last run: {runs[0] ? formatRelativeTime(runs[0].createdAt) : "none"}</span>
+        </footer>
       </div>
     </main>
   );
