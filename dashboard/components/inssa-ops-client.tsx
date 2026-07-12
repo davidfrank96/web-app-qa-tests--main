@@ -106,6 +106,7 @@ type WorkspaceKey =
   | "security"
   | "lifecycle"
   | "artifact-validation"
+  | "execution"
   | "reports"
   | "siem"
   | "operations"
@@ -122,6 +123,7 @@ const WORKSPACE_NAV: WorkspaceNavItem[] = [
   { group: "Testing", key: "testing", label: "Testing" },
   { key: "security", label: "Security" },
   { key: "lifecycle", label: "Lifecycle" },
+  { key: "execution", label: "Execution" },
   { group: "Evidence", key: "artifact-validation", label: "Artifact Validation" },
   { key: "reports", label: "Reports" },
   { group: "Integrations", key: "siem", label: "SIEM" },
@@ -139,6 +141,11 @@ const WORKSPACE_COPY: Record<WorkspaceKey, { eyebrow: string; title: string; sub
     eyebrow: "Live staging",
     subtitle: "Review gated lifecycle campaigns that create staging data and require manual cleanup.",
     title: "Lifecycle"
+  },
+  execution: {
+    eyebrow: "Pipeline",
+    subtitle: "Observe the selected campaign run from launch through logs, artifacts, reports, and completion.",
+    title: "Execution Workspace"
   },
   operations: {
     eyebrow: "Platform",
@@ -381,6 +388,14 @@ export function InssaOpsClient({
     );
   }, [selectedReportArtifactId, visibleReportArtifacts]);
   const canStartRuns = currentUser.role === "operator" || currentUser.role === "admin";
+  const executionRun = selectedRun ?? runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
+  const executionCampaign = executionRun
+    ? campaignDefinitions.find((campaign) => campaign.key === executionRun.campaignKey) ?? null
+    : null;
+  const executionStages = buildExecutionStages(executionRun, logs, artifacts, executionCampaign);
+  const currentExecutionStage = executionStages.find((stage) => stage.status === "current") ?? executionStages.at(-1) ?? null;
+  const expectedOutputs = buildExpectedOutputs(executionCampaign, artifacts);
+  const campaignAwareness = describeCampaignAwareness(executionCampaign, selectedLifecycleArtifact);
 
   async function refreshCampaigns() {
     const endpoint = "/api/campaign-definitions";
@@ -572,6 +587,7 @@ export function InssaOpsClient({
 
       setMessage(`Run started: ${body.run.id}`);
       setSelectedRunId(body.run.id);
+      setActiveWorkspace("execution");
       await refreshRuns();
       await refreshRunDetail(body.run.id);
     } catch (error) {
@@ -874,6 +890,154 @@ export function InssaOpsClient({
                     selectedArtifact={selectedLifecycleArtifact}
                     selectedKey={selectedArtifactValidationActionKey}
                   />
+                </section>
+              ) : null}
+
+              {activeWorkspace === "execution" ? (
+                <section className="execution-workspace">
+                  {executionRun ? (
+                    <>
+                      <div className="execution-summary">
+                        <div className="execution-summary-main">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Campaign Summary</p>
+                          <div className="mt-3 flex flex-wrap items-center gap-3">
+                            <h2 className="text-2xl font-semibold tracking-[-0.03em]">
+                              {executionCampaign?.displayName ?? executionRun.campaignKey}
+                            </h2>
+                            <StatusBadge status={executionRun.status} />
+                          </div>
+                          <p className="mt-2 break-words font-mono text-xs text-slate-500">{executionRun.id}</p>
+                          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
+                            {executionCampaign?.operatorDescription ?? "Campaign metadata is unavailable for this run."}
+                          </p>
+                        </div>
+                        <div className="execution-summary-grid">
+                          <MetadataCard label="Campaign" value={executionRun.campaignKey} />
+                          <MetadataCard label="Environment" value="staging" />
+                          <MetadataCard label="Runner Status" value={ACTIVE_STATUSES.has(executionRun.status) ? "running" : "idle"} />
+                          <MetadataCard label="Started" value={executionRun.startedAt ? formatDate(executionRun.startedAt) : formatDate(executionRun.createdAt)} />
+                          <MetadataCard label="Elapsed Time" value={formatDuration(getRunElapsedMs(executionRun))} />
+                          <MetadataCard label="Estimated Duration" value={executionCampaign ? formatDuration(executionCampaign.timeoutMs) : "unknown"} />
+                          <MetadataCard label="Current Stage" value={currentExecutionStage?.label ?? "Unknown"} />
+                          <MetadataCard label="Expected Outputs" value={`${expectedOutputs.length} tracked`} />
+                        </div>
+                      </div>
+
+                      <div className="execution-layout">
+                        <div className="space-y-4">
+                          <section className="execution-panel">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <SectionHeader title="Execution Timeline" subtitle="Pipeline stages are inferred from run state, logs, and indexed artifacts." />
+                              <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-400">
+                                {completionLabelForRun(executionRun)}
+                              </span>
+                            </div>
+                            <div className="execution-timeline">
+                              {executionStages.map((stage) => (
+                                <div className={`execution-stage execution-stage-${stage.status}`} key={stage.label}>
+                                  <span className="execution-stage-icon">{stageIcon(stage.status)}</span>
+                                  <div className="min-w-0">
+                                    <p className="font-semibold">{stage.label}</p>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      {stage.timestamp ? formatDate(stage.timestamp) : stage.description}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </section>
+
+                          <section className="execution-panel">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <SectionHeader title="Live Console" subtitle="Raw run logs remain available as supporting execution evidence." />
+                              <p className="text-xs text-slate-500">{logs.length} entries</p>
+                            </div>
+                            <div className="execution-console">
+                              {logs.length === 0 ? (
+                                <div className="execution-log-empty">Waiting for runner output...</div>
+                              ) : (
+                                logs.map((log) => (
+                                  <div className={`execution-log-line execution-log-${log.stream}`} key={log.id}>
+                                    <span className="execution-log-sequence">{String(log.sequence).padStart(3, "0")}</span>
+                                    <span className="execution-log-time">{formatLogTime(log.createdAt)}</span>
+                                    <span className="execution-log-stream">{log.stream}</span>
+                                    <span className="execution-log-message">{log.message}</span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </section>
+                        </div>
+
+                        <aside className="space-y-4">
+                          <section className="execution-panel">
+                            <SectionHeader title="Campaign Awareness" subtitle="Presentation adapts to the selected command type." />
+                            <div className="mt-4 space-y-3">
+                              {campaignAwareness.map((item) => (
+                                <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3" key={item.label}>
+                                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{item.label}</p>
+                                  <p className="mt-1 break-words text-sm font-semibold text-slate-200">{item.value}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </section>
+
+                          <section className="execution-panel">
+                            <SectionHeader title="Outputs" subtitle="Expected evidence appears here as it is indexed." />
+                            <div className="mt-4 space-y-3">
+                              {expectedOutputs.map((output) => (
+                                <div className={`output-card ${output.available ? "output-card-ready" : "output-card-pending"}`} key={output.label}>
+                                  <div className="min-w-0">
+                                    <p className="font-semibold">{output.label}</p>
+                                    <p className="mt-1 break-words text-xs text-slate-500">{output.detail}</p>
+                                  </div>
+                                  {output.href ? (
+                                    <a className="secondary-action shrink-0 px-3 py-1.5 text-xs" href={output.href} rel="noreferrer" target="_blank">
+                                      {output.download ? "Download" : "Open"}
+                                    </a>
+                                  ) : output.available ? (
+                                    <span className="rounded-full bg-emerald-300/15 px-2.5 py-1 text-xs text-emerald-200 ring-1 ring-emerald-300/20">ready</span>
+                                  ) : (
+                                    <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-400">pending</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </section>
+
+                          <section className="execution-panel">
+                            <SectionHeader title="Completion Summary" subtitle="Primary review actions after the run finishes." />
+                            <p className="mt-4 rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-sm text-slate-300">
+                              {completionSummaryForRun(executionRun)}
+                            </p>
+                            <div className="mt-4 flex flex-col gap-2">
+                              {expectedOutputs
+                                .filter((output): output is ExpectedOutput & { href: string } => Boolean(output.href))
+                                .map((output) => (
+                                  <a className="primary-action justify-center" href={output.href} key={output.label} rel="noreferrer" target="_blank">
+                                    {output.download ? "Download" : "Open"} {output.label}
+                                  </a>
+                                ))}
+                              <button
+                                className="secondary-action justify-center"
+                                onClick={() => setActiveWorkspace("runs")}
+                                type="button"
+                              >
+                                Open Run Details
+                              </button>
+                            </div>
+                          </section>
+                        </aside>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="workspace-card">
+                      <SectionHeader title="No Execution Selected" subtitle="Start a campaign or select a run to observe execution state." />
+                      <button className="primary-action mt-4" onClick={() => setActiveWorkspace("testing")} type="button">
+                        Open Safe Tests
+                      </button>
+                    </div>
+                  )}
                 </section>
               ) : null}
 
@@ -1761,6 +1925,286 @@ function StatusBadge({ status }: { status: string }) {
         : "bg-slate-700 text-slate-300 ring-slate-600";
 
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs ring-1 ${className}`}>{status}</span>;
+}
+
+type ExecutionStageStatus = "current" | "done" | "failed" | "pending";
+
+type ExecutionStage = {
+  description: string;
+  label: string;
+  status: ExecutionStageStatus;
+  timestamp: string | null;
+};
+
+type ExpectedOutput = {
+  available: boolean;
+  detail: string;
+  download?: boolean;
+  href: string | null;
+  label: string;
+};
+
+type AwarenessItem = {
+  label: string;
+  value: string;
+};
+
+function buildExecutionStages(
+  run: RunRecord | null,
+  logs: RunLogRecord[],
+  artifacts: ArtifactRecord[],
+  campaign: CampaignDefinition | null
+): ExecutionStage[] {
+  const firstLog = logs[0] ?? null;
+  const firstArtifact = artifacts[0] ?? null;
+  const reportArtifact = artifacts.find((artifact) => REPORT_ARCHIVE_ARTIFACT_TYPES.has(artifact.artifactType)) ?? null;
+  const isTerminal = run ? PASSED_STATUSES.has(run.status) || FAILED_STATUSES.has(run.status) : false;
+  const isFailed = run ? FAILED_STATUSES.has(run.status) : false;
+  const activeIndex = inferActiveStageIndex(run, logs, artifacts, campaign);
+  const definitions = [
+    {
+      description: "Runner accepted the run request.",
+      label: "Runner Initialized",
+      timestamp: run?.createdAt ?? null
+    },
+    {
+      description: "Dashboard and command environment are being validated.",
+      label: "Environment Validation",
+      timestamp: run?.startedAt ?? null
+    },
+    {
+      description: "The registered npm command is being launched.",
+      label: "Launch Playwright",
+      timestamp: firstLog?.createdAt ?? run?.startedAt ?? null
+    },
+    {
+      description: "Campaign command is executing and streaming logs.",
+      label: executionLabelForCampaign(campaign),
+      timestamp: firstLog?.createdAt ?? null
+    },
+    {
+      description: "Generated files are being indexed into run metadata.",
+      label: "Collecting Artifacts",
+      timestamp: firstArtifact?.createdAt ?? null
+    },
+    {
+      description: "Report artifacts are becoming available for review.",
+      label: "Generating Reports",
+      timestamp: reportArtifact?.createdAt ?? null
+    },
+    {
+      description: "Metadata-only SIEM output is prepared when available.",
+      label: "Preparing SIEM Export",
+      timestamp: artifacts.find((artifact) => artifact.artifactType === "SIEM Export")?.createdAt ?? null
+    },
+    {
+      description: "The run has reached a terminal state.",
+      label: "Finished",
+      timestamp: run?.completedAt ?? null
+    }
+  ];
+
+  return definitions.map((definition, index) => {
+    let status: ExecutionStageStatus = "pending";
+    if (run) {
+      if (isTerminal && index === definitions.length - 1) {
+        status = isFailed ? "failed" : "done";
+      } else if (isTerminal || index < activeIndex) {
+        status = "done";
+      } else if (index === activeIndex) {
+        status = isFailed ? "failed" : "current";
+      }
+    }
+
+    return {
+      ...definition,
+      status
+    };
+  });
+}
+
+function inferActiveStageIndex(
+  run: RunRecord | null,
+  logs: RunLogRecord[],
+  artifacts: ArtifactRecord[],
+  campaign: CampaignDefinition | null
+) {
+  if (!run) return 0;
+  if (PASSED_STATUSES.has(run.status) || FAILED_STATUSES.has(run.status)) return 7;
+  if (run.status === "indexing_artifacts") return 4;
+  if (artifacts.some((artifact) => artifact.artifactType === "SIEM Export")) return 6;
+  if (artifacts.some((artifact) => REPORT_ARCHIVE_ARTIFACT_TYPES.has(artifact.artifactType))) return 5;
+  if (artifacts.length > 0) return 4;
+  if (logs.length > 0) return 3;
+  if (campaign?.npmScript.includes("playwright") || run.status === "running") return 2;
+  if (run.startedAt) return 1;
+  return 0;
+}
+
+function executionLabelForCampaign(campaign: CampaignDefinition | null) {
+  if (!campaign) return "Executing Campaign";
+  if (campaign.commandType === "artifact_validation") return "Executing Artifact Validation";
+  if (campaign.key.includes("security")) return "OWASP Validation";
+  if (campaign.key.includes("siem")) return "Preparing Metadata Export";
+  if (campaign.commandType === "healthcheck") return "Executing Healthcheck";
+  if (campaign.mutatesStaging) return "Executing Lifecycle";
+  return "Executing Campaign";
+}
+
+function buildExpectedOutputs(campaign: CampaignDefinition | null, artifacts: ArtifactRecord[]): ExpectedOutput[] {
+  const artifactCount = artifacts.length;
+  const playwrightReport = artifacts.find((artifact) => artifact.artifactType === "Playwright Report");
+  const securityReport = artifacts.find((artifact) => artifact.artifactType === "Security Report");
+  const lifecycleReport = artifacts.find((artifact) => artifact.artifactType === "Lifecycle Report");
+  const siemExport = artifacts.find((artifact) => artifact.artifactType === "SIEM Export");
+  const outputList: ExpectedOutput[] = [
+    {
+      available: artifactCount > 0,
+      detail: artifactCount > 0 ? `${artifactCount} artifact${artifactCount === 1 ? "" : "s"} indexed` : "Waiting for artifact indexing",
+      href: null,
+      label: "Artifacts"
+    },
+    {
+      available: Boolean(playwrightReport),
+      detail: playwrightReport?.filePath ?? "Playwright HTML report has not been indexed yet",
+      href: playwrightReport ? `/api/artifacts/${playwrightReport.id}/file` : null,
+      label: "Playwright Report"
+    },
+    {
+      available: Boolean(securityReport),
+      detail: securityReport?.filePath ?? outputPlaceholderForCampaign(campaign, "Security Report"),
+      href: securityReport ? `/api/artifacts/${securityReport.id}/file` : null,
+      label: "Security Report"
+    },
+    {
+      available: Boolean(lifecycleReport),
+      detail: lifecycleReport?.filePath ?? outputPlaceholderForCampaign(campaign, "Lifecycle Report"),
+      href: lifecycleReport ? `/api/artifacts/${lifecycleReport.id}/file` : null,
+      label: "Lifecycle Report"
+    },
+    {
+      available: Boolean(siemExport),
+      detail: siemExport?.filePath ?? outputPlaceholderForCampaign(campaign, "SIEM Export"),
+      download: true,
+      href: siemExport ? `/api/artifacts/${siemExport.id}/file` : null,
+      label: "SIEM Export"
+    }
+  ];
+
+  return outputList;
+}
+
+function outputPlaceholderForCampaign(campaign: CampaignDefinition | null, label: string) {
+  if (!campaign) return `${label} is not available for this run yet`;
+  if (label === "Security Report" && !campaign.key.includes("security")) return "Generated only when security evidence exists";
+  if (label === "Lifecycle Report" && !campaign.key.includes("lifecycle") && !campaign.mutatesStaging) {
+    return "Generated only when lifecycle evidence exists";
+  }
+  if (label === "SIEM Export" && !campaign.key.includes("siem")) return "Generated by SIEM export commands";
+  return `${label} has not been indexed yet`;
+}
+
+function describeCampaignAwareness(
+  campaign: CampaignDefinition | null,
+  selectedArtifact: LifecycleArtifactOption | null
+): AwarenessItem[] {
+  if (!campaign) {
+    return [
+      { label: "Campaign Type", value: "unknown" },
+      { label: "Execution Model", value: "metadata unavailable" },
+      { label: "Risk", value: "unknown" }
+    ];
+  }
+
+  if (campaign.commandType === "artifact_validation") {
+    return [
+      { label: "Mode", value: "Artifact Validation" },
+      { label: "Selected Artifact", value: selectedArtifact?.filePath ?? "latest or explicit artifact at run time" },
+      { label: "Discovery Status", value: "Consumes existing evidence only" }
+    ];
+  }
+
+  if (campaign.key.includes("security")) {
+    return [
+      { label: "Mode", value: "Security Campaign" },
+      { label: "Validation", value: "OWASP/access-control focused" },
+      { label: "Expected Evidence", value: "Security findings and reports" }
+    ];
+  }
+
+  if (campaign.mutatesStaging) {
+    return [
+      { label: "Mode", value: "Lifecycle" },
+      { label: "Live Mutation", value: "Creates staging data" },
+      { label: "Cleanup", value: "Manual cleanup required" }
+    ];
+  }
+
+  if (campaign.commandType === "export") {
+    return [
+      { label: "Mode", value: "SIEM Export" },
+      { label: "Transmission", value: "Metadata-only export; no send from this command" },
+      { label: "Expected Evidence", value: "Wazuh-compatible JSON" }
+    ];
+  }
+
+  if (campaign.commandType === "healthcheck") {
+    return [
+      { label: "Mode", value: "Operations" },
+      { label: "Validation", value: "Dashboard/runtime prerequisites" },
+      { label: "Risk", value: campaign.riskLevel }
+    ];
+  }
+
+  return [
+    { label: "Mode", value: "Safe Suite" },
+    { label: "Validation", value: "Playwright regression checks" },
+    { label: "Mutates Staging", value: campaign.mutatesStaging ? "yes" : "no" }
+  ];
+}
+
+function getRunElapsedMs(run: RunRecord | null) {
+  if (!run) return null;
+  const start = new Date(run.startedAt ?? run.createdAt).getTime();
+  const end = run.completedAt ? new Date(run.completedAt).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return Math.max(0, end - start);
+}
+
+function completionLabelForRun(run: RunRecord) {
+  if (run.status === "passed_with_warnings") return "Passed with Findings";
+  if (PASSED_STATUSES.has(run.status)) return "Completed";
+  if (FAILED_STATUSES.has(run.status)) return "Failed";
+  if (ACTIVE_STATUSES.has(run.status)) return "Running";
+  return run.status;
+}
+
+function completionSummaryForRun(run: RunRecord) {
+  if (run.status === "passed_with_warnings") {
+    return "Run completed with warnings or findings. Review generated reports and artifacts before closing the investigation.";
+  }
+  if (PASSED_STATUSES.has(run.status)) {
+    return "Run completed successfully. Review generated reports and artifacts for evidence.";
+  }
+  if (FAILED_STATUSES.has(run.status)) {
+    return "Run failed. Review the timeline and live console before rerunning.";
+  }
+  return "Run is still active. Outputs will populate as artifacts are indexed.";
+}
+
+function stageIcon(status: ExecutionStageStatus) {
+  if (status === "done") return "✓";
+  if (status === "current") return "▶";
+  if (status === "failed") return "!";
+  return "○";
+}
+
+function formatLogTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).format(new Date(value));
 }
 
 function formatDate(value: string) {
