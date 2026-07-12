@@ -210,11 +210,133 @@ body {
   max-height: min(34rem, calc(100vh - 27rem));
 }
 
+.execution-workspace {
+  @apply min-w-0 space-y-4;
+}
+
+.execution-summary {
+  @apply grid min-w-0 gap-4 rounded-3xl border border-slate-800 bg-slate-900/75 p-5;
+}
+
+.execution-summary-main {
+  @apply min-w-0 rounded-2xl border border-slate-800 bg-slate-950/60 p-4;
+}
+
+.execution-summary-grid {
+  @apply grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4;
+}
+
+.execution-layout {
+  @apply grid min-w-0 gap-4;
+}
+
+.execution-panel {
+  @apply min-w-0 rounded-2xl border border-slate-800 bg-slate-950/60 p-4;
+}
+
+.execution-timeline {
+  @apply mt-5 grid gap-3;
+}
+
+.execution-stage {
+  @apply grid min-w-0 grid-cols-[2.5rem_minmax(0,1fr)] items-start gap-3 rounded-2xl border p-3 transition;
+}
+
+.execution-stage-icon {
+  @apply flex h-9 w-9 items-center justify-center rounded-full border text-sm font-semibold;
+}
+
+.execution-stage-done {
+  @apply border-emerald-300/20 bg-emerald-300/10 text-emerald-100;
+}
+
+.execution-stage-done .execution-stage-icon {
+  @apply border-emerald-300/30 bg-emerald-300/15 text-emerald-100;
+}
+
+.execution-stage-current {
+  @apply border-cyan-300/40 bg-cyan-300/10 text-cyan-100 shadow-lg shadow-cyan-950/20;
+}
+
+.execution-stage-current .execution-stage-icon {
+  @apply border-cyan-300/50 bg-cyan-300/20 text-cyan-100;
+}
+
+.execution-stage-failed {
+  @apply border-rose-300/40 bg-rose-300/10 text-rose-100;
+}
+
+.execution-stage-failed .execution-stage-icon {
+  @apply border-rose-300/50 bg-rose-300/20 text-rose-100;
+}
+
+.execution-stage-pending {
+  @apply border-slate-800 bg-slate-900/60 text-slate-300;
+}
+
+.execution-stage-pending .execution-stage-icon {
+  @apply border-slate-700 bg-slate-950 text-slate-500;
+}
+
+.execution-console {
+  @apply mt-4 min-h-[20rem] overflow-auto overscroll-contain rounded-2xl border border-slate-800 bg-black/60 p-3 font-mono text-xs;
+  max-height: min(42rem, calc(100vh - 31rem));
+}
+
+.execution-log-empty {
+  @apply flex min-h-[16rem] items-center justify-center text-slate-500;
+}
+
+.execution-log-line {
+  @apply grid min-w-0 grid-cols-[2.75rem_5.25rem_4.75rem_minmax(0,1fr)] gap-2 border-b border-slate-900/80 py-1.5 last:border-b-0;
+}
+
+.execution-log-sequence {
+  @apply text-right text-slate-600;
+}
+
+.execution-log-time,
+.execution-log-stream {
+  @apply truncate text-slate-500;
+}
+
+.execution-log-message {
+  @apply min-w-0 whitespace-pre-wrap break-words text-slate-300;
+}
+
+.execution-log-stderr .execution-log-message {
+  @apply text-amber-200;
+}
+
+.execution-log-system .execution-log-message {
+  @apply text-cyan-200;
+}
+
+.output-card {
+  @apply flex min-w-0 items-start justify-between gap-3 rounded-2xl border p-3;
+}
+
+.output-card-ready {
+  @apply border-emerald-300/20 bg-emerald-300/10;
+}
+
+.output-card-pending {
+  @apply border-slate-800 bg-slate-900/60;
+}
+
 .ops-footer {
   @apply sticky bottom-0 z-20 mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-slate-800/80 bg-slate-950/90 px-4 py-3 text-xs text-slate-400 shadow-2xl shadow-black/20 backdrop-blur-xl;
 }
 
 @media (min-width: 1280px) {
+  .execution-summary {
+    grid-template-columns: minmax(0, 1fr) minmax(38rem, 46rem);
+  }
+
+  .execution-layout {
+    grid-template-columns: minmax(0, 1fr) 24rem;
+  }
+
   .reports-workspace {
     grid-template-columns: minmax(22rem, 28rem) minmax(0, 1fr);
   }
