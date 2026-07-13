@@ -294,6 +294,8 @@ function checkProductionRuntimeState({ startup }) {
 
   const bundleProblems = checkRequiredRouteBundles();
   problems.push(...bundleProblems);
+  const chunkProblems = checkServerChunkLoader();
+  problems.push(...chunkProblems);
 
   if (problems.length) {
     actions.push("Run npm run dashboard:clean, then npm run dashboard:build, then npm run dashboard:start.");
@@ -315,6 +317,28 @@ function checkRequiredRouteBundles() {
     }
   }
   return problems;
+}
+
+function checkServerChunkLoader() {
+  const runtimePath = path.join(nextDir, "server", "webpack-runtime.js");
+  if (!fs.existsSync(runtimePath)) return ["webpack-runtime.js is missing."];
+
+  const runtimeSource = fs.readFileSync(runtimePath, "utf8");
+  if (!runtimeSource.includes('require("./chunks/"+') && !runtimeSource.includes('require("./chunks/" +')) {
+    return [
+      "webpack-runtime.js does not load server chunks from ./chunks/. This causes production API routes to fail with missing chunk modules."
+    ];
+  }
+
+  const chunksDir = path.join(nextDir, "server", "chunks");
+  if (!fs.existsSync(chunksDir)) return ["server/chunks directory is missing."];
+
+  const serverChunkFiles = fs
+    .readdirSync(chunksDir)
+    .filter((fileName) => fileName.endsWith(".js"));
+  if (!serverChunkFiles.length) return ["server/chunks contains no JavaScript chunk files."];
+
+  return [];
 }
 
 function checkEnvironment() {
