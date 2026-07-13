@@ -8,7 +8,7 @@
     "test:localman": "playwright test --project=localman-chrome",
     "test:kbean": "playwright test --project=kbean-chrome",
     "test:inssa": "playwright test --project=inssa-chrome",
-    "test:inssa:safe": "playwright test tests/inssa/inssa-time-capsule-create.spec.ts tests/inssa/us-compose-location-matrix.spec.ts tests/inssa/media-step-capability.spec.ts --project=inssa-chrome",
+    "test:inssa:safe": "playwright test tests/inssa/inssa-time-capsule-create.spec.ts tests/inssa/us-compose-location-matrix.spec.ts tests/inssa/media-step-capability.spec.ts --project=inssa-chrome --workers=1",
     "test:inssa:live-staging": "npm run test:inssa:live-text && npm run test:inssa:discovery && npm run test:inssa:public-share && npm run test:inssa:live-media && npm run test:inssa:live-video && npm run test:inssa:reveal-later && npm run test:inssa:cleanup-audit",
     "test:inssa:live-text": "set -a; . ./.env.inssa.live-staging; set +a; playwright test tests/inssa/live-capsule-create.spec.ts --project=inssa-chrome --workers=1 --retries=0",
     "test:inssa:live-media": "set -a; . ./.env.inssa.live-staging; set +a; playwright test tests/inssa/live-capsule-media-create.spec.ts --project=inssa-chrome --workers=1 --retries=0",
