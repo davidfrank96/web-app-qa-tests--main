@@ -4,6 +4,8 @@ import path from "node:path";
 import { indexArtifactsForRun } from "./artifact-indexer";
 import { recordInssaAuditEvent } from "./audit";
 import { getInssaPhase1Command } from "./command-registry";
+import { buildEvidenceMetadataForRun } from "./evidence";
+import { persistEvidenceBundleToDurableStorage } from "./evidence-storage";
 import { validateInssaStagingEnvironment } from "./environment-guard";
 import { getRepoRoot } from "./paths";
 import { redactInssaLogLine } from "./redaction";
@@ -142,6 +144,37 @@ async function executeRun(run: InssaRunRecord, lifecycleArtifact?: ResolvedInssa
   });
   await store.replaceRunArtifacts(run.id, artifacts);
   await store.appendLog(run.id, "system", `Indexed ${artifacts.length} artifact metadata records.`);
+  try {
+    const evidence = buildEvidenceMetadataForRun(
+      {
+        ...run,
+        completedAt: completedAt.toISOString()
+      },
+      artifacts
+    );
+    await store.replaceRunEvidence(run.id, evidence.bundle, evidence.items);
+    await store.appendLog(
+      run.id,
+      "system",
+      evidence.bundle
+        ? `Indexed evidence bundle ${evidence.bundle.id} with ${evidence.items.length} evidence item metadata records.`
+        : "No evidence bundle was created because this run did not produce artifacts."
+    );
+    if (evidence.bundle && exit.code === 0 && !timedOut) {
+      const storageResult = await persistEvidenceBundleToDurableStorage(evidence.bundle, evidence.items);
+      await store.replaceRunEvidence(run.id, storageResult.bundle, storageResult.items);
+      await store.appendLog(run.id, "system", `Evidence durable storage ${storageResult.status}: ${storageResult.message}`);
+      if (storageResult.status === "failed") {
+        warningSeen = true;
+      }
+    }
+  } catch (error) {
+    await store.appendLog(
+      run.id,
+      "system",
+      `Evidence metadata indexing warning: ${redactInssaLogLine(error instanceof Error ? error.message : String(error))}`
+    );
+  }
 
   const finalStatus = timedOut
     ? "timed_out"

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { requireInssaApiUser } from "../../../../../lib/inssa-ops/api-guard";
+import { isPlaywrightReportArtifact } from "../../../../../lib/inssa-ops/evidence-serving";
 import { getRepoRoot } from "../../../../../lib/inssa-ops/paths";
 import { getInssaRunStore } from "../../../../../lib/inssa-ops/run-store";
 
@@ -30,6 +31,15 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   const artifact = await getInssaRunStore().getArtifact(id);
   if (!artifact) {
     return NextResponse.json({ error: `Artifact not found: ${id}` }, { status: 404 });
+  }
+
+  if (isPlaywrightReportArtifact(artifact)) {
+    return new NextResponse(null, {
+      headers: {
+        location: `/api/artifacts/${id}/bundle/index.html`
+      },
+      status: 307
+    });
   }
 
   const normalizedPath = artifact.filePath.split(path.sep).join("/");
