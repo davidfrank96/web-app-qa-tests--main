@@ -5,6 +5,8 @@ import type {
   CreateRunInput,
   InssaArtifactRecord,
   InssaAuditEventRecord,
+  InssaEvidenceBundleRecord,
+  InssaEvidenceItemRecord,
   InssaRunLogRecord,
   InssaRunRecord,
   RunPatch
@@ -13,6 +15,8 @@ import type {
 type StoreSnapshot = {
   artifacts: InssaArtifactRecord[];
   auditEvents: InssaAuditEventRecord[];
+  evidenceBundles: InssaEvidenceBundleRecord[];
+  evidenceItems: InssaEvidenceItemRecord[];
   logs: InssaRunLogRecord[];
   runs: InssaRunRecord[];
 };
@@ -35,10 +39,22 @@ export type InssaRunStore = {
   createRun(input: CreateRunInput): Promise<InssaRunRecord>;
   getArtifact(id: string): Promise<InssaArtifactRecord | null>;
   getArtifacts(runId: string): Promise<InssaArtifactRecord[]>;
+  getEvidence(runId: string): Promise<{
+    bundles: InssaEvidenceBundleRecord[];
+    items: InssaEvidenceItemRecord[];
+  }>;
   getLogs(runId: string): Promise<InssaRunLogRecord[]>;
   getRun(id: string): Promise<InssaRunRecord | null>;
   listRuns(): Promise<InssaRunRecord[]>;
   replaceRunArtifacts(runId: string, artifacts: InssaArtifactRecord[]): Promise<InssaArtifactRecord[]>;
+  replaceRunEvidence(
+    runId: string,
+    bundle: InssaEvidenceBundleRecord | null,
+    items: InssaEvidenceItemRecord[]
+  ): Promise<{
+    bundle: InssaEvidenceBundleRecord | null;
+    items: InssaEvidenceItemRecord[];
+  }>;
   updateRun(id: string, patch: RunPatch): Promise<InssaRunRecord>;
 };
 
@@ -173,6 +189,18 @@ class LocalJsonRunStore implements InssaRunStore {
       .sort((left, right) => left.filePath.localeCompare(right.filePath));
   }
 
+  async getEvidence(runId: string) {
+    const snapshot = await this.readSnapshot();
+    return {
+      bundles: snapshot.evidenceBundles
+        .filter((bundle) => bundle.runId === runId)
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+      items: snapshot.evidenceItems
+        .filter((item) => item.runId === runId)
+        .sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+    };
+  }
+
   async getLogs(runId: string) {
     const snapshot = await this.readSnapshot();
     return snapshot.logs
@@ -195,6 +223,16 @@ class LocalJsonRunStore implements InssaRunStore {
       snapshot.artifacts = snapshot.artifacts.filter((artifact) => artifact.runId !== runId);
       snapshot.artifacts.push(...artifacts);
       return artifacts;
+    });
+  }
+
+  async replaceRunEvidence(runId: string, bundle: InssaEvidenceBundleRecord | null, items: InssaEvidenceItemRecord[]) {
+    return this.withWrite(async (snapshot) => {
+      snapshot.evidenceBundles = snapshot.evidenceBundles.filter((record) => record.runId !== runId);
+      snapshot.evidenceItems = snapshot.evidenceItems.filter((record) => record.runId !== runId);
+      if (bundle) snapshot.evidenceBundles.push(bundle);
+      snapshot.evidenceItems.push(...items);
+      return { bundle, items };
     });
   }
 
@@ -223,7 +261,9 @@ class LocalJsonRunStore implements InssaRunStore {
   private async writeSnapshot(snapshot: StoreSnapshot) {
     const storePath = getLocalRunStorePath();
     await fs.mkdir(path.dirname(storePath), { recursive: true });
-    await fs.writeFile(storePath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+    const temporaryPath = `${storePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    await fs.writeFile(temporaryPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+    await fs.rename(temporaryPath, storePath);
   }
 
   private async withWrite<T>(operation: (snapshot: StoreSnapshot) => T | Promise<T>) {
@@ -246,12 +286,14 @@ async function readLocalSnapshot(storePath: string): Promise<StoreSnapshot> {
     return {
       artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
       auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
+      evidenceBundles: Array.isArray(parsed.evidenceBundles) ? parsed.evidenceBundles : [],
+      evidenceItems: Array.isArray(parsed.evidenceItems) ? parsed.evidenceItems : [],
       logs: Array.isArray(parsed.logs) ? parsed.logs : [],
       runs: Array.isArray(parsed.runs) ? parsed.runs : []
     };
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
-      return { artifacts: [], auditEvents: [], logs: [], runs: [] };
+      return { artifacts: [], auditEvents: [], evidenceBundles: [], evidenceItems: [], logs: [], runs: [] };
     }
     throw error;
   }
@@ -345,6 +387,17 @@ class SupabaseRunStore implements InssaRunStore {
     return rows.map(fromSupabaseArtifact);
   }
 
+  async getEvidence(runId: string) {
+    const [bundleRows, itemRows] = await Promise.all([
+      this.request(`evidence_bundles?run_id=eq.${encodeURIComponent(runId)}&order=created_at.desc`),
+      this.request(`evidence_items?run_id=eq.${encodeURIComponent(runId)}&order=relative_path.asc`)
+    ]);
+    return {
+      bundles: bundleRows.map(fromSupabaseEvidenceBundle),
+      items: itemRows.map(fromSupabaseEvidenceItem)
+    };
+  }
+
   async getLogs(runId: string) {
     const rows = await this.request(`run_logs?run_id=eq.${encodeURIComponent(runId)}&order=sequence.asc`);
     return rows.map(fromSupabaseLog);
@@ -373,6 +426,31 @@ class SupabaseRunStore implements InssaRunStore {
     }
 
     return artifacts;
+  }
+
+  async replaceRunEvidence(runId: string, bundle: InssaEvidenceBundleRecord | null, items: InssaEvidenceItemRecord[]) {
+    await this.request(`evidence_items?run_id=eq.${encodeURIComponent(runId)}`, {
+      method: "DELETE"
+    });
+    await this.request(`evidence_bundles?run_id=eq.${encodeURIComponent(runId)}`, {
+      method: "DELETE"
+    });
+
+    if (bundle) {
+      await this.request("evidence_bundles", {
+        body: JSON.stringify(toSupabaseEvidenceBundle(bundle)),
+        method: "POST"
+      });
+    }
+
+    if (items.length > 0) {
+      await this.request("evidence_items", {
+        body: JSON.stringify(items.map(toSupabaseEvidenceItem)),
+        method: "POST"
+      });
+    }
+
+    return { bundle, items };
   }
 
   async updateRun(id: string, patch: RunPatch) {
@@ -487,6 +565,106 @@ function toSupabaseArtifact(artifact: InssaArtifactRecord) {
   };
 }
 
+function toSupabaseEvidenceBundle(bundle: InssaEvidenceBundleRecord) {
+  return {
+    bundle_type: bundle.bundleType,
+    campaign_key: bundle.campaignKey,
+    checksum_manifest: bundle.checksumManifest,
+    created_at: bundle.createdAt,
+    environment: bundle.environment,
+    id: bundle.id,
+    indexed_at: bundle.indexedAt,
+    item_count: bundle.itemCount,
+    product: bundle.product,
+    retention_class: bundle.retentionClass,
+    root_path: bundle.rootPath,
+    run_id: bundle.runId,
+    sensitive: bundle.sensitive,
+    source_artifact_id: bundle.sourceArtifactId,
+    status: bundle.status,
+    storage_backend: bundle.storageBackend,
+    storage_prefix: bundle.storagePrefix,
+    title: bundle.title,
+    total_bytes: bundle.totalBytes
+  };
+}
+
+function fromSupabaseEvidenceBundle(row: Record<string, unknown>): InssaEvidenceBundleRecord {
+  return {
+    bundleType: row.bundle_type as InssaEvidenceBundleRecord["bundleType"],
+    campaignKey: String(row.campaign_key),
+    checksumManifest: recordValue(row.checksum_manifest),
+    createdAt: String(row.created_at),
+    environment: String(row.environment),
+    id: String(row.id),
+    indexedAt: String(row.indexed_at),
+    itemCount: Number(row.item_count),
+    product: String(row.product),
+    retentionClass: row.retention_class as InssaEvidenceBundleRecord["retentionClass"],
+    rootPath: String(row.root_path),
+    runId: String(row.run_id),
+    sensitive: Boolean(row.sensitive),
+    sourceArtifactId: nullableString(row.source_artifact_id),
+    status: row.status as InssaEvidenceBundleRecord["status"],
+    storageBackend: row.storage_backend as InssaEvidenceBundleRecord["storageBackend"],
+    storagePrefix: nullableString(row.storage_prefix),
+    title: String(row.title),
+    totalBytes: Number(row.total_bytes),
+    uploadError: nullableString(row.upload_error),
+    uploadStatus: (row.upload_status as InssaEvidenceBundleRecord["uploadStatus"]) ?? "local_only",
+    uploadedAt: nullableString(row.uploaded_at)
+  };
+}
+
+function toSupabaseEvidenceItem(item: InssaEvidenceItemRecord) {
+  return {
+    artifact_id: item.artifactId,
+    bundle_id: item.bundleId,
+    campaign_key: item.campaignKey,
+    content_type: item.contentType,
+    created_at: item.createdAt,
+    file_name: item.fileName,
+    id: item.id,
+    item_type: item.itemType,
+    metadata: item.metadata,
+    relative_path: item.relativePath,
+    render_inline: item.renderInline,
+    retention_class: item.retentionClass,
+    run_id: item.runId,
+    sensitive: item.sensitive,
+    sha256: item.sha256,
+    size_bytes: item.sizeBytes,
+    storage_backend: item.storageBackend,
+    storage_key: item.storageKey
+  };
+}
+
+function fromSupabaseEvidenceItem(row: Record<string, unknown>): InssaEvidenceItemRecord {
+  return {
+    artifactId: String(row.artifact_id),
+    bundleId: String(row.bundle_id),
+    campaignKey: String(row.campaign_key),
+    contentType: String(row.content_type),
+    createdAt: String(row.created_at),
+    fileName: String(row.file_name),
+    id: String(row.id),
+    itemType: String(row.item_type),
+    metadata: recordValue(row.metadata),
+    relativePath: String(row.relative_path),
+    renderInline: Boolean(row.render_inline),
+    retentionClass: row.retention_class as InssaEvidenceItemRecord["retentionClass"],
+    runId: String(row.run_id),
+    sensitive: Boolean(row.sensitive),
+    sha256: String(row.sha256),
+    sizeBytes: Number(row.size_bytes),
+    storageBackend: row.storage_backend as InssaEvidenceItemRecord["storageBackend"],
+    storageKey: String(row.storage_key),
+    uploadError: nullableString(row.upload_error),
+    uploadStatus: (row.upload_status as InssaEvidenceItemRecord["uploadStatus"]) ?? "local_only",
+    uploadedAt: nullableString(row.uploaded_at)
+  };
+}
+
 function fromSupabaseArtifact(row: Record<string, unknown>): InssaArtifactRecord {
   return {
     artifactType: String(row.artifact_type),
@@ -523,6 +701,10 @@ function nullableString(value: unknown) {
 
 function nullableNumber(value: unknown) {
   return typeof value === "number" ? value : null;
+}
+
+function recordValue(value: unknown): Record<string, string> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, string>) : {};
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

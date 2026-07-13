@@ -114,6 +114,10 @@ body {
   @apply bg-amber-300/15 text-amber-100 ring-amber-300/20;
 }
 
+.report-chip-blue {
+  @apply bg-cyan-300/15 text-cyan-100 ring-cyan-300/20;
+}
+
 .primary-action {
   @apply inline-flex rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200;
 }
@@ -163,11 +167,86 @@ body {
   @apply grid min-w-0 gap-4;
 }
 
+.evidence-workspace {
+  @apply grid min-w-0 gap-4;
+}
+
 .report-explorer-pane,
 .report-detail-pane,
 .run-history-pane,
 .run-detail-pane {
   @apply min-w-0 rounded-2xl border border-slate-800 bg-slate-950/50 p-4;
+}
+
+.evidence-explorer-pane,
+.evidence-detail-pane {
+  @apply min-w-0 rounded-2xl border border-slate-800 bg-slate-950/50 p-4;
+}
+
+.evidence-detail-pane {
+  @apply overflow-hidden;
+}
+
+.evidence-explorer-list {
+  @apply mt-4 space-y-3 overflow-auto overscroll-contain pr-1;
+  max-height: min(45rem, calc(100vh - 30rem));
+}
+
+.evidence-bundle-card {
+  @apply block w-full min-w-0 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-left text-slate-200 transition hover:border-cyan-300/40 hover:bg-slate-900;
+}
+
+.evidence-bundle-card-active {
+  @apply border-cyan-300/60 bg-cyan-300/10 shadow-lg shadow-cyan-950/20;
+}
+
+.evidence-hero {
+  @apply grid min-w-0 gap-4 rounded-3xl border border-slate-800 bg-slate-900/75 p-5;
+}
+
+.evidence-chain {
+  @apply mt-4 grid min-w-0 gap-3 rounded-3xl border border-slate-800 bg-slate-950/70 p-4;
+}
+
+.evidence-chain-step {
+  @apply grid min-w-0 grid-cols-[2rem_minmax(0,1fr)] items-start gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-3;
+}
+
+.evidence-chain-index {
+  @apply flex h-8 w-8 items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-300/10 text-xs font-semibold text-cyan-100;
+}
+
+.evidence-main-grid {
+  @apply mt-4 grid min-w-0 gap-4;
+}
+
+.evidence-panel {
+  @apply min-w-0 rounded-2xl border border-slate-800 bg-slate-950/70 p-4;
+}
+
+.evidence-item-list {
+  @apply mt-4 space-y-3 overflow-auto overscroll-contain pr-1;
+  max-height: min(34rem, calc(100vh - 34rem));
+}
+
+.evidence-item-card {
+  @apply flex w-full min-w-0 gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-3 text-left text-slate-200 transition hover:border-cyan-300/40 hover:bg-slate-900;
+}
+
+.evidence-item-card-active {
+  @apply border-cyan-300/60 bg-cyan-300/10;
+}
+
+.evidence-preview-frame {
+  @apply mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-black/50 p-3;
+}
+
+.evidence-preview-empty {
+  @apply mt-4 flex min-h-[18rem] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800 bg-slate-950/60 p-6 text-center text-sm leading-6 text-slate-400;
+}
+
+.evidence-report-list {
+  @apply mt-4 max-h-80 space-y-3 overflow-auto overscroll-contain pr-1;
 }
 
 .report-detail-pane {
@@ -339,6 +418,18 @@ body {
 
   .reports-workspace {
     grid-template-columns: minmax(22rem, 28rem) minmax(0, 1fr);
+  }
+
+  .evidence-workspace {
+    grid-template-columns: minmax(23rem, 30rem) minmax(0, 1fr);
+  }
+
+  .evidence-chain {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .evidence-main-grid {
+    grid-template-columns: minmax(0, 1fr) 25rem;
   }
 
   .report-preview-grid {

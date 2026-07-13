@@ -77,6 +77,78 @@ export type InssaArtifactRecord = {
   sha256: string;
 };
 
+export type InssaEvidenceBundleStatus = "indexed";
+
+export type InssaEvidenceBundleType =
+  | "artifact-validation"
+  | "healthcheck"
+  | "lifecycle"
+  | "mixed"
+  | "playwright"
+  | "report"
+  | "security"
+  | "siem";
+
+export type InssaEvidenceRetentionClass =
+  | "cleanup-evidence"
+  | "default"
+  | "security-evidence"
+  | "short-lived"
+  | "siem-metadata";
+
+export type InssaEvidenceStorageBackend = "local-filesystem" | "supabase-storage";
+
+export type InssaEvidenceUploadStatus = "local_only" | "uploaded" | "failed";
+
+export type InssaEvidenceBundleRecord = {
+  bundleType: InssaEvidenceBundleType;
+  campaignKey: string;
+  checksumManifest: Record<string, string>;
+  createdAt: string;
+  environment: string;
+  id: string;
+  indexedAt: string;
+  itemCount: number;
+  product: string;
+  retentionClass: InssaEvidenceRetentionClass;
+  rootPath: string;
+  runId: string;
+  sensitive: boolean;
+  sourceArtifactId: string | null;
+  status: InssaEvidenceBundleStatus;
+  storageBackend: InssaEvidenceStorageBackend;
+  storagePrefix: string | null;
+  title: string;
+  totalBytes: number;
+  uploadError: string | null;
+  uploadStatus: InssaEvidenceUploadStatus;
+  uploadedAt: string | null;
+};
+
+export type InssaEvidenceItemRecord = {
+  artifactId: string;
+  bundleId: string;
+  campaignKey: string;
+  contentType: string;
+  createdAt: string;
+  fileName: string;
+  id: string;
+  itemType: string;
+  metadata: Record<string, unknown>;
+  relativePath: string;
+  renderInline: boolean;
+  retentionClass: InssaEvidenceRetentionClass;
+  runId: string;
+  sensitive: boolean;
+  sha256: string;
+  sizeBytes: number;
+  storageBackend: InssaEvidenceStorageBackend;
+  storageKey: string;
+  uploadError: string | null;
+  uploadStatus: InssaEvidenceUploadStatus;
+  uploadedAt: string | null;
+};
+
 export type InssaAuditEventType =
   | "login"
   | "logout"

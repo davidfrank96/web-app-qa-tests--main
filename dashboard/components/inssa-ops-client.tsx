@@ -49,6 +49,57 @@ type ArtifactRecord = {
   sensitive: boolean;
 };
 
+type EvidenceBundleRecord = {
+  bundleType: string;
+  campaignKey: string;
+  checksumManifest: Record<string, string>;
+  createdAt: string;
+  environment: string;
+  id: string;
+  indexedAt: string;
+  itemCount: number;
+  product: string;
+  retentionClass: string;
+  rootPath: string;
+  runId: string;
+  sensitive: boolean;
+  sourceArtifactId: string | null;
+  status: string;
+  storageBackend: string;
+  storagePrefix: string | null;
+  title: string;
+  totalBytes: number;
+  uploadError: string | null;
+  uploadStatus: string;
+  uploadedAt: string | null;
+};
+
+type EvidenceItemRecord = {
+  artifactId: string;
+  bundleId: string;
+  campaignKey: string;
+  contentType: string;
+  createdAt: string;
+  fileName: string;
+  id: string;
+  itemType: string;
+  metadata: Record<string, unknown>;
+  relativePath: string;
+  renderInline: boolean;
+  retentionClass: string;
+  runId: string;
+  sensitive: boolean;
+  sha256: string;
+  sizeBytes: number;
+  storageBackend: string;
+  storageKey: string;
+  uploadError: string | null;
+  uploadStatus: string;
+  uploadedAt: string | null;
+};
+
+type EvidenceByRun = Record<string, { bundles: EvidenceBundleRecord[]; items: EvidenceItemRecord[] }>;
+
 type MetadataBackendSummary = {
   backend: "local-json" | "supabase";
   backendLabel: string;
@@ -100,6 +151,7 @@ type InssaOpsClientProps = {
 
 type RunFilter = "all" | "running" | "passed" | "failed";
 type ReportCategory = "Lifecycle" | "Playwright" | "Security" | "SIEM";
+type EvidenceSortMode = "campaign" | "date" | "run";
 type WorkspaceKey =
   | "overview"
   | "testing"
@@ -159,8 +211,8 @@ const WORKSPACE_COPY: Record<WorkspaceKey, { eyebrow: string; title: string; sub
   },
   reports: {
     eyebrow: "Evidence",
-    subtitle: "Browse generated reports without executing tests or changing staging data.",
-    title: "Reports Explorer"
+    subtitle: "Investigate evidence bundles, items, reports, integrity, storage, and SIEM outputs without executing tests.",
+    title: "Evidence Workspace"
   },
   runs: {
     eyebrow: "Execution",
@@ -291,6 +343,7 @@ export function InssaOpsClient({
       : []
   );
   const [metadataBackend, setMetadataBackend] = useState(initialMetadataBackend);
+  const [evidenceByRun, setEvidenceByRun] = useState<EvidenceByRun>({});
   const [reportArtifacts, setReportArtifacts] = useState<ArtifactRecord[]>([]);
   const [lifecycleArtifacts, setLifecycleArtifacts] = useState<LifecycleArtifactOption[]>([]);
   const [lifecycleArtifactError, setLifecycleArtifactError] = useState("");
@@ -300,6 +353,11 @@ export function InssaOpsClient({
   const [selectedLifecycleActionKey, setSelectedLifecycleActionKey] = useState(DISABLED_LIFECYCLE_COMMANDS[0]?.npmScript ?? "");
   const [selectedReportCategory, setSelectedReportCategory] = useState<ReportCategory>("Security");
   const [selectedReportArtifactId, setSelectedReportArtifactId] = useState("");
+  const [evidenceBundleSearch, setEvidenceBundleSearch] = useState("");
+  const [evidenceBundleSort, setEvidenceBundleSort] = useState<EvidenceSortMode>("date");
+  const [evidenceBundleTypeFilter, setEvidenceBundleTypeFilter] = useState("all");
+  const [selectedEvidenceBundleId, setSelectedEvidenceBundleId] = useState("");
+  const [selectedEvidenceItemId, setSelectedEvidenceItemId] = useState("");
   const [selectedSecurityActionKey, setSelectedSecurityActionKey] = useState("");
   const [selectedSiemActionKey, setSelectedSiemActionKey] = useState("");
   const [runDetailError, setRunDetailError] = useState("");
@@ -387,6 +445,75 @@ export function InssaOpsClient({
       null
     );
   }, [selectedReportArtifactId, visibleReportArtifacts]);
+  const evidenceBundles = useMemo(() => {
+    return Object.values(evidenceByRun).flatMap((entry) => entry.bundles);
+  }, [evidenceByRun]);
+  const evidenceItems = useMemo(() => {
+    return Object.values(evidenceByRun).flatMap((entry) => entry.items);
+  }, [evidenceByRun]);
+  const evidenceBundleTypes = useMemo(() => {
+    return ["all", ...Array.from(new Set(evidenceBundles.map((bundle) => bundle.bundleType))).sort()];
+  }, [evidenceBundles]);
+  const visibleEvidenceBundles = useMemo(() => {
+    const query = evidenceBundleSearch.trim().toLowerCase();
+    const filtered = evidenceBundles.filter((bundle) => {
+      if (evidenceBundleTypeFilter !== "all" && bundle.bundleType !== evidenceBundleTypeFilter) return false;
+      if (!query) return true;
+      return [
+        bundle.title,
+        bundle.campaignKey,
+        bundle.runId,
+        bundle.environment,
+        bundle.status,
+        bundle.bundleType,
+        bundle.storageBackend,
+        bundle.uploadStatus,
+        bundle.retentionClass
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+
+    return filtered.sort((left, right) => {
+      if (evidenceBundleSort === "campaign") {
+        return `${left.campaignKey}:${right.createdAt}`.localeCompare(`${right.campaignKey}:${left.createdAt}`);
+      }
+      if (evidenceBundleSort === "run") {
+        return `${left.runId}:${right.createdAt}`.localeCompare(`${right.runId}:${left.createdAt}`);
+      }
+      return right.createdAt.localeCompare(left.createdAt);
+    });
+  }, [evidenceBundleSearch, evidenceBundleSort, evidenceBundleTypeFilter, evidenceBundles]);
+  const selectedEvidenceBundle = useMemo(() => {
+    return (
+      visibleEvidenceBundles.find((bundle) => bundle.id === selectedEvidenceBundleId) ??
+      visibleEvidenceBundles[0] ??
+      null
+    );
+  }, [selectedEvidenceBundleId, visibleEvidenceBundles]);
+  const selectedEvidenceRun = selectedEvidenceBundle
+    ? runs.find((run) => run.id === selectedEvidenceBundle.runId) ?? null
+    : null;
+  const selectedEvidenceArtifacts = selectedEvidenceBundle
+    ? reportArtifacts.filter((artifact) => artifact.runId === selectedEvidenceBundle.runId)
+    : [];
+  const selectedEvidenceItems = selectedEvidenceBundle
+    ? evidenceItems
+        .filter((item) => item.bundleId === selectedEvidenceBundle.id)
+        .sort((left, right) => evidenceItemWeight(left) - evidenceItemWeight(right) || left.relativePath.localeCompare(right.relativePath))
+    : [];
+  const selectedEvidenceItem = useMemo(() => {
+    return (
+      selectedEvidenceItems.find((item) => item.id === selectedEvidenceItemId) ??
+      selectedEvidenceItems.find((item) => item.itemType === "Playwright Report") ??
+      selectedEvidenceItems[0] ??
+      null
+    );
+  }, [selectedEvidenceItemId, selectedEvidenceItems]);
+  const selectedEvidenceArtifact = selectedEvidenceItem
+    ? selectedEvidenceArtifacts.find((artifact) => artifact.id === selectedEvidenceItem.artifactId) ?? null
+    : null;
   const canStartRuns = currentUser.role === "operator" || currentUser.role === "admin";
   const executionRun = selectedRun ?? runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
   const executionCampaign = executionRun
@@ -482,12 +609,14 @@ export function InssaOpsClient({
     let runResponse: Response;
     let logsResponse: Response;
     let artifactsResponse: Response;
+    let evidenceResponse: Response;
 
     try {
-      [runResponse, logsResponse, artifactsResponse] = await Promise.all([
+      [runResponse, logsResponse, artifactsResponse, evidenceResponse] = await Promise.all([
         fetch(`/api/runs/${runId}`, { cache: "no-store" }),
         fetch(`/api/runs/${runId}/logs`, { cache: "no-store" }),
-        fetch(`/api/runs/${runId}/artifacts`, { cache: "no-store" })
+        fetch(`/api/runs/${runId}/artifacts`, { cache: "no-store" }),
+        fetch(`/api/runs/${runId}/evidence`, { cache: "no-store" })
       ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -532,6 +661,21 @@ export function InssaOpsClient({
       const body = await readJsonResponse(artifactsResponse);
       recordApiFailure(`/api/runs/${runId}/artifacts`, artifactsResponse.status, body.error ?? artifactsResponse.statusText);
     }
+    if (evidenceResponse.ok) {
+      const body = (await evidenceResponse.json()) as { bundles: EvidenceBundleRecord[]; items: EvidenceItemRecord[] };
+      startTransition(() =>
+        setEvidenceByRun((current) => ({
+          ...current,
+          [runId]: {
+            bundles: body.bundles ?? [],
+            items: body.items ?? []
+          }
+        }))
+      );
+    } else {
+      const body = await readJsonResponse(evidenceResponse);
+      recordApiFailure(`/api/runs/${runId}/evidence`, evidenceResponse.status, body.error ?? evidenceResponse.statusText);
+    }
   }
 
   async function refreshReportArchive(runList: RunRecord[]) {
@@ -554,8 +698,39 @@ export function InssaOpsClient({
         }
       })
     );
+    const evidenceLists = await Promise.all(
+      recentRuns.map(async (run) => {
+        const endpoint = `/api/runs/${run.id}/evidence`;
+        try {
+          const response = await fetch(endpoint, { cache: "no-store" });
+          if (!response.ok) {
+            const body = await readJsonResponse(response);
+            recordApiFailure(endpoint, response.status, body.error ?? response.statusText);
+            return { runId: run.id, bundles: [], items: [] };
+          }
+          const body = (await response.json()) as { bundles: EvidenceBundleRecord[]; items: EvidenceItemRecord[] };
+          return { runId: run.id, bundles: body.bundles ?? [], items: body.items ?? [] };
+        } catch (error) {
+          recordApiFailure(endpoint, "network", error instanceof Error ? error.message : String(error));
+          return { runId: run.id, bundles: [], items: [] };
+        }
+      })
+    );
 
-    startTransition(() => setReportArtifacts(artifactLists.flat()));
+    startTransition(() => {
+      setReportArtifacts(artifactLists.flat());
+      setEvidenceByRun(
+        Object.fromEntries(
+          evidenceLists.map((entry) => [
+            entry.runId,
+            {
+              bundles: entry.bundles,
+              items: entry.items
+            }
+          ])
+        )
+      );
+    });
   }
 
   async function runCampaign(campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) {
@@ -1042,196 +1217,34 @@ export function InssaOpsClient({
               ) : null}
 
               {activeWorkspace === "reports" ? (
-                <section className="reports-workspace">
-                  <div className="report-explorer-pane">
-                    <SectionHeader title="Reports Explorer" subtitle="Browse and review generated evidence and reports." />
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {(["Playwright", "Security", "Lifecycle", "SIEM"] as ReportCategory[]).map((category) => (
-                        <button
-                          className={`rounded-full px-3 py-1.5 text-sm transition ${
-                            selectedReportCategory === category
-                              ? "bg-cyan-300 text-slate-950"
-                              : "bg-slate-950 text-slate-300 ring-1 ring-slate-800 hover:ring-cyan-300/40"
-                          }`}
-                          key={category}
-                          onClick={() => {
-                            setSelectedReportCategory(category);
-                            setSelectedReportArtifactId("");
-                          }}
-                          type="button"
-                        >
-                          {category} ({reportCategoryCounts[category]})
-                        </button>
-                      ))}
-                    </div>
-                    <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-500">
-                      <span className="min-w-0 flex-1">Search reports...</span>
-                      <span aria-hidden="true">⌕</span>
-                    </div>
-                    <div className="report-explorer-list">
-                      {visibleReportArtifacts.length === 0 ? (
-                        <p className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
-                          No {selectedReportCategory.toLowerCase()} report artifacts are currently indexed.
-                        </p>
-                      ) : (
-                        visibleReportArtifacts.map((artifact) => {
-                          const dashboardRun = runs.find((run) => run.id === artifact.runId);
-                          const latestAlias = isLatestReportAlias(artifact);
-                          const selected = selectedReportArtifact?.id === artifact.id;
-
-                          return (
-                            <button
-                              className={`report-list-item ${selected ? "report-list-item-active" : ""}`}
-                              key={artifact.id}
-                              onClick={() => setSelectedReportArtifactId(artifact.id)}
-                              type="button"
-                            >
-                              <span className="report-file-icon" aria-hidden="true">▤</span>
-                              <span className="min-w-0 flex-1">
-                                <span className="flex flex-wrap items-center gap-2">
-                                  <span className="font-semibold">{reportTitle(artifact)}</span>
-                                  {latestAlias ? <span className="report-chip report-chip-warn">latest</span> : null}
-                                </span>
-                                <span className="mt-2 block text-xs text-slate-400">{formatDate(artifact.createdAt)}</span>
-                                <span className="mt-1 block break-words font-mono text-xs text-slate-500">
-                                  {dashboardRun?.campaignKey ?? artifact.runId}
-                                </span>
-                                <span className="mt-1 block text-xs text-slate-400">{formatBytes(artifact.fileSize)}</span>
-                              </span>
-                              <span className="flex shrink-0 flex-col items-end gap-2">
-                                <span className="report-chip">{artifact.contentType.includes("json") ? "JSON" : "HTML"}</span>
-                                {dashboardRun ? <StatusBadge status={dashboardRun.status} /> : null}
-                              </span>
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                    <p className="mt-3 text-xs text-slate-500">
-                      Showing {visibleReportArtifacts.length === 0 ? 0 : 1} to {visibleReportArtifacts.length} of {visibleReportArtifacts.length} reports.
-                    </p>
-                  </div>
-
-                  <div className="report-detail-pane">
-                    {selectedReportArtifact ? (() => {
-                      const dashboardRun = runs.find((run) => run.id === selectedReportArtifact.runId);
-                      const sourceCampaignRun = resolveReportSource(selectedReportArtifact, reportArchiveArtifacts);
-                      const openHref = `/api/artifacts/${selectedReportArtifact.id}/file`;
-                      const canPreview = canOpenArtifact(selectedReportArtifact) && !selectedReportArtifact.contentType.includes("json");
-
-                      return (
-                        <div className="min-w-0">
-                          <div className="border-b border-slate-800 p-5">
-                            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                              <div className="min-w-0">
-                                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Report Details</p>
-                                <div className="mt-4 flex flex-wrap items-center gap-3">
-                                  <h3 className="text-2xl font-semibold tracking-[-0.03em]">{reportTitle(selectedReportArtifact)}</h3>
-                                  <span className="report-chip">{selectedReportArtifact.contentType.includes("json") ? "JSON" : "HTML"}</span>
-                                  {isLatestReportAlias(selectedReportArtifact) ? <span className="report-chip report-chip-warn">latest alias</span> : null}
-                                </div>
-                                <p className="mt-2 text-sm text-slate-400">
-                                  Indexed evidence artifact. Opening it reviews existing evidence and does not execute a campaign.
-                                </p>
-                              </div>
-                              <span className="self-start rounded-full bg-slate-900 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-400 ring-1 ring-slate-800">
-                                Read only
-                              </span>
-                            </div>
-                            <dl className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                              <MetadataCard label="Generated By" value={dashboardRun?.campaignKey ?? selectedReportArtifact.runId} />
-                              <MetadataCard label="Source Campaign Run" value={sourceCampaignRun ?? selectedReportArtifact.runId} />
-                              <MetadataCard label="Artifact Type" value={selectedReportArtifact.artifactType} />
-                              <MetadataCard label="Generated Date" value={formatDate(selectedReportArtifact.createdAt)} />
-                              <MetadataCard label="File Size" value={formatBytes(selectedReportArtifact.fileSize)} />
-                              <MetadataCard label="Artifact ID" value={selectedReportArtifact.id.slice(0, 24)} />
-                            </dl>
-                            <div className="mt-5 flex flex-wrap gap-3">
-                              {canOpenArtifact(selectedReportArtifact) ? (
-                                <a className="primary-action" href={openHref} rel="noreferrer" target="_blank">
-                                  Open Report ↗
-                                </a>
-                              ) : null}
-                              {selectedReportArtifact.artifactType === "SIEM Export" ? (
-                                <a className="secondary-action" download href={openHref}>
-                                  Download
-                                </a>
-                              ) : null}
-                              <span className="secondary-action cursor-default">Source artifact indexed</span>
-                            </div>
-                          </div>
-
-                          <div className="report-preview-grid">
-                            <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
-                              <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
-                                <h4 className="font-semibold">Report Preview</h4>
-                                {canOpenArtifact(selectedReportArtifact) ? (
-                                  <a className="text-xs font-semibold text-cyan-200 hover:text-cyan-100" href={openHref} rel="noreferrer" target="_blank">
-                                    Open in New Tab ↗
-                                  </a>
-                                ) : null}
-                              </div>
-                              {canPreview ? (
-                                <iframe
-                                  className="h-[34rem] w-full bg-white"
-                                  src={openHref}
-                                  title={`${reportTitle(selectedReportArtifact)} preview`}
-                                />
-                              ) : (
-                                <div className="flex h-[20rem] items-center justify-center p-6 text-center text-sm text-slate-400">
-                                  Preview is not rendered inline for this artifact type. Use the open or download action above.
-                                </div>
-                              )}
-                            </div>
-
-                            <aside className="space-y-4">
-                              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                                <h4 className="font-semibold">Report Metadata</h4>
-                                <div className="mt-4 space-y-3 text-sm text-slate-300">
-                                  <Metadata label="Campaign Executed" value={dashboardRun ? formatDate(dashboardRun.createdAt) : "unknown"} />
-                                  <Metadata label="Artifact Created" value={formatDate(selectedReportArtifact.createdAt)} />
-                                  <Metadata label="Report Generated" value={formatDate(selectedReportArtifact.createdAt)} />
-                                  <Metadata label="SIEM Export" value={selectedReportArtifact.artifactType === "SIEM Export" ? "this artifact" : "separate export"} />
-                                </div>
-                              </div>
-
-                              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
-                                <h4 className="font-semibold">Report Tools</h4>
-                                <p className="mt-2 text-sm leading-6 text-slate-400">
-                                  These actions work from existing evidence. They do not execute Playwright tests or create fresh findings.
-                                </p>
-                                <div className="mt-4 space-y-3">
-                                  {reportRenderCommands.map((campaign) => (
-                                    <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-3" key={campaign.key}>
-                                      <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                          <h5 className="font-medium">{campaign.displayName}</h5>
-                                          <p className="mt-1 font-mono text-xs text-slate-500">{campaign.npmScript}</p>
-                                        </div>
-                                        <RiskBadge risk={campaign.riskLevel} />
-                                      </div>
-                                      <p className="mt-3 text-sm leading-6 text-slate-400">{campaign.operatorDescription}</p>
-                                      <button
-                                        className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-                                        disabled={!canStartRuns || overview.running > 0}
-                                        onClick={() => void runCampaign(campaign.key)}
-                                        type="button"
-                                      >
-                                        {canStartRuns ? "Re-render Report" : "Viewer role cannot run"}
-                                      </button>
-                                    </article>
-                                  ))}
-                                </div>
-                              </div>
-                            </aside>
-                          </div>
-                        </div>
-                      );
-                    })() : (
-                      <div className="p-5 text-sm text-slate-400">Select a report artifact to inspect details.</div>
-                    )}
-                  </div>
-                </section>
+                <EvidenceWorkspace
+                  bundleSearch={evidenceBundleSearch}
+                  bundleSort={evidenceBundleSort}
+                  bundleTypeFilter={evidenceBundleTypeFilter}
+                  bundleTypes={evidenceBundleTypes}
+                  canStartRuns={canStartRuns}
+                  evidenceArtifacts={selectedEvidenceArtifacts}
+                  evidenceBundles={visibleEvidenceBundles}
+                  evidenceItems={selectedEvidenceItems}
+                  reportCategory={selectedReportCategory}
+                  reportCategoryCounts={reportCategoryCounts}
+                  reportRenderCommands={reportRenderCommands}
+                  reports={visibleReportArtifacts}
+                  runCampaign={runCampaign}
+                  runs={runs}
+                  selectedArtifact={selectedEvidenceArtifact}
+                  selectedBundle={selectedEvidenceBundle}
+                  selectedItem={selectedEvidenceItem}
+                  selectedReport={selectedReportArtifact}
+                  selectedRun={selectedEvidenceRun}
+                  setBundleSearch={setEvidenceBundleSearch}
+                  setBundleSort={setEvidenceBundleSort}
+                  setBundleTypeFilter={setEvidenceBundleTypeFilter}
+                  setReportCategory={setSelectedReportCategory}
+                  setSelectedBundleId={setSelectedEvidenceBundleId}
+                  setSelectedItemId={setSelectedEvidenceItemId}
+                  setSelectedReportId={setSelectedReportArtifactId}
+                />
               ) : null}
 
               {activeWorkspace === "siem" ? (
@@ -1925,6 +1938,582 @@ function StatusBadge({ status }: { status: string }) {
         : "bg-slate-700 text-slate-300 ring-slate-600";
 
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs ring-1 ${className}`}>{status}</span>;
+}
+
+function EvidenceWorkspace({
+  bundleSearch,
+  bundleSort,
+  bundleTypeFilter,
+  bundleTypes,
+  canStartRuns,
+  evidenceArtifacts,
+  evidenceBundles,
+  evidenceItems,
+  reportCategory,
+  reportCategoryCounts,
+  reportRenderCommands,
+  reports,
+  runCampaign,
+  runs,
+  selectedArtifact,
+  selectedBundle,
+  selectedItem,
+  selectedReport,
+  selectedRun,
+  setBundleSearch,
+  setBundleSort,
+  setBundleTypeFilter,
+  setReportCategory,
+  setSelectedBundleId,
+  setSelectedItemId,
+  setSelectedReportId
+}: {
+  bundleSearch: string;
+  bundleSort: EvidenceSortMode;
+  bundleTypeFilter: string;
+  bundleTypes: string[];
+  canStartRuns: boolean;
+  evidenceArtifacts: ArtifactRecord[];
+  evidenceBundles: EvidenceBundleRecord[];
+  evidenceItems: EvidenceItemRecord[];
+  reportCategory: ReportCategory;
+  reportCategoryCounts: Record<ReportCategory, number>;
+  reportRenderCommands: CampaignDefinition[];
+  reports: ArtifactRecord[];
+  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) => Promise<void>;
+  runs: RunRecord[];
+  selectedArtifact: ArtifactRecord | null;
+  selectedBundle: EvidenceBundleRecord | null;
+  selectedItem: EvidenceItemRecord | null;
+  selectedReport: ArtifactRecord | null;
+  selectedRun: RunRecord | null;
+  setBundleSearch: (value: string) => void;
+  setBundleSort: (value: EvidenceSortMode) => void;
+  setBundleTypeFilter: (value: string) => void;
+  setReportCategory: (value: ReportCategory) => void;
+  setSelectedBundleId: (value: string) => void;
+  setSelectedItemId: (value: string) => void;
+  setSelectedReportId: (value: string) => void;
+}) {
+  const selectedReportHref = selectedReport ? `/api/artifacts/${selectedReport.id}/file` : null;
+  const selectedItemHref = selectedItem ? evidenceItemHref(selectedItem, selectedArtifact, evidenceArtifacts) : null;
+  const playableEvidence = evidenceItems.filter((item) => isPreviewableEvidenceItem(item, evidenceArtifacts));
+  const reportArtifactsForRun = evidenceArtifacts.filter((artifact) => REPORT_ARCHIVE_ARTIFACT_TYPES.has(artifact.artifactType));
+  const siemArtifact = evidenceArtifacts.find((artifact) => artifact.artifactType === "SIEM Export") ?? null;
+
+  return (
+    <section className="evidence-workspace">
+      <aside className="evidence-explorer-pane">
+        <div className="flex items-start justify-between gap-3">
+          <SectionHeader title="Evidence Explorer" subtitle="Group evidence by campaign, run, bundle, date, environment, status, and type." />
+          <span className="report-chip">{evidenceBundles.length} bundles</span>
+        </div>
+
+        <div className="mt-4 grid gap-3">
+          <label className="block">
+            <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Search</span>
+            <input
+              className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/60"
+              onChange={(event) => setBundleSearch(event.target.value)}
+              placeholder="Campaign, run, status, storage..."
+              type="search"
+              value={bundleSearch}
+            />
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+            <label className="block">
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Sort</span>
+              <select
+                className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                onChange={(event) => setBundleSort(event.target.value as EvidenceSortMode)}
+                value={bundleSort}
+              >
+                <option value="date">Newest</option>
+                <option value="campaign">Campaign</option>
+                <option value="run">Run</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Bundle Type</span>
+              <select
+                className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                onChange={(event) => setBundleTypeFilter(event.target.value)}
+                value={bundleTypeFilter}
+              >
+                {bundleTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="evidence-explorer-list">
+          {evidenceBundles.length === 0 ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-400">
+              No Evidence Bundles are currently indexed. Run a safe campaign or select a historical run with evidence metadata.
+            </div>
+          ) : (
+            evidenceBundles.map((bundle) => {
+              const run = runs.find((candidate) => candidate.id === bundle.runId);
+              const selected = selectedBundle?.id === bundle.id;
+              return (
+                <button
+                  className={`evidence-bundle-card ${selected ? "evidence-bundle-card-active" : ""}`}
+                  key={bundle.id}
+                  onClick={() => {
+                    setSelectedBundleId(bundle.id);
+                    setSelectedItemId("");
+                  }}
+                  type="button"
+                >
+                  <span className="flex items-start justify-between gap-3">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold">{bundle.title}</span>
+                      <span className="mt-1 block break-words font-mono text-xs text-slate-500">{bundle.campaignKey}</span>
+                    </span>
+                    <EvidenceHealthBadge bundle={bundle} items={[]} />
+                  </span>
+                  <span className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-400">
+                    <span>{bundle.bundleType}</span>
+                    <span>{bundle.environment}</span>
+                    <span>{bundle.itemCount} items</span>
+                    <span>{formatBytes(bundle.totalBytes)}</span>
+                  </span>
+                  <span className="mt-3 block truncate font-mono text-xs text-slate-600">{run?.id ?? bundle.runId}</span>
+                  <span className="mt-1 block text-xs text-slate-500">{formatDate(bundle.createdAt)}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </aside>
+
+      <section className="evidence-detail-pane">
+        {selectedBundle ? (
+          <>
+            <div className="evidence-hero">
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-[0.22em] text-cyan-200/80">Evidence Bundle</p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <h2 className="min-w-0 break-words text-2xl font-semibold tracking-[-0.04em]">{selectedBundle.title}</h2>
+                  <EvidenceHealthBadge bundle={selectedBundle} items={evidenceItems} />
+                  <span className="report-chip">{selectedBundle.bundleType}</span>
+                </div>
+                <p className="mt-2 break-words font-mono text-xs text-slate-500">{selectedBundle.id}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+                <MetadataCard label="Campaign" value={selectedBundle.campaignKey} />
+                <MetadataCard label="Run" value={selectedBundle.runId.slice(0, 18)} />
+                <MetadataCard label="Evidence Count" value={String(evidenceItems.length)} />
+                <MetadataCard label="Bundle Size" value={formatBytes(selectedBundle.totalBytes)} />
+                <MetadataCard label="Storage Backend" value={selectedBundle.storageBackend} />
+                <MetadataCard label="Upload Status" value={selectedBundle.uploadStatus} />
+                <MetadataCard label="Retention" value={selectedBundle.retentionClass} />
+                <MetadataCard label="Integrity" value={evidenceIntegrityLabel(selectedBundle, evidenceItems)} />
+              </div>
+            </div>
+
+            <div className="evidence-chain">
+              {[
+                { label: "Campaign", value: selectedBundle.campaignKey },
+                { label: "Run", value: selectedRun?.status ?? selectedBundle.runId },
+                { label: "Evidence Bundle", value: selectedBundle.bundleType },
+                { label: "Evidence Items", value: `${evidenceItems.length} indexed` },
+                { label: "Reports", value: `${reportArtifactsForRun.length} reports` },
+                { label: "SIEM Export", value: siemArtifact ? "available" : "not generated" }
+              ].map((step, index) => (
+                <div className="evidence-chain-step" key={step.label}>
+                  <span className="evidence-chain-index">{index + 1}</span>
+                  <span className="min-w-0">
+                    <span className="block text-xs uppercase tracking-[0.18em] text-slate-500">{step.label}</span>
+                    <span className="mt-1 block truncate text-sm font-semibold text-slate-200">{step.value}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="evidence-main-grid">
+              <div className="space-y-4">
+                <section className="evidence-panel">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                    <SectionHeader title="Evidence Items" subtitle="Every indexed item in the selected bundle." />
+                    <span className="text-xs text-slate-500">{playableEvidence.length} preview-capable</span>
+                  </div>
+                  <div className="evidence-item-list">
+                    {evidenceItems.length === 0 ? (
+                      <p className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-400">
+                        This bundle has no item metadata.
+                      </p>
+                    ) : (
+                      evidenceItems.map((item) => {
+                        const selected = selectedItem?.id === item.id;
+                        const href = evidenceItemHref(item, evidenceArtifacts.find((artifact) => artifact.id === item.artifactId) ?? null, evidenceArtifacts);
+                        return (
+                          <button
+                            className={`evidence-item-card ${selected ? "evidence-item-card-active" : ""}`}
+                            key={item.id}
+                            onClick={() => setSelectedItemId(item.id)}
+                            type="button"
+                          >
+                            <span className="report-file-icon" aria-hidden="true">{evidenceIcon(item)}</span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold">{item.itemType}</span>
+                                <span className="report-chip">{evidenceFormatLabel(item)}</span>
+                                {href ? <span className="report-chip report-chip-blue">preview</span> : null}
+                              </span>
+                              <span className="mt-1 block break-words font-mono text-xs text-slate-500">{item.relativePath}</span>
+                              <span className="mt-2 block text-xs text-slate-400">
+                                {formatBytes(item.sizeBytes)} · {item.storageBackend} · {item.uploadStatus}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </section>
+
+                <section className="evidence-panel">
+                  <SectionHeader title="Evidence Preview" subtitle="Preview supported evidence inline without changing storage or report generation." />
+                  <EvidencePreview item={selectedItem} artifact={selectedArtifact} artifacts={evidenceArtifacts} />
+                </section>
+              </div>
+
+              <aside className="space-y-4">
+                <section className="evidence-panel">
+                  <SectionHeader title="Bundle Details" subtitle="Storage, integrity, retention, and lifecycle metadata." />
+                  <dl className="mt-4 space-y-3 text-sm text-slate-300">
+                    <Metadata label="Status" value={selectedBundle.status} />
+                    <Metadata label="Storage Prefix" value={selectedBundle.storagePrefix ?? "local filesystem"} mono />
+                    <Metadata label="Uploaded At" value={selectedBundle.uploadedAt ? formatDate(selectedBundle.uploadedAt) : "not uploaded"} />
+                    <Metadata label="SHA Manifest" value={`${Object.keys(selectedBundle.checksumManifest ?? {}).length} checksums`} />
+                    <Metadata label="Sensitive" value={selectedBundle.sensitive ? "yes" : "no"} />
+                    <Metadata label="Source Artifact" value={selectedBundle.sourceArtifactId ?? "none"} mono />
+                  </dl>
+                  {selectedBundle.uploadError ? (
+                    <p className="mt-4 rounded-xl border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+                      {selectedBundle.uploadError}
+                    </p>
+                  ) : null}
+                </section>
+
+                <section className="evidence-panel">
+                  <SectionHeader title="Selected Item Integrity" subtitle="Per-item hash, storage key, and preview status." />
+                  {selectedItem ? (
+                    <dl className="mt-4 space-y-3 text-sm text-slate-300">
+                      <Metadata label="SHA256" value={selectedItem.sha256} mono />
+                      <Metadata label="Storage Key" value={selectedItem.storageKey} mono />
+                      <Metadata label="Content Type" value={selectedItem.contentType} />
+                      <Metadata label="Render Inline" value={selectedItem.renderInline ? "yes" : "no"} />
+                      <Metadata label="Sensitive" value={selectedItem.sensitive ? "yes" : "no"} />
+                      <Metadata label="Health" value={selectedItem.uploadStatus === "failed" ? "upload failed" : "verified metadata"} />
+                    </dl>
+                  ) : (
+                    <p className="mt-4 text-sm text-slate-400">Select an evidence item to inspect integrity details.</p>
+                  )}
+                </section>
+
+                <section className="evidence-panel">
+                  <SectionHeader title="Related Evidence" subtitle="Reports, artifacts, SIEM export, and source run links." />
+                  <div className="mt-4 space-y-3">
+                    {selectedRun ? (
+                      <RelatedEvidenceRow label="Related Run" value={selectedRun.id} meta={selectedRun.status} />
+                    ) : null}
+                    {reportArtifactsForRun.map((artifact) => (
+                      <RelatedEvidenceRow
+                        href={canOpenArtifact(artifact) ? `/api/artifacts/${artifact.id}/file` : undefined}
+                        key={artifact.id}
+                        label={artifact.artifactType}
+                        meta={formatBytes(artifact.fileSize)}
+                        value={artifact.filePath}
+                      />
+                    ))}
+                    {reportArtifactsForRun.length === 0 ? (
+                      <p className="text-sm text-slate-400">No report artifacts are linked to this bundle yet.</p>
+                    ) : null}
+                  </div>
+                </section>
+
+                <section className="evidence-panel">
+                  <SectionHeader title="Report Archive" subtitle="Derived report views remain available as evidence views." />
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {(["Playwright", "Security", "Lifecycle", "SIEM"] as ReportCategory[]).map((category) => (
+                      <button
+                        className={`rounded-full px-3 py-1.5 text-xs transition ${
+                          reportCategory === category
+                            ? "bg-cyan-300 text-slate-950"
+                            : "bg-slate-950 text-slate-300 ring-1 ring-slate-800 hover:ring-cyan-300/40"
+                        }`}
+                        key={category}
+                        onClick={() => {
+                          setReportCategory(category);
+                          setSelectedReportId("");
+                        }}
+                        type="button"
+                      >
+                        {category} ({reportCategoryCounts[category]})
+                      </button>
+                    ))}
+                  </div>
+                  <div className="evidence-report-list">
+                    {reports.length === 0 ? (
+                      <p className="text-sm text-slate-400">No {reportCategory.toLowerCase()} reports indexed.</p>
+                    ) : (
+                      reports.map((report) => (
+                        <button
+                          className={`report-list-item ${selectedReport?.id === report.id ? "report-list-item-active" : ""}`}
+                          key={report.id}
+                          onClick={() => setSelectedReportId(report.id)}
+                          type="button"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-semibold">{reportTitle(report)}</span>
+                            <span className="mt-1 block break-words font-mono text-xs text-slate-500">{report.filePath}</span>
+                          </span>
+                          <span className="text-xs text-slate-400">{formatBytes(report.fileSize)}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  {selectedReport && selectedReportHref ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <a className="primary-action" href={selectedReportHref} rel="noreferrer" target="_blank">
+                        Open Report ↗
+                      </a>
+                      {selectedReport.artifactType === "SIEM Export" ? (
+                        <a className="secondary-action" download href={selectedReportHref}>
+                          Download SIEM JSON
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </section>
+
+                <section className="evidence-panel">
+                  <SectionHeader title="Report Tools" subtitle="Re-render existing evidence views without executing tests." />
+                  <div className="mt-4 space-y-3">
+                    {reportRenderCommands.map((campaign) => (
+                      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-3" key={campaign.key}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h5 className="font-medium">{campaign.displayName}</h5>
+                            <p className="mt-1 font-mono text-xs text-slate-500">{campaign.npmScript}</p>
+                          </div>
+                          <RiskBadge risk={campaign.riskLevel} />
+                        </div>
+                        <p className="mt-3 text-sm leading-6 text-slate-400">{campaign.operatorDescription}</p>
+                        <button
+                          className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                          disabled={!canStartRuns}
+                          onClick={() => void runCampaign(campaign.key)}
+                          type="button"
+                        >
+                          {canStartRuns ? "Re-render Report" : "Viewer role cannot run"}
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              </aside>
+            </div>
+          </>
+        ) : (
+          <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-8 text-center">
+            <p className="text-lg font-semibold">No Evidence Bundle Selected</p>
+            <p className="mt-2 text-sm text-slate-400">
+              Evidence bundles appear after runs index artifacts. Reports remain accessible when report artifacts exist.
+            </p>
+          </div>
+        )}
+      </section>
+    </section>
+  );
+}
+
+function EvidencePreview({
+  artifact,
+  artifacts,
+  item
+}: {
+  artifact: ArtifactRecord | null;
+  artifacts: ArtifactRecord[];
+  item: EvidenceItemRecord | null;
+}) {
+  if (!item) {
+    return (
+      <div className="evidence-preview-empty">
+        Select an evidence item to preview HTML, JSON, Markdown, image, video, or text evidence.
+      </div>
+    );
+  }
+
+  const href = evidenceItemHref(item, artifact, artifacts);
+  const kind = evidencePreviewKind(item);
+  if (!href) {
+    return (
+      <div className="evidence-preview-empty">
+        <p className="font-semibold text-slate-200">{item.itemType}</p>
+        <p className="mt-2 break-words font-mono text-xs">{item.relativePath}</p>
+        <p className="mt-4">
+          This item is indexed as evidence but is not previewable through current serving rules. Sensitive screenshots,
+          traces, and videos remain protected unless they are part of the authenticated Playwright bundle.
+        </p>
+      </div>
+    );
+  }
+
+  if (kind === "image") {
+    return (
+      <div className="evidence-preview-frame">
+        <img alt={item.fileName} className="max-h-[36rem] w-full object-contain" src={href} />
+      </div>
+    );
+  }
+
+  if (kind === "video") {
+    return (
+      <div className="evidence-preview-frame">
+        <video className="max-h-[36rem] w-full" controls src={href}>
+          <track kind="captions" />
+        </video>
+      </div>
+    );
+  }
+
+  if (kind === "download") {
+    return (
+      <div className="evidence-preview-empty">
+        <p className="font-semibold text-slate-200">{item.itemType}</p>
+        <p className="mt-2 break-words font-mono text-xs">{item.relativePath}</p>
+        <a className="primary-action mt-5" download href={href}>
+          Download Evidence
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+        <span className="font-semibold">{item.itemType} Preview</span>
+        <a className="text-xs font-semibold text-cyan-200 hover:text-cyan-100" href={href} rel="noreferrer" target="_blank">
+          Open in New Tab ↗
+        </a>
+      </div>
+      <iframe className="h-[36rem] w-full bg-white" src={href} title={`${item.itemType} preview`} />
+    </div>
+  );
+}
+
+function EvidenceHealthBadge({ bundle, items }: { bundle: EvidenceBundleRecord; items: EvidenceItemRecord[] }) {
+  const failed = bundle.uploadStatus === "failed" || items.some((item) => item.uploadStatus === "failed");
+  const uploaded = bundle.uploadStatus === "uploaded";
+  const label = failed ? "attention" : uploaded ? "verified" : "local";
+  const className = failed
+    ? "bg-rose-300/15 text-rose-200 ring-rose-300/20"
+    : uploaded
+      ? "bg-emerald-300/15 text-emerald-200 ring-emerald-300/20"
+      : "bg-slate-800 text-slate-300 ring-slate-700";
+
+  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${className}`}>{label}</span>;
+}
+
+function RelatedEvidenceRow({
+  href,
+  label,
+  meta,
+  value
+}: {
+  href?: string;
+  label: string;
+  meta: string;
+  value: string;
+}) {
+  const content = (
+    <>
+      <span className="block text-xs uppercase tracking-[0.18em] text-slate-500">{label}</span>
+      <span className="mt-1 block break-words font-mono text-xs text-slate-300">{value}</span>
+      <span className="mt-2 block text-xs text-slate-500">{meta}</span>
+    </>
+  );
+
+  return href ? (
+    <a className="block rounded-xl border border-slate-800 bg-slate-900/70 p-3 transition hover:border-cyan-300/40" href={href} rel="noreferrer" target="_blank">
+      {content}
+    </a>
+  ) : (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">{content}</div>
+  );
+}
+
+function evidenceIntegrityLabel(bundle: EvidenceBundleRecord, items: EvidenceItemRecord[]) {
+  if (bundle.uploadStatus === "failed" || items.some((item) => item.uploadStatus === "failed")) return "needs review";
+  if (bundle.uploadStatus === "uploaded" && items.every((item) => item.uploadStatus === "uploaded")) return "verified";
+  if (Object.keys(bundle.checksumManifest ?? {}).length > 0) return "checksummed";
+  return "metadata only";
+}
+
+function evidenceItemHref(item: EvidenceItemRecord, artifact: ArtifactRecord | null, artifacts: ArtifactRecord[]) {
+  if (item.relativePath.startsWith("playwright-report/")) {
+    const relativePath = item.relativePath.replace(/^playwright-report\/?/, "") || "index.html";
+    return `/api/artifacts/${item.artifactId}/bundle/${relativePath}`;
+  }
+
+  if (artifact && canOpenArtifact(artifact)) {
+    return `/api/artifacts/${artifact.id}/file`;
+  }
+
+  if (!item.sensitive && item.renderInline && item.artifactId) {
+    return `/api/artifacts/${item.artifactId}/file`;
+  }
+
+  return null;
+}
+
+function evidencePreviewKind(item: EvidenceItemRecord) {
+  if (item.contentType.startsWith("image/")) return "image";
+  if (item.contentType.startsWith("video/")) return "video";
+  if (item.contentType.includes("zip")) return "download";
+  return "frame";
+}
+
+function isPreviewableEvidenceItem(item: EvidenceItemRecord, artifacts: ArtifactRecord[]) {
+  return Boolean(evidenceItemHref(item, artifacts.find((artifact) => artifact.id === item.artifactId) ?? null, artifacts));
+}
+
+function evidenceIcon(item: EvidenceItemRecord) {
+  if (item.contentType.startsWith("image/")) return "▧";
+  if (item.contentType.startsWith("video/")) return "▶";
+  if (item.contentType.includes("json")) return "{}";
+  if (item.contentType.includes("html")) return "HTML";
+  if (item.contentType.includes("markdown")) return "MD";
+  if (item.contentType.includes("zip")) return "ZIP";
+  return "▤";
+}
+
+function evidenceFormatLabel(item: EvidenceItemRecord) {
+  if (item.contentType.includes("json")) return "JSON";
+  if (item.contentType.includes("html")) return "HTML";
+  if (item.contentType.startsWith("image/")) return "Image";
+  if (item.contentType.startsWith("video/")) return "Video";
+  if (item.contentType.includes("markdown")) return "Markdown";
+  if (item.contentType.includes("zip")) return "Trace";
+  return "File";
+}
+
+function evidenceItemWeight(item: EvidenceItemRecord) {
+  if (item.itemType === "Playwright Report") return 0;
+  if (item.contentType.includes("html")) return 1;
+  if (item.contentType.includes("json")) return 2;
+  if (item.contentType.startsWith("image/")) return 3;
+  if (item.contentType.startsWith("video/")) return 4;
+  if (item.contentType.includes("zip")) return 5;
+  return 6;
 }
 
 type ExecutionStageStatus = "current" | "done" | "failed" | "pending";
