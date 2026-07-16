@@ -1,0 +1,6 @@
+[
+  {
+    "username": "loadtest-user-001@example.com",
+    "password": "REPLACE_WITH_SECRET_AT_RUNTIME"
+  }
+]

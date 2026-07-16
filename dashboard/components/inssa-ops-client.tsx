@@ -99,6 +99,33 @@ type EvidenceItemRecord = {
 };
 
 type EvidenceByRun = Record<string, { bundles: EvidenceBundleRecord[]; items: EvidenceItemRecord[] }>;
+type CampaignCategory = "Artifact Validation" | "Lifecycle" | "Operations" | "Safe Tests" | "Security" | "SIEM";
+type ProductKey = "Future" | "INSSA" | "KBean" | "Localman";
+
+type ManagedCampaign = {
+  approvalRequired: boolean;
+  category: CampaignCategory;
+  cleanupRequired: boolean;
+  commandKey: string | null;
+  description: string;
+  disabledReason: string | null;
+  environment: string;
+  estimatedDuration: string;
+  evidenceProduced: string[];
+  executionEnabled: boolean;
+  id: string;
+  mutatesStaging: boolean;
+  name: string;
+  npmScript: string;
+  prerequisites: string[];
+  produces: string[];
+  product: ProductKey;
+  relatedReports: string[];
+  relatedValidation: string[];
+  risk: string;
+  source: "disabled" | "registry";
+  status: "Disabled" | "Executable";
+};
 
 type MetadataBackendSummary = {
   backend: "local-json" | "supabase";
@@ -153,6 +180,7 @@ type RunFilter = "all" | "running" | "passed" | "failed";
 type ReportCategory = "Lifecycle" | "Playwright" | "Security" | "SIEM";
 type EvidenceSortMode = "campaign" | "date" | "run";
 type WorkspaceKey =
+  | "campaigns"
   | "overview"
   | "testing"
   | "security"
@@ -172,7 +200,8 @@ type WorkspaceNavItem = {
 
 const WORKSPACE_NAV: WorkspaceNavItem[] = [
   { key: "overview", label: "Overview" },
-  { group: "Testing", key: "testing", label: "Testing" },
+  { group: "Testing", key: "campaigns", label: "Campaign Library" },
+  { key: "testing", label: "Testing" },
   { key: "security", label: "Security" },
   { key: "lifecycle", label: "Lifecycle" },
   { key: "execution", label: "Execution" },
@@ -188,6 +217,11 @@ const WORKSPACE_COPY: Record<WorkspaceKey, { eyebrow: string; title: string; sub
     eyebrow: "Evidence",
     subtitle: "Run read-only discovery, public-share, and cleanup checks against selected lifecycle artifacts.",
     title: "Artifact Validation"
+  },
+  campaigns: {
+    eyebrow: "Campaign management",
+    subtitle: "Browse managed campaign definitions by product, risk, environment, approval state, and execution readiness.",
+    title: "Campaign Library"
   },
   lifecycle: {
     eyebrow: "Live staging",
@@ -249,6 +283,8 @@ const ARTIFACT_VALIDATION_COMMAND_KEYS = [
 ];
 const SIEM_COMMAND_KEYS = ["siem_export"];
 const OPERATIONS_COMMAND_KEYS = ["platform_healthcheck"];
+const CAMPAIGN_CATEGORIES: CampaignCategory[] = ["Safe Tests", "Security", "Lifecycle", "Artifact Validation", "Operations", "SIEM"];
+const PRODUCT_KEYS: ProductKey[] = ["INSSA", "Localman", "KBean", "Future"];
 
 type DisabledCommandCard = {
   description: string;
@@ -360,6 +396,10 @@ export function InssaOpsClient({
   const [selectedEvidenceItemId, setSelectedEvidenceItemId] = useState("");
   const [selectedSecurityActionKey, setSelectedSecurityActionKey] = useState("");
   const [selectedSiemActionKey, setSelectedSiemActionKey] = useState("");
+  const [campaignLibraryProduct, setCampaignLibraryProduct] = useState<ProductKey>("INSSA");
+  const [campaignLibraryCategory, setCampaignLibraryCategory] = useState<CampaignCategory | "All">("All");
+  const [campaignLibrarySearch, setCampaignLibrarySearch] = useState("");
+  const [selectedManagedCampaignId, setSelectedManagedCampaignId] = useState("");
   const [runDetailError, setRunDetailError] = useState("");
   const [runHistoryError, setRunHistoryError] = useState(initialLoadError ?? "");
   const [message, setMessage] = useState("");
@@ -414,6 +454,35 @@ export function InssaOpsClient({
   const artifactValidationCommands = selectCommands(campaignDefinitions, ARTIFACT_VALIDATION_COMMAND_KEYS);
   const siemCommands = selectCommands(campaignDefinitions, SIEM_COMMAND_KEYS);
   const operationsCommands = selectCommands(campaignDefinitions, OPERATIONS_COMMAND_KEYS);
+  const managedCampaigns = useMemo(() => buildManagedCampaigns(campaignDefinitions), [campaignDefinitions]);
+  const visibleManagedCampaigns = useMemo(() => {
+    const query = campaignLibrarySearch.trim().toLowerCase();
+    return managedCampaigns.filter((campaign) => {
+      if (campaign.product !== campaignLibraryProduct) return false;
+      if (campaignLibraryCategory !== "All" && campaign.category !== campaignLibraryCategory) return false;
+      if (!query) return true;
+      return [
+        campaign.name,
+        campaign.description,
+        campaign.category,
+        campaign.risk,
+        campaign.npmScript,
+        campaign.status,
+        campaign.environment,
+        campaign.disabledReason ?? ""
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [campaignLibraryCategory, campaignLibraryProduct, campaignLibrarySearch, managedCampaigns]);
+  const selectedManagedCampaign = useMemo(() => {
+    return (
+      visibleManagedCampaigns.find((campaign) => campaign.id === selectedManagedCampaignId) ??
+      visibleManagedCampaigns[0] ??
+      null
+    );
+  }, [selectedManagedCampaignId, visibleManagedCampaigns]);
   const usableLifecycleArtifacts = useMemo(() => {
     return lifecycleArtifacts.filter((artifact) => artifact.artifactValidationReady);
   }, [lifecycleArtifacts]);
@@ -918,6 +987,27 @@ export function InssaOpsClient({
                     </section>
                   ) : null}
                 </div>
+              ) : null}
+
+              {activeWorkspace === "campaigns" ? (
+                <CampaignLibraryWorkspace
+                  campaignCategory={campaignLibraryCategory}
+                  campaignProduct={campaignLibraryProduct}
+                  canStartRuns={canStartRuns}
+                  currentUserRole={currentUser.role}
+                  managedCampaigns={managedCampaigns}
+                  onCategoryChange={setCampaignLibraryCategory}
+                  onProductChange={setCampaignLibraryProduct}
+                  onSearchChange={setCampaignLibrarySearch}
+                  onSelectCampaign={setSelectedManagedCampaignId}
+                  runningCount={overview.running}
+                  runCampaign={runCampaign}
+                  runs={runs}
+                  search={campaignLibrarySearch}
+                  selectedCampaign={selectedManagedCampaign}
+                  selectedCampaignId={selectedManagedCampaign?.id ?? ""}
+                  visibleCampaigns={visibleManagedCampaigns}
+                />
               ) : null}
 
               {activeWorkspace === "testing" ? (
@@ -1603,6 +1693,273 @@ type ActionOption =
       riskLevel: string;
     };
 
+function CampaignLibraryWorkspace({
+  campaignCategory,
+  campaignProduct,
+  canStartRuns,
+  currentUserRole,
+  managedCampaigns,
+  onCategoryChange,
+  onProductChange,
+  onSearchChange,
+  onSelectCampaign,
+  runningCount,
+  runCampaign,
+  runs,
+  search,
+  selectedCampaign,
+  selectedCampaignId,
+  visibleCampaigns
+}: {
+  campaignCategory: CampaignCategory | "All";
+  campaignProduct: ProductKey;
+  canStartRuns: boolean;
+  currentUserRole: InssaOpsClientProps["currentUser"]["role"];
+  managedCampaigns: ManagedCampaign[];
+  onCategoryChange: (category: CampaignCategory | "All") => void;
+  onProductChange: (product: ProductKey) => void;
+  onSearchChange: (value: string) => void;
+  onSelectCampaign: (campaignId: string) => void;
+  runningCount: number;
+  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) => Promise<void>;
+  runs: RunRecord[];
+  search: string;
+  selectedCampaign: ManagedCampaign | null;
+  selectedCampaignId: string;
+  visibleCampaigns: ManagedCampaign[];
+}) {
+  const executableCount = managedCampaigns.filter((campaign) => campaign.executionEnabled).length;
+  const disabledCount = managedCampaigns.filter((campaign) => !campaign.executionEnabled).length;
+  const liveMutationCount = managedCampaigns.filter((campaign) => campaign.mutatesStaging).length;
+  const cleanupCount = managedCampaigns.filter((campaign) => campaign.cleanupRequired).length;
+
+  return (
+    <section className="campaign-library">
+      <div className="campaign-library-header">
+        <div>
+          <SectionHeader
+            title="Campaign Library"
+            subtitle="Managed campaign definitions for current and future products. Execution still uses approved registry commands only."
+          />
+          <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-400">
+            Campaigns execute tests. Reports review evidence. Lifecycle commands create staging data and remain disabled until approval and cleanup workflows are implemented.
+          </p>
+        </div>
+        <div className="campaign-library-metrics">
+          <MetadataCard label="Executable" value={String(executableCount)} tone="pass" />
+          <MetadataCard label="Disabled" value={String(disabledCount)} />
+          <MetadataCard label="Live Mutation" value={String(liveMutationCount)} tone="warn" />
+          <MetadataCard label="Cleanup Required" value={String(cleanupCount)} tone="warn" />
+        </div>
+      </div>
+
+      <div className="campaign-product-strip">
+        {PRODUCT_KEYS.map((product) => {
+          const count = managedCampaigns.filter((campaign) => campaign.product === product).length;
+          const futureProduct = product !== "INSSA";
+          return (
+            <button
+              className={`campaign-product-card ${campaignProduct === product ? "campaign-product-card-active" : ""}`}
+              key={product}
+              onClick={() => {
+                onProductChange(product);
+                onSelectCampaign("");
+              }}
+              type="button"
+            >
+              <span className="text-sm font-semibold">{product}</span>
+              <span className="mt-1 block text-xs text-slate-500">
+                {futureProduct ? "Future onboarding" : `${count} managed campaigns`}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="campaign-library-grid">
+        <aside className="campaign-library-explorer">
+          <div className="grid gap-3">
+            <input
+              className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500"
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder="Search campaigns..."
+              value={search}
+            />
+            <select
+              className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+              onChange={(event) => {
+                onCategoryChange(event.target.value === "All" ? "All" : (event.target.value as CampaignCategory));
+                onSelectCampaign("");
+              }}
+              value={campaignCategory}
+            >
+              <option value="All">All categories</option>
+              {CAMPAIGN_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="campaign-library-list">
+            {visibleCampaigns.map((campaign) => (
+              <button
+                className={`campaign-library-item ${selectedCampaignId === campaign.id ? "campaign-library-item-active" : ""}`}
+                key={campaign.id}
+                onClick={() => onSelectCampaign(campaign.id)}
+                type="button"
+              >
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{campaign.name}</p>
+                    <p className="mt-1 truncate font-mono text-xs text-slate-500">{campaign.npmScript}</p>
+                  </div>
+                  <RiskBadge risk={campaign.risk} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="report-chip report-chip-blue">{campaign.category}</span>
+                  <span className={campaign.executionEnabled ? "report-chip" : "report-chip report-chip-warn"}>
+                    {campaign.status}
+                  </span>
+                </div>
+              </button>
+            ))}
+            {visibleCampaigns.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/60 p-5 text-sm leading-6 text-slate-400">
+                {campaignProduct === "INSSA"
+                  ? "No INSSA campaigns match the current filters."
+                  : `${campaignProduct} campaign definitions are not onboarded yet. The library is product-aware, but execution remains INSSA-only in the current phase.`}
+              </div>
+            ) : null}
+          </div>
+        </aside>
+
+        <CampaignDetailPanel
+          campaign={selectedCampaign}
+          canStartRuns={canStartRuns}
+          currentUserRole={currentUserRole}
+          latestRun={selectedCampaign?.commandKey ? findLatestRunForCommand(runs, selectedCampaign.commandKey) : null}
+          runningCount={runningCount}
+          runCampaign={runCampaign}
+        />
+      </div>
+    </section>
+  );
+}
+
+function CampaignDetailPanel({
+  campaign,
+  canStartRuns,
+  currentUserRole,
+  latestRun,
+  runningCount,
+  runCampaign
+}: {
+  campaign: ManagedCampaign | null;
+  canStartRuns: boolean;
+  currentUserRole: InssaOpsClientProps["currentUser"]["role"];
+  latestRun: RunRecord | null;
+  runningCount: number;
+  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) => Promise<void>;
+}) {
+  if (!campaign) {
+    return (
+      <article className="campaign-detail-panel">
+        <div className="evidence-preview-empty">
+          Select a managed campaign to inspect purpose, prerequisites, cleanup requirements, outputs, and execution readiness.
+        </div>
+      </article>
+    );
+  }
+
+  const executionDisabled =
+    !campaign.executionEnabled ||
+    !campaign.commandKey ||
+    !canStartRuns ||
+    runningCount > 0 ||
+    (currentUserRole !== "admin" && campaign.commandKey === "platform_healthcheck");
+
+  return (
+    <article className="campaign-detail-panel">
+      <div className="campaign-detail-hero">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="report-chip report-chip-blue">{campaign.product}</span>
+            <span className="report-chip">{campaign.category}</span>
+            {!campaign.executionEnabled ? <span className="report-chip report-chip-warn">Approval Required</span> : null}
+          </div>
+          <h2 className="mt-4 text-2xl font-semibold tracking-[-0.03em]">{campaign.name}</h2>
+          <p className="mt-2 break-words font-mono text-xs text-slate-500">{campaign.npmScript}</p>
+          <p className="mt-4 max-w-4xl text-sm leading-6 text-slate-400">{campaign.description}</p>
+        </div>
+        <RiskBadge risk={campaign.risk} />
+      </div>
+
+      <dl className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetadataCard label="Environment" value={campaign.environment} />
+        <MetadataCard label="Status" value={campaign.status} tone={campaign.executionEnabled ? "pass" : "warn"} />
+        <MetadataCard label="Estimated Duration" value={campaign.estimatedDuration} />
+        <MetadataCard label="Last Run" value={latestRun ? latestRun.status : "none"} />
+        <MetadataCard label="Mutates Staging" value={campaign.mutatesStaging ? "yes" : "no"} tone={campaign.mutatesStaging ? "warn" : "pass"} />
+        <MetadataCard label="Cleanup Required" value={campaign.cleanupRequired ? "yes" : "no"} tone={campaign.cleanupRequired ? "warn" : "pass"} />
+        <MetadataCard label="Approval Required" value={campaign.approvalRequired ? "yes" : "no"} tone={campaign.approvalRequired ? "warn" : "pass"} />
+        <MetadataCard label="Produces" value={campaign.produces.join(", ") || "metadata"} />
+      </dl>
+
+      {campaign.disabledReason ? (
+        <p className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">
+          {campaign.disabledReason}
+        </p>
+      ) : null}
+
+      <div className="campaign-detail-grid">
+        <CampaignDetailList title="Purpose" items={[campaign.description]} />
+        <CampaignDetailList title="Prerequisites" items={campaign.prerequisites} />
+        <CampaignDetailList title="Expected Outputs" items={campaign.produces} />
+        <CampaignDetailList title="Cleanup Requirements" items={campaign.cleanupRequired ? ["Manual cleanup evidence and owner responsibility required."] : ["No cleanup required."]} />
+        <CampaignDetailList title="Evidence Produced" items={campaign.evidenceProduced} />
+        <CampaignDetailList title="Related Validation" items={campaign.relatedValidation} />
+        <CampaignDetailList title="Related Reports" items={campaign.relatedReports} />
+      </div>
+
+      <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold">Execution Readiness</p>
+          <p className="mt-1 text-sm text-slate-400">
+            {campaign.executionEnabled
+              ? "This command is already enabled in the approved registry."
+              : "This campaign is managed for visibility only and cannot be executed in the current phase."}
+          </p>
+        </div>
+        <button
+          className="rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+          disabled={executionDisabled}
+          onClick={() => campaign.commandKey && void runCampaign(campaign.commandKey)}
+          type="button"
+        >
+          {campaign.executionEnabled ? (canStartRuns ? "Run Campaign" : "Viewer role cannot run") : "Disabled"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function CampaignDetailList({ items, title }: { items: string[]; title: string }) {
+  return (
+    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-400">
+        {(items.length ? items : ["Not specified."]).map((item) => (
+          <li className="break-words" key={item}>
+            {item}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function ActionSelectorPanel({
   canStartRuns,
   currentUserRole,
@@ -1915,11 +2272,21 @@ function Metadata({ label, mono, value }: { label: string; mono?: boolean; value
   );
 }
 
-function MetadataCard({ label, value }: { label: string; value: string }) {
+function MetadataCard({ label, tone = "neutral", value }: { label: string; tone?: "active" | "fail" | "neutral" | "pass" | "warn"; value: string }) {
+  const toneClass =
+    tone === "pass"
+      ? "text-emerald-100"
+      : tone === "warn"
+        ? "text-amber-100"
+        : tone === "fail"
+          ? "text-rose-100"
+          : tone === "active"
+            ? "text-cyan-100"
+            : "text-slate-100";
   return (
     <div className="min-w-0 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
       <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{label}</p>
-      <p className="mt-3 break-words text-lg font-semibold">{value}</p>
+      <p className={`mt-3 break-words text-lg font-semibold ${toneClass}`}>{value}</p>
     </div>
   );
 }
@@ -2899,6 +3266,174 @@ function canOpenArtifact(artifact: ArtifactRecord) {
     !artifact.sensitive &&
     ["Lifecycle Report", "Playwright Report", "Security Report", "SIEM Export"].includes(artifact.artifactType)
   );
+}
+
+function buildManagedCampaigns(campaigns: CampaignDefinition[]): ManagedCampaign[] {
+  const registryCampaigns = campaigns.map((campaign) => managedCampaignFromRegistry(campaign));
+  const disabledCampaigns = [
+    ...DISABLED_LIFECYCLE_COMMANDS.map((command) => managedCampaignFromDisabled(command, "Lifecycle")),
+    ...DISABLED_SECURITY_COMMANDS.map((command) => managedCampaignFromDisabled(command, "Security")),
+    ...DISABLED_SIEM_COMMANDS.map((command) => managedCampaignFromDisabled(command, "SIEM"))
+  ];
+
+  return [...registryCampaigns, ...disabledCampaigns].sort((left, right) => {
+    const categoryCompare = CAMPAIGN_CATEGORIES.indexOf(left.category) - CAMPAIGN_CATEGORIES.indexOf(right.category);
+    if (categoryCompare !== 0) return categoryCompare;
+    if (left.executionEnabled !== right.executionEnabled) return left.executionEnabled ? -1 : 1;
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function managedCampaignFromRegistry(campaign: CampaignDefinition): ManagedCampaign {
+  const category = categoryForCommand(campaign);
+  const evidenceProduced = evidenceProducedForCommand(campaign);
+  const produces = producesForCommand(campaign);
+
+  return {
+    approvalRequired: false,
+    category,
+    cleanupRequired: campaign.mutatesStaging,
+    commandKey: campaign.key,
+    description: campaign.operatorDescription,
+    disabledReason: null,
+    environment: "Staging",
+    estimatedDuration: formatDuration(campaign.timeoutMs),
+    evidenceProduced,
+    executionEnabled: campaign.phase1Enabled && !campaign.mutatesStaging,
+    id: `registry:${campaign.key}`,
+    mutatesStaging: campaign.mutatesStaging,
+    name: campaign.displayName,
+    npmScript: campaign.npmScript,
+    prerequisites: prerequisitesForCommand(campaign),
+    produces,
+    product: "INSSA",
+    relatedReports: relatedReportsForCommand(campaign),
+    relatedValidation: relatedValidationForCommand(campaign),
+    risk: campaign.riskLevel,
+    source: "registry",
+    status: campaign.phase1Enabled && !campaign.mutatesStaging ? "Executable" : "Disabled"
+  };
+}
+
+function managedCampaignFromDisabled(command: DisabledCommandCard, category: CampaignCategory): ManagedCampaign {
+  const mutatesStaging = command.riskLevel.includes("mutation");
+  const cleanupRequired = mutatesStaging || /cleanup|capsule|creates/i.test(`${command.description} ${command.reason}`);
+
+  return {
+    approvalRequired: true,
+    category,
+    cleanupRequired,
+    commandKey: null,
+    description: command.description,
+    disabledReason: command.reason,
+    environment: "Staging",
+    estimatedDuration: "not enabled",
+    evidenceProduced: disabledEvidenceForCommand(command, category),
+    executionEnabled: false,
+    id: `disabled:${command.npmScript}`,
+    mutatesStaging,
+    name: command.label,
+    npmScript: command.npmScript,
+    prerequisites: [
+      "Explicit dashboard approval workflow",
+      "Validated staging-only environment",
+      cleanupRequired ? "Manual cleanup ownership before execution" : "Operator confirmation before execution"
+    ],
+    produces: disabledProducesForCommand(command, category),
+    product: "INSSA",
+    relatedReports: category === "SIEM" ? ["SIEM export delivery evidence"] : ["Campaign summary report", "Playwright report"],
+    relatedValidation: disabledRelatedValidationForCommand(command, category),
+    risk: command.riskLevel,
+    source: "disabled",
+    status: "Disabled"
+  };
+}
+
+function categoryForCommand(campaign: CampaignDefinition): CampaignCategory {
+  if (SAFE_COMMAND_KEYS.includes(campaign.key)) return "Safe Tests";
+  if (SECURITY_COMMAND_KEYS.includes(campaign.key)) return "Security";
+  if (ARTIFACT_VALIDATION_COMMAND_KEYS.includes(campaign.key)) return "Artifact Validation";
+  if (SIEM_COMMAND_KEYS.includes(campaign.key)) return "SIEM";
+  return "Operations";
+}
+
+function producesForCommand(campaign: CampaignDefinition) {
+  const outputs = [];
+  if (campaign.producesFindings) outputs.push("Findings");
+  if (campaign.producesReports) outputs.push("Reports");
+  if (campaign.commandType === "artifact_validation") outputs.push("Validation artifacts");
+  if (campaign.commandType === "export") outputs.push("SIEM metadata export");
+  if (campaign.commandType === "healthcheck") outputs.push("Healthcheck result");
+  if (campaign.commandType === "report_render") outputs.push("Rendered HTML");
+  return outputs.length ? outputs : ["Run metadata", "Logs"];
+}
+
+function evidenceProducedForCommand(campaign: CampaignDefinition) {
+  if (campaign.commandType === "artifact_validation") {
+    return ["Playwright report", "Lifecycle validation JSON", "Evidence bundle metadata"];
+  }
+  if (campaign.commandType === "campaign" && campaign.producesFindings) {
+    return ["Security campaign JSON", "Findings summary", "Playwright report", "Evidence bundle metadata"];
+  }
+  if (campaign.commandType === "campaign") {
+    return ["Playwright report", "Safe suite result metadata", "Evidence bundle metadata"];
+  }
+  if (campaign.commandType === "export") return ["SIEM export JSON"];
+  if (campaign.commandType === "report_render") return ["HTML report derived from existing evidence"];
+  return ["Run log", "Healthcheck output"];
+}
+
+function prerequisitesForCommand(campaign: CampaignDefinition) {
+  const prerequisites = ["Authenticated operator or admin session", "INSSA_URL must resolve to staging.inssa.us"];
+  if (campaign.requiresLifecycleArtifact) {
+    prerequisites.push("Explicit lifecycle artifact selection or latest usable lifecycle artifact");
+  }
+  if (campaign.key === "platform_healthcheck") {
+    prerequisites.push("Admin role");
+  }
+  if (campaign.commandType === "report_render" || campaign.commandType === "export") {
+    prerequisites.push("Existing campaign artifacts or reports available locally");
+  }
+  return prerequisites;
+}
+
+function relatedReportsForCommand(campaign: CampaignDefinition) {
+  if (campaign.key.includes("security")) return ["Security report", "Playwright report"];
+  if (campaign.commandType === "artifact_validation") return ["Playwright report", "Lifecycle report"];
+  if (campaign.commandType === "report_render") return ["Rendered HTML report"];
+  if (campaign.commandType === "export") return ["SIEM export JSON"];
+  return ["Playwright report"];
+}
+
+function relatedValidationForCommand(campaign: CampaignDefinition) {
+  if (campaign.key === "test_inssa_discovery") return ["Public Share Validation", "Cleanup Capability Audit"];
+  if (campaign.key === "test_inssa_public_share") return ["Authenticated Discovery", "Cleanup Capability Audit"];
+  if (campaign.key === "test_inssa_cleanup_audit") return ["Authenticated Discovery", "Public Share Validation"];
+  if (campaign.key === "test_inssa_campaign_security") return ["Security Verification"];
+  if (campaign.key === "test_inssa_campaign_security_verify") return ["Security Campaign"];
+  return ["Run History", "Evidence Workspace"];
+}
+
+function disabledProducesForCommand(command: DisabledCommandCard, category: CampaignCategory) {
+  if (category === "Lifecycle") return ["Lifecycle artifact", "Cleanup target", "Discovery result", "Public share result"];
+  if (category === "Security") return ["Access-control findings", "Security report", "Cleanup target"];
+  if (category === "SIEM") return ["External SIEM transmission status"];
+  return [command.label];
+}
+
+function disabledEvidenceForCommand(command: DisabledCommandCard, category: CampaignCategory) {
+  if (category === "Lifecycle") return ["Lifecycle JSON artifact", "Playwright report", "Campaign summary", "Manual cleanup evidence"];
+  if (category === "Security") return ["Security finding JSON", "Access probes", "Playwright report", "HTML security report"];
+  if (category === "SIEM") return ["Wazuh delivery response metadata"];
+  return [command.description];
+}
+
+function disabledRelatedValidationForCommand(command: DisabledCommandCard, category: CampaignCategory) {
+  if (category === "Lifecycle") return ["Authenticated Discovery", "Public Share Validation", "Cleanup Capability Audit"];
+  if (command.npmScript.includes("cross-user")) return ["Security Verification", "Access Control Review"];
+  if (command.npmScript.includes("reveal-later")) return ["Reveal-Later Access-Control Verification"];
+  if (category === "SIEM") return ["Generate SIEM Export"];
+  return ["Evidence Workspace"];
 }
 
 function buildActionOptions(enabledCommands: CampaignDefinition[], disabledCommands: DisabledCommandCard[]): ActionOption[] {

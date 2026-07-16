@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+data/users.json
+results/*.json
+results/*.csv
+results/*.html
+results/*.txt
+results/*.log

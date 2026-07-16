@@ -249,6 +249,64 @@ body {
   @apply mt-4 max-h-80 space-y-3 overflow-auto overscroll-contain pr-1;
 }
 
+.campaign-library {
+  @apply grid min-w-0 gap-4;
+}
+
+.campaign-library-header {
+  @apply grid min-w-0 gap-4 rounded-3xl border border-slate-800 bg-slate-900/75 p-5;
+}
+
+.campaign-library-metrics {
+  @apply grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4;
+}
+
+.campaign-product-strip {
+  @apply grid min-w-0 gap-3 md:grid-cols-4;
+}
+
+.campaign-product-card {
+  @apply min-w-0 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-left text-slate-300 transition hover:border-cyan-300/40 hover:text-cyan-100;
+}
+
+.campaign-product-card-active {
+  @apply border-cyan-300/60 bg-cyan-300/10 text-cyan-100;
+}
+
+.campaign-library-grid {
+  @apply grid min-w-0 gap-4;
+}
+
+.campaign-library-explorer,
+.campaign-detail-panel {
+  @apply min-w-0 rounded-2xl border border-slate-800 bg-slate-950/50 p-4;
+}
+
+.campaign-library-list {
+  @apply mt-4 space-y-3 overflow-auto overscroll-contain pr-1;
+  max-height: min(44rem, calc(100vh - 31rem));
+}
+
+.campaign-library-item {
+  @apply block w-full min-w-0 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-left text-slate-200 transition hover:border-cyan-300/40 hover:bg-slate-900;
+}
+
+.campaign-library-item-active {
+  @apply border-cyan-300/60 bg-cyan-300/10 shadow-lg shadow-cyan-950/20;
+}
+
+.campaign-detail-panel {
+  @apply overflow-hidden;
+}
+
+.campaign-detail-hero {
+  @apply flex min-w-0 flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-900/75 p-5 sm:flex-row sm:items-start sm:justify-between;
+}
+
+.campaign-detail-grid {
+  @apply mt-4 grid min-w-0 gap-4 md:grid-cols-2;
+}
+
 .report-detail-pane {
   @apply overflow-hidden p-0;
 }
@@ -422,6 +480,10 @@ body {
 
   .evidence-workspace {
     grid-template-columns: minmax(23rem, 30rem) minmax(0, 1fr);
+  }
+
+  .campaign-library-grid {
+    grid-template-columns: minmax(22rem, 29rem) minmax(0, 1fr);
   }
 
   .evidence-chain {
