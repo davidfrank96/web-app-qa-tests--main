@@ -101,6 +101,7 @@ type EvidenceItemRecord = {
 type EvidenceByRun = Record<string, { bundles: EvidenceBundleRecord[]; items: EvidenceItemRecord[] }>;
 type CampaignCategory = "Artifact Validation" | "Lifecycle" | "Operations" | "Safe Tests" | "Security" | "SIEM";
 type ProductKey = "Future" | "INSSA" | "KBean" | "Localman";
+type ThemeMode = "dark" | "light";
 
 type ManagedCampaign = {
   approvalRequired: boolean;
@@ -352,6 +353,8 @@ const DISABLED_SIEM_COMMANDS: DisabledCommandCard[] = [
   }
 ];
 
+const THEME_STORAGE_KEY = "qa-ops-theme";
+
 export function InssaOpsClient({
   currentUser,
   initialCampaignDefinitions,
@@ -404,6 +407,15 @@ export function InssaOpsClient({
   const [runHistoryError, setRunHistoryError] = useState(initialLoadError ?? "");
   const [message, setMessage] = useState("");
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceKey>("overview");
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return "dark";
+    return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
+    window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
+  }, [themeMode]);
 
   useEffect(() => {
     void refreshCampaigns();
@@ -856,7 +868,7 @@ export function InssaOpsClient({
   const workspaceCopy = WORKSPACE_COPY[activeWorkspace];
 
   return (
-    <main className="min-h-screen bg-[#060c17] text-slate-100">
+    <main className="min-h-screen bg-background text-slate-100">
       <div className="ops-shell ops-shell-workspace">
         <header className="ops-topbar workspace-topbar">
           <div className="flex min-w-[18rem] items-center gap-3">
@@ -875,6 +887,7 @@ export function InssaOpsClient({
             <TopMetric label="Last Run" value={runs[0] ? formatRelativeTime(runs[0].createdAt) : "None"} tone="neutral" />
           </div>
           <div className="flex items-center gap-3 border-t border-slate-800/80 pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+            <ThemeToggle onChange={setThemeMode} value={themeMode} />
             <div className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-sm font-semibold">
               {initialsForUser(currentUser.email || currentUser.id)}
             </div>
@@ -1571,6 +1584,26 @@ export function InssaOpsClient({
         </footer>
       </div>
     </main>
+  );
+}
+
+function ThemeToggle({ onChange, value }: { onChange: (value: ThemeMode) => void; value: ThemeMode }) {
+  return (
+    <div aria-label="Theme" className="flex rounded-xl border border-slate-800 bg-slate-950/70 p-1">
+      {(["dark", "light"] as const).map((theme) => (
+        <button
+          aria-pressed={value === theme}
+          className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+            value === theme ? "bg-cyan-300 text-slate-950" : "text-slate-400 hover:text-cyan-100"
+          }`}
+          key={theme}
+          onClick={() => onChange(theme)}
+          type="button"
+        >
+          {theme === "dark" ? "🌙 Dark" : "☀️ Light"}
+        </button>
+      ))}
+    </div>
   );
 }
 
