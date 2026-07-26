@@ -4,9 +4,11 @@ import { requireInssaApiUser } from "../../../../../../lib/inssa-ops/api-guard";
 import {
   InssaEvidenceServingError,
   isPlaywrightReportArtifact,
-  resolvePlaywrightEvidenceBundleFile
+  resolvePlaywrightEvidenceBundleFile,
+  safeEvidenceFileName
 } from "../../../../../../lib/inssa-ops/evidence-serving";
 import { getInssaRunStore } from "../../../../../../lib/inssa-ops/run-store";
+import { isRedactableContentType, redactInssaTextOutput } from "../../../../../../lib/inssa-ops/redaction";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -30,7 +32,7 @@ export async function GET(
 
   let resolved;
   try {
-    resolved = resolvePlaywrightEvidenceBundleFile(relativePath);
+    resolved = await resolvePlaywrightEvidenceBundleFile(artifact, relativePath);
   } catch (error) {
     if (error instanceof InssaEvidenceServingError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -51,11 +53,17 @@ export async function GET(
     throw error;
   }
 
+  if (isRedactableContentType(resolved.contentType)) {
+    file = Buffer.from(redactInssaTextOutput(file), "utf8");
+  }
+
   const headers = new Headers({
     "accept-ranges": "bytes",
     "cache-control": "no-store",
-    "content-disposition": `inline; filename="${resolved.fileName}"`,
-    "content-type": resolved.contentType
+    "content-disposition": `inline; filename="${safeEvidenceFileName(resolved.fileName)}"`,
+    "content-type": resolved.contentType,
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff"
   });
 
   const range = parseByteRange(request.headers.get("range"), file.byteLength);

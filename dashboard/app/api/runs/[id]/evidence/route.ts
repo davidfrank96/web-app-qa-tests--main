@@ -17,5 +17,19 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   }
 
   const evidence = await store.getEvidence(id);
-  return NextResponse.json(evidence);
+  const requestedLimit = Number(request.nextUrl.searchParams.get("limit"));
+  const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 500) : evidence.items.length;
+  const offset = Math.max(0, Number(request.nextUrl.searchParams.get("cursor")) || 0);
+  const items = evidence.items.slice(offset, offset + limit);
+  const nextOffset = offset + items.length;
+  return NextResponse.json({
+    bundles: evidence.bundles,
+    items,
+    pagination: {
+      hasMore: nextOffset < evidence.items.length,
+      limit,
+      nextCursor: nextOffset < evidence.items.length ? String(nextOffset) : null,
+      total: evidence.items.length
+    }
+  });
 }

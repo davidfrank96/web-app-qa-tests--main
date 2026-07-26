@@ -29,7 +29,7 @@ export function buildEvidenceMetadataForRun(run: InssaRunRecord, artifacts: Inss
     campaignKey: run.campaignKey,
     checksumManifest: Object.fromEntries(artifacts.map((artifact) => [artifact.filePath, artifact.sha256])),
     createdAt: run.completedAt ?? indexedAt,
-    environment: "staging",
+    environment: run.commandSnapshot.targetEnvironment ?? "staging",
     id: bundleId,
     indexedAt,
     itemCount: artifacts.length,
@@ -102,13 +102,13 @@ function classifyBundleType(run: InssaRunRecord, artifacts: InssaArtifactRecord[
 
 function classifyBundleRetention(run: InssaRunRecord, artifacts: InssaArtifactRecord[]): InssaEvidenceRetentionClass {
   if (artifacts.some((artifact) => artifact.artifactType === "SIEM Export")) return "siem-metadata";
-  if (/cleanup/i.test(run.campaignKey) || artifacts.some((artifact) => artifact.filePath.startsWith("lifecycle-artifacts/"))) {
+  if (/cleanup/i.test(run.campaignKey) || artifacts.some((artifact) => logicalArtifactPath(artifact).startsWith("lifecycle-artifacts/"))) {
     return "cleanup-evidence";
   }
   if (/security|cross-user|reveal-later/i.test(run.campaignKey)) return "security-evidence";
   if (
     artifacts.some((artifact) =>
-      ["Screenshot", "Trace", "Video"].includes(artifact.artifactType) || artifact.filePath.startsWith("test-results/")
+      ["Screenshot", "Trace", "Video"].includes(artifact.artifactType) || logicalArtifactPath(artifact).startsWith("test-results/")
     )
   ) {
     return "short-lived";
@@ -121,9 +121,10 @@ function classifyItemRetention(
   bundleRetention: InssaEvidenceRetentionClass
 ): InssaEvidenceRetentionClass {
   if (artifact.artifactType === "SIEM Export") return "siem-metadata";
-  if (artifact.filePath.startsWith("lifecycle-artifacts/")) return "cleanup-evidence";
-  if (artifact.filePath.includes("/cross-user/") || artifact.filePath.includes("/reveal-later/")) return "security-evidence";
-  if (["Screenshot", "Trace", "Video"].includes(artifact.artifactType) || artifact.filePath.startsWith("test-results/")) {
+  const logicalPath = logicalArtifactPath(artifact);
+  if (logicalPath.startsWith("lifecycle-artifacts/")) return "cleanup-evidence";
+  if (logicalPath.includes("/cross-user/") || logicalPath.includes("/reveal-later/")) return "security-evidence";
+  if (["Screenshot", "Trace", "Video"].includes(artifact.artifactType) || logicalPath.startsWith("test-results/")) {
     return "short-lived";
   }
   return bundleRetention;
@@ -144,6 +145,16 @@ function firstSourceArtifactId(artifacts: InssaArtifactRecord[]) {
 }
 
 function commonEvidenceRoot(artifacts: InssaArtifactRecord[]) {
+  const runScopedRoot = artifacts[0]?.filePath.split(path.sep).join("/").match(/^(run-output\/[^/]+)/)?.[1];
+  if (runScopedRoot && artifacts.every((artifact) => artifact.filePath.split(path.sep).join("/").startsWith(`${runScopedRoot}/`))) {
+    return runScopedRoot;
+  }
   const roots = new Set(artifacts.map((artifact) => artifact.filePath.split(path.sep).join("/").split("/")[0] ?? ""));
   return roots.size === 1 ? [...roots][0] : "mixed";
+}
+
+function logicalArtifactPath(artifact: InssaArtifactRecord) {
+  const normalized = artifact.filePath.split(path.sep).join("/");
+  const prefix = `run-output/${artifact.runId}/`;
+  return normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized;
 }

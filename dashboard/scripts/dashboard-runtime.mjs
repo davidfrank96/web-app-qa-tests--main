@@ -5,6 +5,12 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import {
+  acquireDashboardRuntimeLock,
+  describeDashboardRuntimeOwner,
+  inspectDashboardRuntimeLock,
+  releaseDashboardRuntimeLock
+} from "./dashboard-runtime-lock.mjs";
 
 const scriptDir = path.dirname(new URL(import.meta.url).pathname);
 const dashboardRoot = path.resolve(scriptDir, "..");
@@ -22,6 +28,11 @@ const REQUIRED_ROUTE_BUNDLES = [
   "app/api/runs/[id]/route.js",
   "app/api/runs/[id]/logs/route.js",
   "app/api/runs/[id]/artifacts/route.js",
+  "app/api/notifications/route.js",
+  "app/api/notifications/[id]/route.js",
+  "app/api/monitoring-definitions/route.js",
+  "app/api/monitoring-definitions/[id]/route.js",
+  "app/api/scheduler/status/route.js",
   "app/api/artifacts/[id]/route.js",
   "app/api/artifacts/[id]/file/route.js"
 ];
@@ -30,6 +41,8 @@ const REQUIRED_PAGES_ROUTES = ["/_app", "/_error", "/_document"];
 
 const REQUIRED_ROOT_SCRIPTS = [
   "test:inssa:safe",
+  "test:inssa:monitor:auth:staging",
+  "test:inssa:monitor:auth:production",
   "test:inssa:campaign:security",
   "test:inssa:campaign:security:verify",
   "report:security",
@@ -47,7 +60,7 @@ const LEVELS = {
 function main() {
   const args = new Set(process.argv.slice(2));
   if (args.has("--clean")) {
-    cleanRuntimeArtifacts();
+    if (!cleanRuntimeArtifacts()) process.exitCode = 1;
     return;
   }
 
@@ -72,12 +85,17 @@ function readArgValue(name) {
 
 function runDoctor({ mode, startup }) {
   loadEnvFiles();
+  const runtimeLock = inspectDashboardRuntimeLock();
+  const effectiveMode = mode === "doctor" && runtimeLock.active
+    ? runtimeLock.owner?.mode ?? mode
+    : mode;
 
   const checks = [
+    checkRuntimeOwnership({ mode, runtimeLock, startup }),
     checkNodeVersion(),
     checkPackageIntegrity(),
     checkNextVersion(),
-    checkNextIntegrity({ mode, startup }),
+    checkNextIntegrity({ mode: effectiveMode, startup }),
     checkEnvironment(),
     checkSupabaseConfig(),
     checkRunnerPrerequisites(),
@@ -89,6 +107,37 @@ function runDoctor({ mode, startup }) {
   }, "PASS");
 
   return { checks, status };
+}
+
+function checkRuntimeOwnership({ mode, runtimeLock, startup }) {
+  if (!runtimeLock.active) {
+    return makeCheck(
+      "Runtime ownership",
+      startup ? "FAIL" : "PASS",
+      startup
+        ? `No runtime ownership was reserved before ${mode} startup.`
+        : "No dashboard dev, build, or production process currently owns the runtime.",
+      startup ? `Start the dashboard through npm run ${mode}; do not invoke Next.js directly.` : null
+    );
+  }
+
+  const expectedToken = process.env.INSSA_DASHBOARD_LOCK_TOKEN;
+  const ownsRuntime = Boolean(expectedToken && runtimeLock.owner?.token === expectedToken);
+  if (startup && !ownsRuntime) {
+    return makeCheck(
+      "Runtime ownership",
+      "FAIL",
+      `Runtime ownership belongs to ${describeDashboardRuntimeOwner(runtimeLock.owner)}.`,
+      "Stop the active dashboard process before starting another runtime mode."
+    );
+  }
+
+  return makeCheck(
+    "Runtime ownership",
+    "PASS",
+    `${describeDashboardRuntimeOwner(runtimeLock.owner)} owns the shared .next runtime.`,
+    null
+  );
 }
 
 function loadEnvFiles() {
@@ -179,13 +228,13 @@ function checkNextVersion() {
 
 function checkNextIntegrity({ mode, startup }) {
   if (mode === "dev") {
-    return checkDevRuntimeState();
+    return checkDevRuntimeState({ startup });
   }
 
   return checkProductionRuntimeState({ startup });
 }
 
-function checkDevRuntimeState() {
+function checkDevRuntimeState({ startup }) {
   if (!fs.existsSync(nextDir)) {
     return makeCheck(
       "Next runtime",
@@ -209,9 +258,9 @@ function checkDevRuntimeState() {
   if (productionLike) {
     return makeCheck(
       "Next runtime",
-      "WARN",
+      startup ? "FAIL" : "WARN",
       "Production .next artifacts are present before next dev startup.",
-      "This is usually safe, but run npm run dashboard:clean if dev reloads show stale chunk or manifest errors."
+      "Start development through npm run dashboard:dev so production artifacts are removed first."
     );
   }
 
@@ -380,6 +429,8 @@ function checkSupabaseConfig() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     process.env.SUPABASE_ANON_KEY;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const metadataUsesSupabase = process.env.INSSA_OPS_METADATA_STORE === "supabase";
+  const evidenceUsesSupabase = process.env.INSSA_EVIDENCE_STORAGE_PROVIDER === "supabase";
 
   const missing = [];
   if (!browserUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL");
@@ -391,6 +442,19 @@ function checkSupabaseConfig() {
       "WARN",
       `Supabase Auth is not fully configured. Missing: ${missing.join(", ")}.`,
       "Set dashboard/.env.local with the Supabase URL and publishable key before using login."
+    );
+  }
+
+  if ((metadataUsesSupabase || evidenceUsesSupabase) && (!process.env.SUPABASE_URL || !serviceKey)) {
+    const consumers = [
+      metadataUsesSupabase ? "metadata persistence" : null,
+      evidenceUsesSupabase ? "evidence storage" : null
+    ].filter(Boolean).join(" and ");
+    return makeCheck(
+      "Supabase configuration",
+      "FAIL",
+      `Supabase ${consumers} is enabled without complete server credentials.`,
+      "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, or select the local persistence providers."
     );
   }
 
@@ -415,11 +479,11 @@ function checkSupabaseConfig() {
 
   return makeCheck(
     "Supabase configuration",
-    serviceKey ? "PASS" : "WARN",
+    serviceKey || (!metadataUsesSupabase && !evidenceUsesSupabase) ? "PASS" : "WARN",
     serviceKey
       ? "Supabase browser and service credentials are configured."
-      : "Supabase browser credentials are configured; service role key is not set.",
-    serviceKey ? null : "Metadata may fall back to anon/local behavior unless SUPABASE_SERVICE_ROLE_KEY is configured."
+      : "Supabase browser credentials are configured; persistence is explicitly local.",
+    null
   );
 }
 
@@ -443,16 +507,33 @@ function checkRunnerPrerequisites() {
     "dashboard/.data"
   ];
   const missingDirs = requiredDirs.filter((dir) => !fs.existsSync(path.join(repoRoot, dir)));
+  const requiredWorkerFiles = [
+    "dashboard/scripts/dashboard-supervisor.mjs",
+    "dashboard/scripts/inssa-scheduler.ts",
+    "dashboard/scripts/inssa-worker.ts",
+    "dashboard/scripts/provision-persistence.mjs",
+    "dashboard/lib/monitoring/scheduler-store.ts",
+    "dashboard/lib/inssa-ops/execution-job-store.ts",
+    "dashboard/supabase/migrations/20260720_platform_core_persistence.sql",
+    "dashboard/supabase/migrations/20260721_execution_foundation.sql",
+    "dashboard/supabase/migrations/20260722_notification_outbox.sql",
+    "dashboard/supabase/migrations/20260723_monitoring_framework.sql",
+    "dashboard/supabase/migrations/20260724_scheduler_trigger.sql",
+    "dashboard/supabase/migrations/20260725_authentication_monitoring.sql",
+    "dashboard/node_modules/tsx/package.json"
+  ];
+  const missingWorkerFiles = requiredWorkerFiles.filter((file) => !fs.existsSync(path.join(repoRoot, file)));
 
   const problems = [];
   if (missingScripts.length) problems.push(`Missing npm scripts: ${missingScripts.join(", ")}.`);
   if (missingDirs.length) problems.push(`Missing directories: ${missingDirs.join(", ")}.`);
+  if (missingWorkerFiles.length) problems.push(`Missing worker prerequisites: ${missingWorkerFiles.join(", ")}.`);
 
   return makeCheck(
     "Runner prerequisites",
     problems.length ? "FAIL" : "PASS",
-    problems.length ? problems.join(" ") : "Runner scripts and metadata directory are present.",
-    problems.length ? "Restore runner scripts/directories before executing dashboard commands." : null
+    problems.length ? problems.join(" ") : "Runner scripts, durable job store, worker, and metadata directory are present.",
+    problems.length ? "Restore runner/worker scripts and dependencies before executing dashboard commands." : null
   );
 }
 
@@ -494,18 +575,32 @@ function checkPlaywrightInstallation() {
 }
 
 function cleanRuntimeArtifacts() {
-  if (!fs.existsSync(nextDir)) {
-    console.log("dashboard:clean PASS");
-    console.log(`No runtime artifacts found at ${path.relative(repoRoot, nextDir)}.`);
-    return;
+  let owner;
+  try {
+    owner = acquireDashboardRuntimeLock("clean");
+  } catch (error) {
+    console.error("dashboard:clean FAIL");
+    console.error(error instanceof Error ? error.message : String(error));
+    return false;
   }
 
-  const marker = crypto.randomUUID();
-  const target = path.relative(repoRoot, nextDir);
-  fs.rmSync(nextDir, { force: true, recursive: true });
-  console.log("dashboard:clean PASS");
-  console.log(`Removed ${target}.`);
-  console.log(`Clean marker: ${marker}`);
+  try {
+    if (!fs.existsSync(nextDir)) {
+      console.log("dashboard:clean PASS");
+      console.log(`No runtime artifacts found at ${path.relative(repoRoot, nextDir)}.`);
+      return true;
+    }
+
+    const marker = crypto.randomUUID();
+    const target = path.relative(repoRoot, nextDir);
+    fs.rmSync(nextDir, { force: true, recursive: true });
+    console.log("dashboard:clean PASS");
+    console.log(`Removed ${target}.`);
+    console.log(`Clean marker: ${marker}`);
+    return true;
+  } finally {
+    releaseDashboardRuntimeLock(owner);
+  }
 }
 
 function readJson(filePath) {

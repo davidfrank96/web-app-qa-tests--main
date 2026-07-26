@@ -18,9 +18,16 @@ const DEFAULT_FAILURE_LOG_PATH =
   process.env.INSSA_INGEST_FAILURE_LOG_PATH || "/var/ossec/logs/inssa-qa-ingestion-errors.log";
 const DEFAULT_MAX_BODY_BYTES = Number(process.env.INSSA_INGEST_MAX_BODY_BYTES || 1024 * 1024);
 const SHARED_TOKEN = process.env.INSSA_INGEST_SHARED_TOKEN || "";
+const MIN_SHARED_TOKEN_LENGTH = 32;
 
 if (require.main === module) {
-  const server = createInssaIngestionServer();
+  let server;
+  try {
+    server = createInssaIngestionServer();
+  } catch (error) {
+    console.error(`${SERVICE_NAME} startup refused: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
   server.listen(DEFAULT_PORT, DEFAULT_HOST, () => {
     console.log(`${SERVICE_NAME} listening on http://${DEFAULT_HOST}:${DEFAULT_PORT}${DEFAULT_PATH}`);
     console.log(`INSSA event log: ${DEFAULT_EVENT_LOG_PATH}`);
@@ -35,8 +42,11 @@ if (require.main === module) {
 
 module.exports = {
   EVENT_SCHEMA_VERSION,
+  MIN_SHARED_TOKEN_LENGTH,
   createInssaIngestionServer,
   extractEvents,
+  isAuthorized,
+  validateSharedToken,
   validateInssaEvent
 };
 
@@ -49,6 +59,7 @@ function createInssaIngestionServer(options = {}) {
     maxBodyBytes: options.maxBodyBytes || DEFAULT_MAX_BODY_BYTES,
     sharedToken: options.sharedToken ?? SHARED_TOKEN
   };
+  validateSharedToken(config.sharedToken);
 
   return http.createServer(async (request, response) => {
     const startedAt = Date.now();
@@ -196,7 +207,7 @@ function validateInssaEvent(event, label = "event") {
 
   for (const [field, expected] of Object.entries(exactFields)) {
     if (event[field] !== expected) {
-      throw new Error(`${label}.${field} must be ${expected}; received ${String(event[field])}.`);
+      throw new Error(`${label}.${field} must be ${expected}.`);
     }
   }
 
@@ -205,6 +216,8 @@ function validateInssaEvent(event, label = "event") {
       throw new Error(`${label}.${field} must be a non-empty string.`);
     }
   }
+
+  assertMetadataContainsNoSecrets(event, label);
 }
 
 async function readRequestBody(request, maxBodyBytes) {
@@ -274,10 +287,31 @@ async function appendJsonLine(filePath, entry) {
 }
 
 function isAuthorized(request, sharedToken) {
-  if (!sharedToken) return true;
+  if (!sharedToken) return false;
   const expected = `Bearer ${sharedToken}`;
   const actual = request.headers.authorization || "";
   return safeEqual(actual, expected);
+}
+
+function validateSharedToken(sharedToken) {
+  if (typeof sharedToken !== "string" || sharedToken.length < MIN_SHARED_TOKEN_LENGTH) {
+    throw new Error(
+      `INSSA_INGEST_SHARED_TOKEN is required and must contain at least ${MIN_SHARED_TOKEN_LENGTH} characters.`
+    );
+  }
+}
+
+function assertMetadataContainsNoSecrets(value, label) {
+  const serialized = JSON.stringify(value);
+  const forbidden = [
+    /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/i,
+    /\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\b/,
+    /[?&](?:token|access_token|id_token|refresh_token|signature|sig|x-amz-signature)=[^&#\s"']+/i,
+    /"(?:password|secret|privateKey|serviceRoleKey|accessToken|refreshToken|idToken|authorization|cookie|sessionId)"\s*:\s*"(?!\[redacted\]|<redacted>)[^"]+"/i
+  ];
+  if (forbidden.some((pattern) => pattern.test(serialized))) {
+    throw new Error(`${label} contains credential material; only redacted metadata may be ingested.`);
+  }
 }
 
 function safeEqual(left, right) {
@@ -296,6 +330,10 @@ function getRequestPath(request) {
 }
 
 function sendJson(response, statusCode, body) {
-  response.writeHead(statusCode, { "content-type": "application/json" });
+  response.writeHead(statusCode, {
+    "cache-control": "no-store",
+    "content-type": "application/json",
+    "x-content-type-options": "nosniff"
+  });
   response.end(`${JSON.stringify(body)}\n`);
 }

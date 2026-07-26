@@ -19,7 +19,10 @@ export default defineConfig({
   expect: {
     timeout: 8_000
   },
-  reporter: [["html"], ["list"]],
+  outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR,
+  reporter: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR
+    ? [["html", { outputFolder: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR }], ["list"]]
+    : [["html"], ["list"]],
   use: {
     trace: "on-first-retry",
     screenshot: "only-on-failure",

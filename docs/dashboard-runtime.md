@@ -1,6 +1,6 @@
 # Dashboard Runtime Operations
 
-This document defines the stable runtime workflow for the INSSA QA Operations Platform dashboard.
+This document defines the stable runtime workflow for the QA Operations Platform dashboard, worker, and scheduler supervisor.
 
 The dashboard is a Next.js app under `dashboard/`. Runtime failures have previously been traced to stale or mixed `.next` artifacts, including missing `BUILD_ID`, malformed `build-manifest.json`, missing app route bundles, and production startup against development artifacts.
 
@@ -10,9 +10,9 @@ The dashboard is a Next.js app under `dashboard/`. Runtime failures have previou
 | --- | --- |
 | `npm run dashboard:doctor` | Validate the dashboard runtime, environment, Supabase config, runner prerequisites, and Playwright installation. |
 | `npm run dashboard:clean` | Remove `dashboard/.next` so the next build or dev startup starts from a clean runtime state. |
-| `npm run dashboard:dev` | Start the dashboard with `next dev` after a runtime preflight. |
+| `npm run dashboard:dev` | Start Next.js development mode plus the worker and scheduler after preflight. |
 | `npm run dashboard:build` | Build production dashboard artifacts. |
-| `npm run dashboard:start` | Start production dashboard runtime after a strict production-manifest preflight. |
+| `npm run dashboard:start` | Start production Next.js plus the worker and scheduler after strict preflight. |
 
 The same local commands are available inside `dashboard/`:
 
@@ -23,6 +23,8 @@ npm run dev
 npm run build
 npm run start
 ```
+
+All four lifecycle commands share an exclusive process lock under ignored dashboard runtime data. `dev`, `build`, and `start` cannot overlap, and `clean` refuses to remove `.next` while one of those modes is active. Stale ownership left by an unclean process exit is recovered automatically after the owning process is confirmed dead.
 
 ## Correct Startup
 
@@ -42,7 +44,7 @@ npm run dashboard:start
 
 ## Correct Shutdown
 
-Stop the running dashboard process with `Ctrl+C`.
+Stop the supervisor with `Ctrl+C`; it forwards shutdown to Next.js, the worker, and scheduler.
 
 If a stale process remains on port `3000`, identify and stop it before restarting:
 
@@ -107,7 +109,9 @@ It fails early if:
 
 This prevents the recurring runtime class where Next.js crashes while resolving `/_app` or `_document` from corrupted manifests.
 
-`npm run dashboard:dev` runs a permissive preflight. It warns when production artifacts are present because `next dev` can regenerate development artifacts, but stale browser state may still need cleanup.
+`npm run dashboard:dev` acquires exclusive runtime ownership and removes stale `.next` artifacts before its preflight. Development therefore never reuses production output. `npm run dashboard:build` performs the same clean initialization, holds ownership through compilation and post-build validation, and rejects an active dev or production server.
+
+Direct `next dev`, `next build`, and `next start` commands bypass these protections and are unsupported. Use the repository commands above.
 
 ## Common Runtime Failures
 
@@ -191,7 +195,7 @@ SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-The doctor reports missing Supabase values as warnings because local dashboard runtime can still start, but login or metadata persistence may not work as expected.
+The doctor reports missing browser Auth values as warnings because runtime files can still be inspected, but authenticated operation will not work. Enabled Supabase metadata or evidence providers require server URL/service-role configuration and fail validation when incomplete.
 
 ## Stable Validation Cycle
 
@@ -207,10 +211,11 @@ npm run dashboard:start
 npm run dashboard:doctor
 ```
 
+Attempting `dashboard:clean` or `dashboard:build` before stopping the active server must fail with an ownership message. This is intentional collision protection.
+
 Expected result:
 
 - Dev startup preflight does not fail.
 - Production build completes.
 - Production startup preflight passes.
 - `dashboard:doctor` reports `PASS` or only environment-related `WARN` entries.
-

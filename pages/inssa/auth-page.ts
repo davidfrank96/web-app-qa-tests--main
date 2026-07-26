@@ -57,7 +57,10 @@ export class AuthPage {
   async expectAuthenticatedState(): Promise<void> {
     await expectPageNotBlank(this.page);
 
-    if (await this.authenticatedSignal().isVisible().catch(() => false)) {
+    if (
+      (await this.signOutButton().isVisible().catch(() => false)) ||
+      (await this.authenticatedSignal().isVisible().catch(() => false))
+    ) {
       return;
     }
 
@@ -67,10 +70,17 @@ export class AuthPage {
 
   async expectProfileSurface(): Promise<void> {
     await expectPageNotBlank(this.page);
+    await expect
+      .poll(() => new URL(this.page.url()).pathname, {
+        message: "Expected /me to resolve to an authenticated INSSA profile route.",
+        timeout: DEFAULT_TIMEOUT
+      })
+      .toMatch(/^\/(?:me(?:\/|$)|u\/[^/]+(?:\/|$)|profile(?:\/|$))/);
     await expect(
-      this.profileSignal(),
-      "Expected authenticated profile UI such as Sign Out, Edit Profile, My Contacts, or a profile route."
+      this.signOutButton(),
+      "Expected the authenticated INSSA profile to expose an enabled Sign Out button."
     ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    await expect(this.signOutButton()).toBeEnabled({ timeout: DEFAULT_TIMEOUT });
   }
 
   async reloadAndExpectAuthenticated(): Promise<void> {
@@ -149,13 +159,6 @@ export class AuthPage {
           "a[href*='/profile']"
         ].join(", ")
       )
-      .first();
-  }
-
-  private profileSignal(): Locator {
-    return this.page
-      .locator("button, a[href]")
-      .filter({ hasText: /sign out|edit profile|my contacts|requests|alerts|following|loved/i })
       .first();
   }
 

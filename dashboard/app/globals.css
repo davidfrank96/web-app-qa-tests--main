@@ -487,6 +487,34 @@ body {
   max-height: min(34rem, calc(100vh - 27rem));
 }
 
+.notification-table-scroll {
+  @apply overflow-auto overscroll-contain rounded-2xl border border-slate-800 bg-slate-950/50;
+  max-height: min(40rem, calc(100vh - 25rem));
+}
+
+.monitoring-table-scroll {
+  @apply overflow-auto overscroll-contain rounded-2xl border border-slate-800 bg-slate-950/50;
+  max-height: min(40rem, calc(100vh - 25rem));
+}
+
+.notification-severity {
+  @apply inline-flex rounded-full px-2.5 py-1 text-xs font-semibold capitalize ring-1;
+}
+
+.notification-severity-informational,
+.notification-severity-low {
+  @apply bg-cyan-300/10 text-cyan-100 ring-cyan-300/20;
+}
+
+.notification-severity-medium {
+  @apply bg-amber-300/10 text-amber-100 ring-amber-300/20;
+}
+
+.notification-severity-high,
+.notification-severity-critical {
+  @apply bg-rose-300/10 text-rose-100 ring-rose-300/20;
+}
+
 .execution-workspace {
   @apply min-w-0 space-y-4;
 }

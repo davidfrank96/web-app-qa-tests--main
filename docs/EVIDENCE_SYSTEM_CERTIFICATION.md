@@ -1,6 +1,6 @@
 # Evidence System Certification
 
-Last updated: 2026-07-13
+Last updated: 2026-07-21
 
 This document records certification status for the INSSA QA Operations Platform Evidence Management System.
 
@@ -12,6 +12,7 @@ This document records certification status for the INSSA QA Operations Platform 
 | Bundle serving | Certified | Authenticated Playwright report bundle serving returns report HTML and relative assets through `/api/artifacts/:id/bundle/*`. |
 | Authenticated evidence validation | Certified | Operator-authenticated Safe Suite run produced a Playwright report that served through the dashboard bundle route. |
 | Durable storage | Certified | Successful run evidence uploaded to private Supabase Storage, verified by size and SHA-256, and metadata updated. |
+| Evidence Workspace | Certified | Dashboard explorer consumes Bundle/Item metadata and existing authenticated serving APIs without changing evidence. |
 
 ## Durable Storage Certification
 
@@ -72,6 +73,8 @@ Fallback behavior:
 - If `INSSA_EVIDENCE_STORAGE_PROVIDER` is not `supabase`, evidence remains local-only.
 - If Supabase Storage is unavailable, the run preserves local filesystem evidence.
 - Storage failures are recorded as warnings and do not invalidate existing dashboard report serving.
+- Historical object keys are immutable; upload retries verify an existing object's size and SHA-256 instead of overwriting it.
+- The repository provisioning command creates and verifies the default bucket through the supported Storage API.
 
 ## Required Configuration
 
@@ -86,15 +89,16 @@ SUPABASE_SERVICE_ROLE_KEY=<configured in dashboard environment>
 
 `INSSA_EVIDENCE_SUPABASE_BUCKET` is optional. If omitted, the provider uses `inssa-evidence`.
 
-## Not Certified In This Phase
+The metadata schema, bucket provisioning, RLS, and migration replay are certified in [Platform Persistence Certification](./platform-persistence-certification.md).
+
+## Not Implemented In Platform Core v1.0
 
 The following remain future phases:
 
 - Retention engine.
 - Archive workflow.
 - Deletion workflow.
-- Evidence Workspace.
-- Search.
+- Cross-run full-text evidence search.
 - Cleanup workflows.
 - Storage analytics.
 - Serving dashboard evidence directly from Supabase Storage.

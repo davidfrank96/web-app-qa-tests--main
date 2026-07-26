@@ -1,745 +1,219 @@
 # QA Platform Architecture Constitution
 
-Last updated: 2026-06-20
+Last ratified: 2026-07-21
+Applies to Platform Core version `1.0.0`
 
-This document is the governing architecture source of truth for the QA Platform. It exists to prevent architecture drift and to guide future development by humans and Codex agents.
+This is the governing architectural source of truth. A change that conflicts with it requires explicit architecture approval before implementation.
 
-Any future change that conflicts with this document must be treated as an architectural change and requires explicit approval before implementation.
+## 1. Mission
 
-## 1. Platform Mission
+The platform is a reusable QA and Security Operations Platform for INSSA, Localman, KBean products, and future hosted products. INSSA is the current operational focus.
 
-The QA Platform is a reusable QA and Security Operations Platform for hosted web applications.
+Its purpose is to:
 
-Supported products:
-
-- INSSA
-- Localman
-- KBean products
-- future products added through the same architecture
-
-Current focus:
-
-- INSSA staging
-
-The platform exists to:
-
-- execute QA campaigns
-- execute security campaigns
-- execute lifecycle validation
-- execute artifact-driven validation
-- generate durable evidence
-- generate human-readable reports
+- execute QA, security, lifecycle, artifact-driven, and monitoring campaigns
+- preserve source evidence and chain of custody
+- render human-readable reports
 - export metadata to SIEM
-- support operational review
+- support safe operational review
 
-The platform does not exist primarily to:
+Testing and validation are the product. Reports, dashboards, storage, notifications, and SIEM are supporting layers.
 
-- generate reports
-- generate dashboards
-- send SIEM data
-- act as a generic shell runner
-- replace Playwright
-- replace product source-code test suites
-- become a SIEM system
+The platform is not a product backend, generic shell runner, report generator without tests, SIEM replacement, notification service, cleanup robot, governance platform, or production mutation framework.
 
-Reports, dashboards, and SIEM exports are outputs. Testing and validation are the core purpose.
-
-This distinction is mandatory. Future work must preserve a testing-first architecture.
-
-## 2. Core Architecture
-
-Canonical flow:
+## 2. Canonical Architecture
 
 ```text
-Playwright Tests
-↓
-Campaign Runners
-↓
-Artifacts
-↓
-Reports
-↓
-SIEM Export
-↓
-Wazuh
+Playwright tests
+      |
+Campaign runners
+      |
+Command registry
+      |
+Durable execution job
+      |
+Dedicated worker
+      |
+Immutable run output
+      |
+Artifacts -> Evidence Bundle -> Evidence Items
+      |
+Reports and SIEM export
 ```
 
-### Playwright Tests
-
-Playwright tests are the browser automation and validation layer.
-
-Responsibilities:
-
-- exercise hosted products as black-box users
-- validate user flows
-- validate security/access-control behavior
-- capture screenshots, traces, videos, and test output
-- fail when product behavior violates expected lifecycle/security behavior
-
-Playwright tests are not the dashboard. They must remain runnable from CLI and campaign runners.
-
-### Campaign Runners
-
-Campaign runners orchestrate one or more Playwright tests and post-processing steps.
-
-Responsibilities:
-
-- run a focused validation campaign
-- preserve one logical campaign boundary
-- pass artifacts to downstream validation
-- classify campaign outcomes
-- generate summaries
-- stop on true lifecycle/security failures
-- continue on explicitly classified warnings
-
-Campaign runners are the operational unit of execution. The dashboard may trigger them, but must not replace them.
-
-### Artifacts
-
-Artifacts are durable evidence produced by tests and campaign runners.
-
-Examples:
-
-- lifecycle creation JSON
-- security finding JSON
-- campaign summaries
-- Playwright reports
-- cleanup evidence
-- SIEM exports
-
-Artifacts are the source of truth. Reports and dashboards are derived views.
-
-### Reports
-
-Reports convert artifacts and findings into human-readable form.
-
-Responsibilities:
-
-- summarize findings
-- link evidence
-- explain risk
-- support engineering/security review
-
-Reports must not become the canonical data source. If a report conflicts with a JSON artifact or campaign summary, the artifact wins.
-
-### SIEM Export
-
-SIEM export converts campaign/artifact metadata into normalized security and operations events.
-
-Responsibilities:
-
-- produce metadata-only events
-- avoid screenshots/videos/traces
-- avoid unredacted tokens/secrets
-- support Wazuh ingestion and alerting
-
-SIEM export is an output layer, not the core product.
-
-### Wazuh
-
-Wazuh receives normalized metadata events and provides:
-
-- decoder/rule evaluation
-- alerting
-- operational dashboards
-- historical review
-
-Wazuh does not own QA campaign execution or source-of-truth artifacts.
-
-### Dashboard
-
-The dashboard is a thin operations layer on top of the architecture.
-
-Responsibilities:
-
-- display campaign definitions
-- execute approved commands
-- show run history
-- show logs
-- show artifact metadata
-- open allowlisted reports
-- display diagnostics
-
-The dashboard must never replace the underlying campaign architecture.
+The dashboard and scheduler are clients of this architecture. Neither may replace or bypass it.
 
 ## 3. Product Model
 
-The platform has five primary product concepts. They must remain separate.
+- Campaigns execute tests and create fresh run evidence.
+- Lifecycle campaigns create product data and carry cleanup obligations.
+- Artifact Validation consumes existing lifecycle evidence without creating capsules.
+- Evidence Bundles are the durable evidence aggregate.
+- Artifacts are a compatibility model for established APIs.
+- Reports are derived views.
+- SIEM exports metadata and never becomes source evidence.
+- Operations manages runtime and persistence health.
+- Monitoring definitions describe observation policy.
+- The scheduler enqueues due jobs only.
+- The Notification Outbox records delivery intent only.
 
-### Campaigns Execute Tests
+These concepts must remain distinct in code, API behavior, and UI language.
 
-Campaigns run Playwright and/or campaign scripts. They produce fresh evidence.
+## 4. Execution Constitution
 
-Examples:
+1. Dashboard requests enqueue; they do not own campaign execution.
+2. The worker is the sole campaign executor.
+3. Commands must be selected from the fixed registry.
+4. Arbitrary shell input, user-supplied command arguments, and user-supplied targets are prohibited.
+5. Child commands use `shell:false` where possible.
+6. Durable jobs own idempotency, claim, lease, heartbeat, attempt, and recovery state.
+7. One active run globally remains the default v1.0 policy.
+8. Every run writes to an immutable run-scoped directory.
+9. Historical views resolve through run identity, never a mutable `latest` alias.
+10. Logs persist incrementally and redact sensitive output.
 
-- safe regression campaign
-- security campaign
-- lifecycle campaign
-- security verification campaign
+## 5. Environment Constitution
 
-### Artifact Validation Consumes Existing Evidence
+Standard INSSA execution is staging-only at `staging.inssa.us`. Live lifecycle commands require explicit mutation and cleanup gates.
 
-Artifact Validation runs read-only checks against a selected artifact from a previous lifecycle run.
+Production authentication monitoring is a narrowly approved read-only exception. It requires its dedicated command, enable flag, and exact host confirmation. That exception must not become a generic production-target override.
 
-Artifact Validation must not silently create new product data.
+## 6. Lifecycle Constitution
 
-Examples:
+Text, media, video, and reveal-later lifecycle campaigns create staging data. Dashboard execution remains disabled until an approved workflow provides:
 
-- authenticated discovery
-- public share validation
-- cleanup capability audit
-
-### Reports Review Evidence
-
-Reports render or display existing evidence.
-
-Report actions must not be described as test execution.
-
-Examples:
-
-- re-render latest security report
-- re-render latest lifecycle report
-- open Playwright report
-
-### SIEM Exports Metadata
-
-SIEM actions transform existing evidence into normalized metadata events.
-
-SIEM actions must not become the primary validation workflow.
-
-### Operations Manages Platform Health
-
-Operations checks the platform itself.
-
-Examples:
-
-- healthcheck
-- metadata backend status
-- API failure visibility
-- run/log/artifact counts
-
-Operations is not product QA coverage.
-
-## 4. Current INSSA Scope
-
-The current product focus is INSSA staging:
-
-```text
-https://staging.inssa.us
-```
-
-Production INSSA testing is blocked for live mutation/security lifecycle workflows:
-
-```text
-https://inssa.us
-https://www.inssa.us
-```
-
-Current INSSA dashboard scope:
-
-- Safe Tests
-- Security Campaigns
-- Security Verification
-- Artifact Validation
-- Reports
-- SIEM Export
-- Operations
-
-Current dashboard alignment:
-
-| Section | Purpose | Current State |
-| --- | --- | --- |
-| Overview | Operational summary | Exposed |
-| Safe Tests | Non-mutating baseline | Exposed and executable |
-| Security | Read-only security campaign and verification | Exposed and executable |
-| Lifecycle | Live lifecycle orientation | Visible but disabled |
-| Artifact Validation | Existing-artifact validation | Exposed and executable with artifact selection |
-| Reports | Evidence review | Exposed |
-| SIEM | Metadata export | Export exposed; send disabled |
-| Operations | Platform health and diagnostics | Exposed |
-
-Current executable dashboard commands:
-
-- `test:inssa:safe`
-- `test:inssa:campaign:security`
-- `test:inssa:campaign:security:verify`
-- `test:inssa:discovery`
-- `test:inssa:public-share`
-- `test:inssa:cleanup-audit`
-- `report:security`
-- `report:lifecycle`
-- `siem:export`
-- `platform:healthcheck`
-
-Current visible but disabled dashboard commands:
-
-- text lifecycle
-- media lifecycle
-- video lifecycle
-- reveal-later lifecycle
-- cross-user campaign
-- reveal-later security
-- SIEM send
-
-## 5. Lifecycle Philosophy
-
-Lifecycle campaigns validate real product lifecycle behavior.
-
-INSSA lifecycle campaign families:
-
-- Text Lifecycle
-- Media Lifecycle
-- Video Lifecycle
-- Reveal-Later Lifecycle
-
-These commands create staging data.
-
-They require:
-
-- staging-only execution
-- explicit approval workflow
-- manual cleanup responsibility
-- one controlled lifecycle per run
-- no production execution
-- no uncontrolled retry around irreversible final actions
+- explicit approval
+- clear operator identity
+- one-run semantics around final product actions
+- cleanup target and owner
 - durable cleanup evidence
+- no production target
 
-Lifecycle commands must not be casually exposed.
+Visibility in the Campaign Library does not imply execution approval.
 
-Before a lifecycle command is exposed in the dashboard, the platform must provide:
+## 7. Security Constitution
 
-- clear mutation warning
-- environment confirmation
-- exact command preview
-- cleanup responsibility acknowledgement
-- run exclusivity
-- artifact path after creation
-- post-run cleanup target summary
+The platform supports OWASP validation, known-finding verification, artifact-driven access checks, cross-user validation, reveal-later access checks, and authentication monitoring.
 
-The platform must not expose a broad live-staging mega-runner as a primary dashboard workflow. Focused lifecycle campaigns are the correct unit.
+Security controls must fail closed. A reporting concern must not silently downgrade a validated security failure. Classification adjustments require evidence and must preserve stronger failure conditions.
 
-## 6. Security Philosophy
+## 8. Evidence Constitution
 
-Security campaigns validate product security behavior through black-box testing.
+1. Evidence is primary; reports are derived.
+2. New completed runs create Evidence Bundle and Evidence Item metadata.
+3. Artifact APIs remain backward compatible until an explicit migration is approved.
+4. Bundle-relative paths are untrusted and require canonical validation.
+5. Authentication does not make a path safe.
+6. Evidence bytes do not belong in Postgres.
+7. Durable object keys include product, environment, campaign, run, bundle, and relative path identity.
+8. Existing durable objects must not be overwritten to make retries pass.
+9. Upload completion requires size and SHA-256 verification.
+10. Retention, archive, and deletion require separate approved policy and implementation.
 
-Security campaign families:
+## 9. Persistence Constitution
 
-- Security Campaign
-- Security Verification
-- Cross User
-- Reveal-Later Security
+- Local and Supabase stores implement the same logical contracts.
+- Supabase platform tables are server-only, RLS-enabled, and not directly exposed to browser roles.
+- The service-role key is server-only.
+- Migrations are ordered, forward-only after shared deployment, and replay-safe.
+- Provider switching does not imply data migration.
+- Unknown future local schema versions fail closed.
+- Local writes use locking and atomic replacement; logs remain incremental.
 
-### Security Campaign
+## 10. Monitoring Constitution
 
-Purpose:
+- A Monitoring Definition references an existing campaign key.
+- Trigger, run, evidence, notification, retry, environment, and timeout policies are metadata.
+- The scheduler evaluates schedule triggers and claims a unique occurrence.
+- The scheduler never invokes npm or Playwright.
+- The worker executes scheduler-created jobs through the same registry path as operator runs.
+- Duplicate occurrences must be prevented durably.
 
-- OWASP-aligned black-box validation
-- access-control checks
-- authentication/session checks
-- token behavior checks
-- media access checks
-- security header checks
-- safe input probes when explicitly enabled
+## 11. Notification Constitution
 
-This campaign should generate findings and reports from observed behavior.
+- Execution may emit zero or more deduplicated outbox records.
+- The worker must never call an external notification provider.
+- Dispatcher interfaces may be defined separately.
+- Provider implementation, retries, and dead-letter transitions require an approved delivery phase.
+- A dashboard outbox view remains read-only until then.
 
-### Security Verification
+## 12. Dashboard Constitution
 
-Purpose:
+The dashboard may:
 
-- verify known findings
-- distinguish confirmed vs suspected findings
-- consume existing lifecycle/security artifacts
-- avoid creating new staging data by default
+- present campaign definitions
+- enqueue approved commands
+- display run, evidence, report, monitor, notification, scheduler, and diagnostic data
+- apply client-side presentation and themes
 
-### Cross User
+The dashboard must not:
 
-Purpose:
+- duplicate Playwright/campaign logic
+- become a generic command runner
+- bypass server authorization
+- mutate evidence to improve presentation
+- treat reports as source data
+- expose service credentials or direct private Storage access
+- send external notifications from the worker or UI
 
-- validate user isolation
-- validate expected sharing
-- validate unauthorized visibility
+## 13. Authentication And Authorization Constitution
 
-Because cross-user workflows can create or depend on live staging data, dashboard execution requires explicit approval workflow before enablement.
+- Supabase Auth establishes identity.
+- API authorization is server-side.
+- Roles are viewer, operator, and admin.
+- `app_metadata.inssa_ops_role` is primary; allowlists are fallback; default is viewer.
+- Client checks are presentation only.
+- Unauthorized and role-violation attempts are audited.
 
-### Reveal-Later Security
-
-Purpose:
-
-- validate pre-reveal protection
-- validate post-reveal behavior
-- classify reveal-bypass risks
-
-Reveal-later flows can depend on scheduled time and may require lifecycle artifact creation/resume semantics. Dashboard execution must remain disabled until those semantics are explicit.
-
-### Risk Classifications
-
-Common security classifications:
-
-- expected
-- informational
-- warning
-- high-risk
-- critical
-
-Common lifecycle/security finding classifications:
-
-- token-required
-- token-optional
-- public-by-id
-- public-by-design
-- unauthorized-visible
-- expected-share-access
-- reveal-protected
-- reveal-bypass-risk
-- media-publicly-accessible
-- media-token-protected
-- share-link-only-visibility
-- delayed-indexing
-
-Hard failure examples:
-
-- confirmed authentication bypass
-- confirmed unauthorized visibility where isolation is expected
-- confirmed sensitive data exposure
-- public-share validation failure when public-share access is required
-- missing lifecycle success evidence for validation that depends on lifecycle success
-
-Warning examples:
-
-- known product visibility behavior that remains retrievable through an approved route
-- share-link-only visibility
-- delayed indexing
-- video retrieval inconsistency when public-share validation has passed and authenticated indexing exists
-
-## 7. Artifact Philosophy
-
-Artifacts are the source of truth.
-
-The platform should preserve:
-
-- lifecycle artifacts
-- campaign summaries
-- security findings
-- cleanup evidence
-- SIEM export payloads
-- report references
-
-Reports are derived views. Dashboards are operational views. Neither should replace artifacts.
-
-Artifact principles:
-
-- Preserve original JSON artifacts.
-- Preserve stable run IDs.
-- Preserve exact subject/message/capsule IDs when available.
-- Preserve cleanup instructions.
-- Do not depend on Playwright transient `test-results/` alone for lifecycle persistence.
-- Do not store secrets in artifacts.
-- Do not expose sensitive artifacts casually.
-- Do not send screenshots/videos/traces to SIEM.
-
-Dashboard artifact rules:
-
-- index metadata only
-- do not move files
-- do not rewrite files
-- serve only allowlisted report/SIEM files
-- block path traversal
-- block unknown roots
-- block sensitive evidence by default
-
-If future storage is added, it must preserve artifact identity and traceability.
-
-## 8. SIEM Philosophy
-
-SIEM is an output layer.
-
-The platform must not become SIEM-centric.
+## 14. SIEM Constitution
 
 Correct flow:
 
 ```text
-Campaign
-↓
-Artifacts
-↓
-Reports
-↓
-SIEM Export
-↓
-Wazuh
+Campaign -> Evidence -> Reports -> SIEM Export -> Authenticated Ingestion -> Wazuh
 ```
 
-Incorrect flow:
+Only metadata, findings, classifications, statuses, and references may be sent. Screenshots, videos, traces, signed URLs, credentials, tokens, and session material are prohibited. Ingestion and sender authentication fail closed.
 
-```text
-Wazuh
-↓
-Dashboard
-↓
-Testing decisions
-```
+## 15. Protected Architecture
 
-SIEM should receive normalized evidence after campaigns run. SIEM dashboards and alerts help operations review findings, but they do not determine what the QA platform is.
+Explicit approval is required before changing:
 
-SIEM constraints:
-
-- metadata only
-- no screenshots
-- no videos
-- no traces
-- no unredacted tokens
-- no raw credentials
-- clear classification and severity mapping
-- explicit send confirmation before dashboard send is enabled
-
-Dashboard SIEM send must remain disabled until:
-
-- endpoint preview exists
-- dry-run preview exists
-- payload summary exists
-- operator confirmation exists
-- failure reporting exists
-
-## 9. Dashboard Rules
-
-The dashboard may:
-
-- execute approved commands
-- display campaign definitions
-- display run history
-- display logs
-- display artifact metadata
-- display reports
-- display diagnostics
-- generate SIEM exports
-
-The dashboard must not:
-
-- replace campaign logic
-- replace Playwright
-- replace artifact generation
-- replace report generation
-- execute arbitrary commands
-- bypass environment guards
-- bypass RBAC
-- expose live mutation commands casually
-- silently create staging data
-- treat reports as source-of-truth data
-- expose sensitive raw artifacts without explicit policy
-
-The dashboard is an operator console, not the QA engine.
-
-## 10. Protected Architecture
-
-The following require explicit approval before changing:
-
-- runner architecture
-- command registry model
-- artifact indexing model
-- report serving model
-- auth/RBAC model
-- staging-only safeguards
+- registry-only execution
+- durable job/worker ownership
 - one-active-run model
-- lifecycle artifact selection model
-- SIEM metadata-only policy
-- production host blocking
-- sensitive artifact serving restrictions
-- campaign/report/artifact/SIEM separation
+- idempotency, leases, heartbeats, or recovery
+- staging and production-monitor safeguards
+- run-scoped output identity
+- artifact compatibility APIs
+- Evidence Bundle/Item model
+- canonical evidence path validation
+- local/Supabase persistence contracts
+- service-role-only persistence boundary
+- auth/RBAC role model
+- scheduler producer-only boundary
+- Notification Outbox no-delivery boundary
+- metadata-only SIEM policy
 
-### Runner Architecture
+## 16. Development Evaluation
 
-Protected properties:
+Before implementing work:
 
-- whitelist-only execution
-- `shell:false`
-- timeout enforcement
-- stdout/stderr capture
-- log redaction
-- one active run globally
+1. Classify it as Campaign, Lifecycle, Security, Artifact Validation, Evidence, Reports, SIEM, Monitoring, Notifications, or Operations.
+2. Identify the existing subsystem contract it extends.
+3. Confirm it does not create a second execution, evidence, persistence, scheduling, or delivery path.
+4. Define risk, environment, cleanup, evidence, and role behavior.
+5. Preserve backward compatibility or obtain explicit migration approval.
+6. Add focused validation without weakening product assertions.
+7. Update the authoritative documentation and changelog.
 
-### Command Registry Model
+## 17. Approved Roadmap
 
-Protected properties:
+- Platform Core v1.0: implemented.
+- Release closure: security-history remediation and target-environment certification.
+- Phase B: controlled lifecycle execution.
+- Phase C: cross-user and reveal-later execution.
+- Phase D: external notification and SIEM-send approval workflows.
+- Phase E: retention/archive/deletion, migration tooling, and broader product rollout.
 
-- explicit command keys
-- explicit npm scripts
-- risk classification
-- mutation flag
-- phase enablement flag
-- artifact requirement flag
-
-### Artifact Indexing Model
-
-Protected properties:
-
-- metadata-only indexing
-- known output roots
-- deterministic classification
-- sensitive flag
-- sha256 capture
-
-### Report Serving Model
-
-Protected properties:
-
-- artifact-id based file resolution
-- allowlisted roots
-- allowlisted artifact types
-- sensitive artifact block
-- path traversal block
-
-### Auth/RBAC Model
-
-Protected properties:
-
-- authenticated UI/API
-- server-side role checks
-- viewer/operator/admin semantics
-- role violation audit events
-
-### Staging-Only Safeguards
-
-Protected properties:
-
-- `INSSA_URL=https://staging.inssa.us`
-- production host block
-- no user-supplied target URLs for command execution
-
-### One-Active-Run Model
-
-Protected properties:
-
-- no concurrent dashboard runs
-- no run queue in V1
-- no parallel live mutation execution
-
-## 11. Development Principles
-
-Before implementing any feature:
-
-1. Determine where it belongs:
-   - Campaigns
-   - Lifecycle
-   - Security
-   - Artifact Validation
-   - Reports
-   - SIEM
-   - Operations
-2. Verify it aligns with the platform mission.
-3. Prefer extending existing architecture over creating new systems.
-4. Avoid dashboard-first design.
-5. Preserve testing-first architecture.
-6. Preserve source-of-truth artifacts.
-7. Keep reports derived.
-8. Keep SIEM as output.
-9. Keep live mutation commands gated.
-10. Keep production blocked.
-
-Implementation guidance:
-
-- If a feature executes tests, it belongs in Campaigns, Lifecycle, Security, or Artifact Validation.
-- If a feature only displays evidence, it belongs in Reports or Operations.
-- If a feature emits Wazuh payloads, it belongs in SIEM.
-- If a feature manages platform health, it belongs in Operations.
-- If a feature creates staging data, it requires explicit approval workflow before dashboard exposure.
-- If a feature needs new shell execution, it must be added to the command registry and reviewed.
-
-Anti-patterns:
-
-- adding a dashboard button that shells out to arbitrary commands
-- making report generation look like test execution
-- using Wazuh as the source of truth for findings
-- deriving lifecycle state from HTML reports instead of artifacts
-- enabling live mutation commands without cleanup acknowledgement
-- weakening staging-only guards for convenience
-- hiding product findings by downgrading assertions without classification
-
-## 12. Current Roadmap
-
-### Phase A: Read-Only V1
-
-Status: current.
-
-Scope:
-
-- safe suite
-- security campaign
-- security verification
-- artifact validation
-- report archive
-- SIEM export
-- platform healthcheck
-- run history
-- logs
-- artifact metadata
-- diagnostics
-
-### Phase B: Controlled Lifecycle Execution
-
-Status: future.
-
-Scope:
-
-- approval workflow
-- cleanup acknowledgement
-- one lifecycle campaign at a time
-- exact staging environment confirmation
-- cleanup target display
-- start with text lifecycle only
-
-### Phase C: Cross-User And Reveal-Later Execution
-
-Status: future.
-
-Scope:
-
-- secondary user validation
-- reveal-later artifact resume/creation clarity
-- pre/post reveal checks
-- stronger cleanup evidence
-- no broad mutation runner
-
-### Phase D: SIEM Send Workflow
-
-Status: future.
-
-Scope:
-
-- endpoint preview
-- dry-run
-- payload summary
-- explicit send confirmation
-- send result capture
-- failure diagnostics
-
-### Phase E: Deployment And Operations Maturity
-
-Status: future.
-
-Scope:
-
-- hosted deployment runbook
-- Supabase metadata migrations
-- artifact retention policy
-- object storage if needed
-- scheduled safe/read-only runs
-- notification integration
-- multi-product support
-
-## Change Evaluation Checklist
-
-Before approving a change, ask:
-
-- Does this preserve testing as the core purpose?
-- Does this preserve campaign/report/artifact/SIEM separation?
-- Does this preserve artifacts as source of truth?
-- Does this preserve staging-only protections?
-- Does this preserve RBAC and server-side enforcement?
-- Does this introduce new mutation risk?
-- Does this expose a command that is not in the registry?
-- Does this make dashboard behavior diverge from CLI behavior?
-- Does this create or send evidence without operator visibility?
-- Does this require updates to the command matrix, V1 definition, or current-state docs?
-
-If the answer to any risk question is yes, stop and get explicit approval before implementing.
+Future work must consume the certified core rather than replace it.

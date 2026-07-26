@@ -15,6 +15,7 @@ lifecycle-campaigns/
 lifecycle-investigations/
 security-campaigns/
 reports/
+run-output/
 
 # Local build output.
 .next/
@@ -30,6 +31,7 @@ Thumbs.db
 *.tmp
 *.bak
 *.swp
+*.tsbuildinfo
 
 # Browser evidence artifacts should live under ignored output directories.
 trace.zip

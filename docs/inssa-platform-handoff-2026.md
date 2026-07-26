@@ -1,200 +1,66 @@
-# INSSA Platform Handoff 2026
+# QA Operations Platform Handoff 2026
 
-Last updated: 2026-06-20
+Last reviewed: 2026-07-21
 
-This document is the future-engineer handoff for the INSSA-focused QA Platform work.
+## What This Repository Is
 
-## What Has Been Built
+A reusable Playwright QA and Security Operations Platform. INSSA is the operational product; Localman and KBean have repository tests but are not registered as managed dashboard campaigns.
 
-The repo now contains a reusable QA and Security Operations Platform with INSSA as the current focus.
+## What Is Complete
 
-Built capabilities:
+- Auth/RBAC-protected dashboard and APIs.
+- Fixed command registry and product-aware Campaign Library.
+- Durable jobs, leases, worker, recovery, and run isolation.
+- Artifact compatibility, Evidence Bundles, bundle serving, and Evidence Workspace.
+- Local/Supabase metadata and local/private Storage evidence providers.
+- Notification Outbox without delivery.
+- Monitoring definitions, schedule trigger, and authentication monitoring.
+- Reports, SIEM export, authenticated ingestion, and Wazuh documentation.
+- Runtime, persistence, dependency, redaction, and path-security hardening.
 
-- Playwright safe regression tests for INSSA.
-- Live lifecycle tests for text, media, video, and reveal-later capsules.
-- Lifecycle campaign runners for text, media, video, and reveal-later.
-- Persistent lifecycle artifacts under `lifecycle-artifacts/`.
-- Lifecycle campaign summaries under `lifecycle-campaigns/`.
-- Artifact-driven authenticated discovery.
-- Artifact-driven public share validation.
-- Artifact-driven cleanup capability audit.
-- OWASP-aligned security campaign.
-- Security verification campaign.
-- Cross-user campaign script.
-- Reveal-later security campaign script.
-- Security campaign artifacts under `security-campaigns/`.
-- HTML report rendering under `reports/security/` and `reports/lifecycle/`.
-- Metadata-only SIEM export under `reports/siem/`.
-- Wazuh send script and ingestion service package.
-- Wazuh decoder/rule/dashboard/runbook documentation.
-- Next.js Operations Dashboard.
-- Supabase Auth and server-side RBAC.
-- Dashboard command registry.
-- Dashboard runner with one active run.
-- Dashboard run history/log/artifact metadata.
-- Dashboard report archive and report file serving.
-- Dashboard artifact validation workflow.
-- Dashboard API failure diagnostics.
+## What Remains Gated
 
-## Why It Was Built
+- dashboard lifecycle mutation
+- cross-user and reveal-later security execution
+- SIEM send from dashboard
+- external notification dispatch
+- evidence retention/archive/deletion
+- direct durable-object serving
+- local/Supabase history migration
+- Localman/KBean managed campaigns
 
-The original harness was command-driven. The platform adds operational visibility and controlled execution without replacing the underlying Playwright/campaign architecture.
+## Production Release Blockers
 
-Main goals:
+1. Historical share-token values must be invalidated/expired and removed from Git history through an approved coordinated rewrite.
+2. Target Supabase migrations, RLS, advisors, and private bucket must be validated.
+3. Target Wazuh ingestion credential and live event flow must be validated.
+4. The deployment checklist must be completed with environment evidence.
 
-- make safe QA execution repeatable
-- preserve lifecycle/security evidence
-- support security and engineering review
-- support artifact-driven validation
-- produce human-readable reports
-- export normalized metadata to Wazuh
-- prepare for hosted private operations
+## Never Change Casually
 
-## Current Dashboard Model
+- registry-only execution and `shell:false`
+- durable worker ownership and one-active-run policy
+- environment safeguards
+- run-scoped output identity
+- artifact compatibility and Evidence Bundle contracts
+- canonical evidence path checks
+- service-role-only persistence
+- server-side RBAC
+- scheduler producer-only behavior
+- Notification Outbox no-delivery boundary
+- metadata-only SIEM policy
 
-The dashboard is not the QA engine. It is an operations layer over the existing command architecture.
+## First Maintainer Actions
 
-Current sections:
+1. Read [README](../README.md), [Documentation Index](README.md), and [Architecture Constitution](qa-platform-architecture-constitution.md).
+2. Review [Current State](inssa-platform-current-state.md) and [Known Limitations](known-limitations.md).
+3. Run `npm run dashboard:doctor`.
+4. Run `npm --prefix dashboard run test:execution-foundation`.
+5. Start with `npm run dashboard:dev`.
+6. Validate authentication and roles.
+7. Execute only the Safe Suite first.
+8. Do not enable lifecycle mutation or external delivery without approved design and cleanup controls.
 
-- Overview
-- Safe Tests
-- Security
-- Lifecycle
-- Artifact Validation
-- Reports
-- SIEM
-- Operations
-- Run History
-- Run Details
+## Documentation Ownership
 
-Current executable commands:
-
-- `test:inssa:safe`
-- `test:inssa:campaign:security`
-- `test:inssa:campaign:security:verify`
-- `test:inssa:discovery`
-- `test:inssa:public-share`
-- `test:inssa:cleanup-audit`
-- `report:security`
-- `report:lifecycle`
-- `siem:export`
-- `platform:healthcheck`
-
-Current visible but disabled actions:
-
-- text lifecycle
-- media lifecycle
-- video lifecycle
-- reveal-later lifecycle
-- cross-user campaign
-- reveal-later security
-- SIEM send
-
-## Current Roadmap
-
-Phase A: Read-only V1
-
-- Current phase.
-- Safe tests, security, security verification, artifact validation, reports, SIEM export, operations.
-
-Phase B: Controlled lifecycle execution
-
-- Add approval workflow.
-- Add cleanup acknowledgement.
-- Start with one lifecycle type.
-- Keep one active run.
-
-Phase C: Cross-user and reveal-later execution
-
-- Enable after lifecycle approval model exists.
-- Require secondary-user and cleanup controls.
-- Make reveal-later artifact creation/resume behavior explicit.
-
-Phase D: SIEM send workflow
-
-- Add endpoint preview.
-- Add dry-run.
-- Add payload summary.
-- Add explicit confirmation.
-
-Phase E: Deployment and operations maturity
-
-- Hosted deployment.
-- Artifact retention policy.
-- Optional object storage.
-- Scheduling for safe/read-only workflows.
-- Multi-product dashboard support.
-
-## Known Constraints
-
-- INSSA production is blocked for live mutation/security lifecycle testing.
-- The dashboard command runner requires `INSSA_URL=https://staging.inssa.us`.
-- The runner is whitelist-only.
-- The runner allows one active run.
-- Artifact Validation requires lifecycle evidence.
-- Reports are derived and not source-of-truth.
-- SIEM export is metadata-only.
-- SIEM send is CLI-supported but dashboard-disabled.
-- Live lifecycle commands create staging data and require manual cleanup.
-- Screenshots, videos, traces, and sensitive artifacts are indexed but not served by the dashboard in V1.
-
-## Known Risks
-
-- Live lifecycle artifacts indicate staging data may require manual cleanup.
-- Some historical docs are evidence records and may not match current dashboard UX.
-- Generated artifact directories contain environment-specific evidence and should remain ignored.
-- Supabase metadata storage is supported by code but local JSON remains the default operational store unless explicitly configured.
-- Dashboard expansion can drift into dashboard-first design if the architecture constitution is ignored.
-
-## Approved Architectural Direction
-
-Preserve:
-
-- Playwright-first validation.
-- Campaign runners as execution boundary.
-- Artifacts as source of truth.
-- Reports as derived views.
-- SIEM as metadata output.
-- Dashboard as thin operations layer.
-- Server-side RBAC.
-- Staging-only INSSA execution.
-- Command registry.
-- One-active-run model.
-- Artifact validation selection.
-- Sensitive artifact serving restrictions.
-
-Do not casually change:
-
-- runner architecture
-- command registry model
-- staging-only safeguards
-- artifact indexing
-- report serving allowlists
-- auth/RBAC
-- one-active-run behavior
-- separation between campaigns, artifact validation, reports, SIEM, and operations
-
-## First Actions For A Future Engineer
-
-1. Read `README.md`.
-2. Read `docs/qa-platform-architecture-constitution.md`.
-3. Read `docs/inssa-platform-current-state.md`.
-4. Read `docs/inssa-command-matrix.md`.
-5. Run `npm run platform:healthcheck`.
-6. Run `npm run dashboard:build`.
-7. Start dashboard with `npm run dashboard:dev`.
-8. Validate login/role resolution.
-9. Run only `test:inssa:safe` first.
-10. Do not enable live lifecycle commands until approval and cleanup workflows exist.
-
-## Reference Docs
-
-- [README](../README.md)
-- [Architecture Constitution](qa-platform-architecture-constitution.md)
-- [Current State](inssa-platform-current-state.md)
-- [Dashboard Architecture](inssa-dashboard-architecture.md)
-- [Command Matrix](inssa-command-matrix.md)
-- [V1 Definition](inssa-v1-definition.md)
-- [Dashboard Decisions](inssa-dashboard-decisions.md)
-- [Dashboard Roadmap](inssa-dashboard-roadmap.md)
-
+Update README, current state, command matrix, subsystem guide, release notes, and changelog in the same change that alters an implemented contract. Historical validation reports should be preserved and labeled, not silently rewritten as current truth.

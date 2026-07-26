@@ -1,5 +1,7 @@
 # Evidence Bundle Integrity Report
 
+> Historical Phase 2.5 validation record. Current evidence status is maintained in `EVIDENCE_SYSTEM_CERTIFICATION.md`.
+
 Date: 2026-07-13
 
 Scope: Phase 2.5 validation for dashboard-served Playwright evidence bundles.

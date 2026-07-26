@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getLocalRunStorePath } from "./paths";
+import { withLocalFileLock } from "./local-file-lock";
+import { getLocalRunLogDirectory, getLocalRunStorePath } from "./paths";
 import type {
   CreateRunInput,
   InssaArtifactRecord,
@@ -19,6 +20,7 @@ type StoreSnapshot = {
   evidenceItems: InssaEvidenceItemRecord[];
   logs: InssaRunLogRecord[];
   runs: InssaRunRecord[];
+  schemaVersion: 2;
 };
 
 export type InssaRunStoreSummary = {
@@ -69,11 +71,13 @@ export function getInssaRunStore(): InssaRunStore {
 }
 
 function shouldUseSupabaseStore() {
-  return (
-    process.env.INSSA_OPS_METADATA_STORE === "supabase" &&
-    Boolean(process.env.SUPABASE_URL) &&
-    Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
-  );
+  if (process.env.INSSA_OPS_METADATA_STORE !== "supabase") return false;
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error(
+      "Supabase metadata persistence requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY; refusing an unsafe local or anon-key fallback."
+    );
+  }
+  return true;
 }
 
 export async function getInssaRunStoreSummary(): Promise<InssaRunStoreSummary> {
@@ -81,12 +85,13 @@ export async function getInssaRunStoreSummary(): Promise<InssaRunStoreSummary> {
     const storePath = getLocalRunStorePath();
     try {
       const snapshot = await readLocalSnapshot(storePath);
+      const incrementalLogCount = await countIncrementalLogs();
       return {
         backend: "local-json",
         backendLabel: "Local JSON",
         counts: {
           artifacts: snapshot.artifacts.length,
-          logs: snapshot.logs.length,
+          logs: snapshot.logs.length + incrementalLogCount,
           runs: snapshot.runs.length
         },
         error: null,
@@ -141,17 +146,29 @@ class LocalJsonRunStore implements InssaRunStore {
   }
 
   async appendLog(runId: string, stream: InssaRunLogRecord["stream"], message: string) {
-    return this.withWrite(async (snapshot) => {
-      const sequence = snapshot.logs.filter((log) => log.runId === runId).length + 1;
+    const logPath = path.join(getLocalRunLogDirectory(), `${runId}.jsonl`);
+    const sequencePath = `${logPath}.sequence.json`;
+    await fs.mkdir(path.dirname(logPath), { recursive: true });
+    return withLocalFileLock(logPath, async () => {
+      let sequenceState = await readLogSequenceState(sequencePath);
+      if (!sequenceState) {
+        const [snapshot, incrementalLogs] = await Promise.all([this.readSnapshot(), readIncrementalLogs(logPath)]);
+        const legacySequence = snapshot.logs
+          .filter((log) => log.runId === runId)
+          .reduce((highest, log) => Math.max(highest, log.sequence), 0);
+        const incrementalSequence = incrementalLogs.reduce((highest, log) => Math.max(highest, log.sequence), 0);
+        sequenceState = { count: incrementalLogs.length, lastSequence: Math.max(legacySequence, incrementalSequence) };
+      }
       const record: InssaRunLogRecord = {
         createdAt: new Date().toISOString(),
         id: crypto.randomUUID(),
         message,
         runId,
-        sequence,
+        sequence: sequenceState.lastSequence + 1,
         stream
       };
-      snapshot.logs.push(record);
+      await fs.appendFile(logPath, `${JSON.stringify(record)}\n`, "utf8");
+      await writeLogSequenceState(sequencePath, { count: sequenceState.count + 1, lastSequence: record.sequence });
       return record;
     });
   }
@@ -203,8 +220,8 @@ class LocalJsonRunStore implements InssaRunStore {
 
   async getLogs(runId: string) {
     const snapshot = await this.readSnapshot();
-    return snapshot.logs
-      .filter((log) => log.runId === runId)
+    const incrementalLogs = await readIncrementalLogs(path.join(getLocalRunLogDirectory(), `${runId}.jsonl`));
+    return [...snapshot.logs.filter((log) => log.runId === runId), ...incrementalLogs]
       .sort((left, right) => left.sequence - right.sequence);
   }
 
@@ -268,10 +285,14 @@ class LocalJsonRunStore implements InssaRunStore {
 
   private async withWrite<T>(operation: (snapshot: StoreSnapshot) => T | Promise<T>) {
     const resultPromise = this.writeChain.then(async () => {
-      const snapshot = await this.readSnapshot();
-      const result = await operation(snapshot);
-      await this.writeSnapshot(snapshot);
-      return result;
+      const storePath = getLocalRunStorePath();
+      await fs.mkdir(path.dirname(storePath), { recursive: true });
+      return withLocalFileLock(storePath, async () => {
+        const snapshot = await this.readSnapshot();
+        const result = await operation(snapshot);
+        await this.writeSnapshot(snapshot);
+        return result;
+      });
     });
 
     this.writeChain = resultPromise.catch(() => {});
@@ -283,24 +304,77 @@ async function readLocalSnapshot(storePath: string): Promise<StoreSnapshot> {
   try {
     const raw = await fs.readFile(storePath, "utf8");
     const parsed = JSON.parse(raw) as Partial<StoreSnapshot>;
+    const schemaVersion = parsed.schemaVersion ?? 1;
+    if (schemaVersion !== 1 && schemaVersion !== 2) {
+      throw new Error(`Unsupported run store schema version: ${String(schemaVersion)}`);
+    }
     return {
       artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
       auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
       evidenceBundles: Array.isArray(parsed.evidenceBundles) ? parsed.evidenceBundles : [],
       evidenceItems: Array.isArray(parsed.evidenceItems) ? parsed.evidenceItems : [],
       logs: Array.isArray(parsed.logs) ? parsed.logs : [],
-      runs: Array.isArray(parsed.runs) ? parsed.runs : []
+      runs: Array.isArray(parsed.runs) ? parsed.runs : [],
+      schemaVersion: 2
     };
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
-      return { artifacts: [], auditEvents: [], evidenceBundles: [], evidenceItems: [], logs: [], runs: [] };
+      return { artifacts: [], auditEvents: [], evidenceBundles: [], evidenceItems: [], logs: [], runs: [], schemaVersion: 2 };
     }
     throw error;
   }
 }
 
+async function readIncrementalLogs(logPath: string): Promise<InssaRunLogRecord[]> {
+  try {
+    const raw = await fs.readFile(logPath, "utf8");
+    return raw
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as InssaRunLogRecord);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+async function countIncrementalLogs() {
+  try {
+    const entries = await fs.readdir(getLocalRunLogDirectory(), { withFileTypes: true });
+    let count = 0;
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+      const logPath = path.join(getLocalRunLogDirectory(), entry.name);
+      const state = await readLogSequenceState(`${logPath}.sequence.json`);
+      count += state?.count ?? (await readIncrementalLogs(logPath)).length;
+    }
+    return count;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return 0;
+    throw error;
+  }
+}
+
+async function readLogSequenceState(sequencePath: string): Promise<{ count: number; lastSequence: number } | null> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(sequencePath, "utf8")) as { count?: unknown; lastSequence?: unknown };
+    if (typeof parsed.count !== "number" || typeof parsed.lastSequence !== "number") return null;
+    return { count: parsed.count, lastSequence: parsed.lastSequence };
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return null;
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+async function writeLogSequenceState(sequencePath: string, state: { count: number; lastSequence: number }) {
+  const temporaryPath = `${sequencePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  await fs.writeFile(temporaryPath, JSON.stringify(state), "utf8");
+  await fs.rename(temporaryPath, sequencePath);
+}
+
 async function countSupabaseRows(table: string) {
-  const apiKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
+  const apiKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   const baseUrl = `${process.env.SUPABASE_URL}/rest/v1`;
   const response = await fetch(`${baseUrl}/${table}?select=id`, {
     headers: {
@@ -322,7 +396,7 @@ async function countSupabaseRows(table: string) {
 }
 
 class SupabaseRunStore implements InssaRunStore {
-  private readonly apiKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
+  private readonly apiKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   private readonly baseUrl = `${process.env.SUPABASE_URL}/rest/v1`;
 
   async appendAuditEvent(event: Omit<InssaAuditEventRecord, "createdAt" | "id">) {
@@ -339,7 +413,10 @@ class SupabaseRunStore implements InssaRunStore {
   }
 
   async appendLog(runId: string, stream: InssaRunLogRecord["stream"], message: string) {
-    const sequence = (await this.getLogs(runId)).length + 1;
+    const rows = await this.request(
+      `run_logs?run_id=eq.${encodeURIComponent(runId)}&select=sequence&order=sequence.desc&limit=1`
+    );
+    const sequence = Number(rows[0]?.sequence ?? 0) + 1;
     const record: InssaRunLogRecord = {
       createdAt: new Date().toISOString(),
       id: crypto.randomUUID(),
@@ -585,7 +662,10 @@ function toSupabaseEvidenceBundle(bundle: InssaEvidenceBundleRecord) {
     storage_backend: bundle.storageBackend,
     storage_prefix: bundle.storagePrefix,
     title: bundle.title,
-    total_bytes: bundle.totalBytes
+    total_bytes: bundle.totalBytes,
+    upload_error: bundle.uploadError,
+    upload_status: bundle.uploadStatus,
+    uploaded_at: bundle.uploadedAt
   };
 }
 
@@ -635,7 +715,10 @@ function toSupabaseEvidenceItem(item: InssaEvidenceItemRecord) {
     sha256: item.sha256,
     size_bytes: item.sizeBytes,
     storage_backend: item.storageBackend,
-    storage_key: item.storageKey
+    storage_key: item.storageKey,
+    upload_error: item.uploadError,
+    upload_status: item.uploadStatus,
+    uploaded_at: item.uploadedAt
   };
 }
 

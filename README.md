@@ -1,383 +1,289 @@
-# QA Platform
+# QA Operations Platform
 
-Reusable Playwright QA and Security Operations Platform for hosted web applications.
+Version `1.0.0` of a reusable Playwright QA and Security Operations Platform for hosted web applications.
 
-Current product focus:
+INSSA is the current operational product. Localman and KBean test projects are present in the repository, but their campaign coverage is not yet integrated into the managed operations workflow.
 
-```text
-INSSA staging: https://staging.inssa.us
-```
+## Mission
 
-Supported product families:
+The platform exists to execute approved QA, security, lifecycle, artifact-validation, and monitoring campaigns; preserve evidence; render reports; export metadata to SIEM; and support operational review.
 
-- INSSA: current operational focus.
-- Localman: supported by the repo, future dashboard expansion.
-- KBean products: supported by the repo, future dashboard expansion.
-- Future products: must follow the same campaign/artifact/report/SIEM architecture.
+Testing and validation are the core product. Reports, dashboards, notifications, storage, and SIEM are supporting layers. The dashboard must not replace Playwright or campaign logic.
 
-This repo is not the INSSA application source repo. It has no INSSA backend, database, cloud, or production access.
-
-## Platform Mission
-
-The platform exists to:
-
-- execute QA campaigns
-- execute security campaigns
-- execute lifecycle validation
-- execute artifact-driven validation
-- generate durable evidence
-- generate reports from evidence
-- export metadata to SIEM
-- support operational review
-
-The platform does not exist primarily to generate reports, generate dashboards, or send SIEM data. Those are outputs. Testing and validation are the core purpose.
-
-## Core Architecture
+## Architecture
 
 ```text
-Playwright Tests
-↓
-Campaign Runners
-↓
-Artifacts
-↓
-Reports
-↓
-SIEM Export
-↓
-Wazuh
+Authenticated operator or scheduler
+              |
+              v
+      Whitelisted command registry
+              |
+              v
+       Durable execution job
+              |
+              v
+      Dedicated worker + lease
+              |
+              v
+ Existing npm / Playwright campaign
+              |
+              v
+ Immutable run output + manifest
+              |
+              v
+ Artifacts -> Evidence Bundle -> Reports
+              |
+              v
+     Durable Storage / SIEM Export
 ```
 
-| Layer | Responsibility |
+| Layer | Implemented responsibility |
 | --- | --- |
-| Playwright Tests | Exercise hosted products as black-box users and validate behavior. |
-| Campaign Runners | Orchestrate focused QA/security/lifecycle workflows. |
-| Artifacts | Preserve source-of-truth evidence. |
-| Reports | Render human-readable views from artifacts/findings. |
-| SIEM Export | Normalize metadata-only events for security operations. |
-| Wazuh | Ingest metadata, apply rules, show dashboards, and route alerts. |
+| Playwright | Black-box product validation. |
+| Campaign runners | Existing CLI orchestration for lifecycle and security workflows. |
+| Command registry | The only dashboard-executable command allowlist. Arbitrary shell input is prohibited. |
+| Durable jobs | Persistent job ownership, idempotency, leases, heartbeats, and abandoned-job recovery. |
+| Worker | Executes one approved run at a time independently of the HTTP request. |
+| Run output | Per-run immutable output under `run-output/<runId>/` with a manifest. |
+| Evidence | Bundle and item metadata, authenticated bundle-relative serving, and optional durable Storage upload. |
+| Reports | Derived human-readable evidence views. Reports are not the source of truth. |
+| Notification Outbox | Durable read-only event journal. No external dispatcher is implemented. |
+| Monitoring | Managed definitions and a producer-only schedule trigger. |
+| SIEM | Metadata-only export and authenticated Wazuh ingestion. Dashboard send remains disabled. |
+| Dashboard | Authenticated operations and evidence review over existing APIs and infrastructure. |
 
-The dashboard is a thin operations layer over this architecture. It must not replace Playwright, campaign runners, artifact generation, report generation, or SIEM normalization.
+The governing rules are in [QA Platform Architecture Constitution](docs/qa-platform-architecture-constitution.md).
 
 ## Product Model
 
-| Concept | Meaning | Must Not Be Confused With |
-| --- | --- | --- |
-| Campaigns | Execute tests and produce fresh evidence. | Reports. |
-| Artifact Validation | Consumes existing lifecycle evidence. | Live capsule creation. |
-| Reports | Review generated evidence. | Test execution. |
-| SIEM | Exports metadata to Wazuh. | Source-of-truth storage. |
-| Operations | Manages platform health and diagnostics. | Product QA coverage. |
+- Campaigns execute tests.
+- Artifact Validation consumes existing lifecycle evidence.
+- Reports review derived evidence.
+- Evidence Bundles are the durable evidence object.
+- SIEM exports metadata; it is not evidence storage.
+- Operations manages platform health.
+- Monitoring definitions describe recurring observation; the scheduler only enqueues jobs.
+- The Notification Outbox records delivery intent; it does not contact providers.
 
-These concepts must remain separate. See [QA Platform Architecture Constitution](docs/qa-platform-architecture-constitution.md).
+## Implemented Subsystems
 
-## Current Dashboard Structure
-
-The local Operations Dashboard lives in `dashboard/`.
-
-Sections:
-
-- Overview
-- Safe Tests
-- Security
-- Lifecycle
-- Artifact Validation
-- Reports
-- SIEM
-- Operations
-- Run History
-- Run Details
-
-Current dashboard source-of-truth docs:
-
-- [INSSA Platform Current State](docs/inssa-platform-current-state.md)
-- [INSSA Dashboard Architecture](docs/inssa-dashboard-architecture.md)
-- [INSSA V1 Definition](docs/inssa-v1-definition.md)
-- [INSSA Command Matrix](docs/inssa-command-matrix.md)
-- [INSSA Dashboard Decisions](docs/inssa-dashboard-decisions.md)
-- [INSSA Dashboard Roadmap](docs/inssa-dashboard-roadmap.md)
-- [INSSA Platform Handoff 2026](docs/inssa-platform-handoff-2026.md)
-
-## Current V1 Scope
-
-Implemented in the dashboard:
-
-- Supabase Auth-protected UI and APIs.
-- Server-side RBAC with `viewer`, `operator`, and `admin`.
-- Whitelisted command registry.
+- Supabase email/password and magic-link authentication.
+- Server-enforced `viewer`, `operator`, and `admin` RBAC.
+- Product-aware Campaign Library presentation backed by the existing command registry.
+- Durable execution jobs, worker leases, heartbeats, recovery, and idempotency.
 - One active run globally.
-- Run history.
-- Live logs.
-- Artifact metadata indexing.
-- Report archive.
-- Authenticated report serving for allowlisted report roots.
-- Safe INSSA suite execution.
-- Security campaign execution.
-- Security verification execution.
-- Artifact Validation commands with lifecycle artifact selection.
-- Security and lifecycle report re-rendering.
-- SIEM metadata export.
-- Platform healthcheck.
-- Metadata backend diagnostics.
-- API failure visibility.
+- Incremental logs with output redaction.
+- Paginated run, log, artifact, evidence, notification, and monitoring APIs where implemented.
+- Per-run immutable output manifests.
+- Artifact metadata and compatibility APIs.
+- Evidence Bundle and Evidence Item metadata.
+- Authenticated Playwright bundle serving, including bundle-relative assets.
+- Local filesystem and private Supabase Storage providers.
+- Evidence Workspace with bundle/item inspection and previews.
+- Security/lifecycle report rendering and report archive.
+- Durable Notification Outbox with no external delivery.
+- Monitoring definitions and scheduler occurrence ledger.
+- Authentication Monitoring for email/password, Google OAuth, and Apple Sign-In.
+- Metadata-only SIEM export and authenticated Wazuh ingestion service.
+- Runtime Doctor, clean build protection, platform healthcheck, and persistence provisioning.
+- Dark and light UI themes.
 
-Currently gated or disabled:
+## Dashboard Workspaces
 
-- live text lifecycle execution from dashboard
-- live media lifecycle execution from dashboard
-- live video lifecycle execution from dashboard
-- reveal-later lifecycle execution from dashboard
-- cross-user campaign execution from dashboard
-- reveal-later security execution from dashboard
-- SIEM send from dashboard
-- broad live-staging mega-runner
-- arbitrary command execution
-- screenshot/video/trace serving
-- scheduling
-- automatic cleanup
+| Workspace | Purpose | Execution |
+| --- | --- | --- |
+| Overview | Runner, backend, recent activity, and platform summary. | None |
+| Campaign Library | Product-aware campaign definitions and readiness. | Existing enabled commands only |
+| Testing | Dedicated INSSA Safe Suite action. | Operator/admin |
+| Security | Security Campaign and Security Verification. | Operator/admin |
+| Lifecycle | Text, media, video, and reveal-later campaign orientation. | Disabled |
+| Execution | Active run timeline, logs, outputs, and completion. | Observational |
+| Artifact Validation | Discovery, public-share, and cleanup audits using selected evidence. | Operator/admin with artifact selection |
+| Reports | Evidence explorer, item preview, integrity, storage, reports, and related evidence. | None |
+| SIEM | Metadata-only export. | Export enabled; send disabled |
+| Authentication Monitoring | Independent provider status and historical runs. | Approved monitoring commands |
+| Monitoring | Definitions and scheduler status. | Read-only |
+| Notifications | Durable outbox events. | Read-only; no send action |
+| Operations | Metadata diagnostics and admin healthcheck. | Healthcheck admin-only |
+| Runs | Run history, detail, logs, artifacts, and report links. | None |
 
-## Safety Rules
+## Roles
 
-- INSSA dashboard command execution requires `INSSA_URL=https://staging.inssa.us`.
-- Production hosts `inssa.us` and `www.inssa.us` are blocked.
-- Live lifecycle campaigns create staging data and require manual cleanup.
-- Dashboard execution is whitelist-only.
-- Runner uses `shell:false`.
-- Only one dashboard run may be active.
-- Artifact Validation must consume selected lifecycle evidence.
-- Reports are derived views, not source-of-truth evidence.
-- SIEM payloads are metadata-only.
+| Role | Capabilities |
+| --- | --- |
+| Viewer | View dashboard, runs, logs, artifacts, evidence, reports, monitors, notifications, and diagnostics. |
+| Operator | Viewer permissions plus enabled safe/read-only commands, excluding platform healthcheck. |
+| Admin | Operator permissions plus platform healthcheck. |
+
+Role resolution uses `app_metadata.inssa_ops_role`, then optional email allowlists, then defaults to `viewer`. API authorization is server-side.
+
+## Current Command Exposure
+
+Executable from the dashboard:
+
+- `test:inssa:safe`
+- `test:inssa:campaign:security`
+- `test:inssa:campaign:security:verify`
+- `test:inssa:discovery`
+- `test:inssa:public-share`
+- `test:inssa:cleanup-audit`
+- `report:security`
+- `report:lifecycle`
+- `siem:export`
+- `platform:healthcheck` for admins
+- staging and production authentication-monitor commands, subject to their environment safeguards
+
+Visible but disabled:
+
+- text, media, video, and reveal-later lifecycle campaigns
+- cross-user and reveal-later security campaigns
+- SIEM send
+
+Hidden from dashboard execution:
+
+- broad project suites
+- raw mutation specs
+- campaign-plus-SIEM wrappers
+- arbitrary npm commands
+
+See [Command Matrix](docs/inssa-command-matrix.md) for the complete CLI and dashboard inventory.
 
 ## Quick Start
 
-Install dependencies and browsers:
+Prerequisites:
+
+- Node.js `18.18` or newer
+- repository and dashboard dependencies
+- Playwright browsers
+- `dashboard/.env.local` configured from `dashboard/.env.example`
+- INSSA staging credentials only for commands that require them
 
 ```bash
 npm install
+npm --prefix dashboard install
 npm run install:browsers
-```
-
-Run safe INSSA tests from CLI:
-
-```bash
-npm run test:inssa:safe
-```
-
-Run dashboard locally:
-
-```bash
+npm run dashboard:doctor
 npm run dashboard:dev
 ```
 
-Build dashboard:
+Production-style local startup:
 
 ```bash
+npm run dashboard:clean
 npm run dashboard:build
+npm run dashboard:start
 ```
 
-Run platform healthcheck:
+The dashboard supervisor starts the dashboard, worker, and scheduler. Do not mix `dev` and `start` processes against one `.next` directory.
+
+## Safe CLI Validation
 
 ```bash
+npm run test:inssa:safe
+npm run test:inssa:campaign:security
+npm run test:inssa:campaign:security:verify
+npm run siem:export
 npm run platform:healthcheck
+npm run dashboard:doctor
+npm --prefix dashboard run test:execution-foundation
 ```
 
-## Environment
+Live lifecycle commands require the explicit gates documented in [.env.inssa.live-staging.example](.env.inssa.live-staging.example) and create manual cleanup obligations.
 
-Never commit real credentials.
+## Persistence And Evidence
 
-Important variables:
+Development defaults:
 
-| Variable | Purpose |
-| --- | --- |
-| `INSSA_URL=https://staging.inssa.us` | Required dashboard/campaign target for INSSA. |
-| `INSSA_TEST_EMAIL` | Primary INSSA QA account. |
-| `INSSA_TEST_PASSWORD` | Primary INSSA QA password. |
-| `INSSA_SECONDARY_TEST_EMAIL` | Secondary QA account for cross-user validation. |
-| `INSSA_SECONDARY_TEST_PASSWORD` | Secondary QA password. |
-| `INSSA_ENABLE_LIVE_CAPSULE_TESTS=1` | Enables live capsule tests from CLI/campaigns. |
-| `INSSA_LIVE_CAPSULE_MANUAL_CLEANUP_APPROVED=1` | Acknowledges manual cleanup responsibility. |
-| `INSSA_ENABLE_MEDIA_CAPSULE_TESTS=1` | Enables media live capsule tests. |
-| `INSSA_ENABLE_VIDEO_CAPSULE_TESTS=1` | Enables video live capsule tests. |
-| `INSSA_ENABLE_REVEAL_LATER_CAPSULE_TESTS=1` | Enables reveal-later live capsule tests. |
-| `INSSA_ENABLE_MUTATION_TESTS=1` | Enables draft mutation tests. |
-| `NEXT_PUBLIC_SUPABASE_URL` | Dashboard browser Supabase URL. |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Dashboard browser Supabase key. |
-| `SUPABASE_URL` | Server-side Supabase URL fallback. |
-| `SUPABASE_ANON_KEY` | Server-side anon key fallback. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Optional service-role key for metadata operations. |
-| `INSSA_OPS_ADMIN_EMAILS` | Comma-separated admin role fallback. |
-| `INSSA_OPS_OPERATOR_EMAILS` | Comma-separated operator role fallback. |
-| `INSSA_OPS_VIEWER_EMAILS` | Comma-separated viewer role fallback. |
-| `SIEM_WAZUH_URL` | Wazuh ingestion endpoint for CLI send. |
+```text
+INSSA_OPS_METADATA_STORE=local
+INSSA_EVIDENCE_STORAGE_PROVIDER=local
+```
 
-## Command Matrix
+Durable deployments use Supabase Postgres for metadata and a private Supabase Storage bucket for evidence bytes. Apply all six ordered migrations and provision the bucket before selecting Supabase providers:
 
-| Command | Purpose | Mutates Staging | Risk | Outputs | Dashboard Exposure |
-| --- | --- | --- | --- | --- | --- |
-| `npm run test` | Run Playwright default suite. | Mixed | mixed | Playwright output | Hidden |
-| `npm run test:localman` | Run Localman Playwright project. | Product-specific | mixed | Playwright output | Hidden |
-| `npm run test:kbean` | Run KBean Playwright project. | Product-specific | mixed | Playwright output | Hidden |
-| `npm run test:inssa` | Run all INSSA tests under project config. | Possible | mixed | Playwright output | Hidden |
-| `npm run test:inssa:safe` | Run non-mutating INSSA safe suite. | No | safe | Playwright report, test results | Executable |
-| `npm run test:inssa:live-staging` | Broad sequential live staging runner. | Yes | broad live mutation | Lifecycle artifacts/reports | Hidden; do not expose as primary workflow |
-| `npm run test:inssa:live-text` | Raw text live capsule create spec. | Yes | live mutation | Lifecycle artifact/screenshot | Hidden |
-| `npm run test:inssa:live-media` | Raw media live capsule create spec. | Yes | live mutation | Lifecycle artifact/screenshot | Hidden |
-| `npm run test:inssa:live-video` | Raw video live capsule create spec. | Yes | live mutation | Lifecycle artifact/screenshot | Hidden |
-| `npm run test:inssa:reveal-later` | Raw reveal-later live capsule create spec. | Yes | live mutation | Lifecycle artifact/screenshot | Hidden |
-| `npm run test:inssa:discovery` | Authenticated discovery using existing artifact. | No | read-only | Playwright report, validation evidence | Executable with artifact |
-| `npm run test:inssa:public-share` | Public/tokenized/tokenless share validation using artifact. | No | read-only | Playwright report, validation evidence | Executable with artifact |
-| `npm run test:inssa:cleanup-audit` | Cleanup capability audit using artifact; no destructive action. | No | read-only | Cleanup evidence | Executable with artifact |
-| `npm run test:inssa:draft-mutations` | Draft mutation tests. | Yes | mutation | Playwright report | Hidden |
-| `npm run test:inssa:campaign:text` | Text lifecycle campaign. | Yes | live mutation | Lifecycle campaign summary/report | Visible disabled |
-| `npm run test:inssa:campaign:media` | Media lifecycle campaign. | Yes | live mutation | Lifecycle campaign summary/report | Visible disabled |
-| `npm run test:inssa:campaign:video` | Video lifecycle campaign. | Yes | live mutation | Lifecycle campaign summary/report | Visible disabled |
-| `npm run test:inssa:campaign:reveal-later` | Reveal-later lifecycle campaign. | Yes | live mutation | Lifecycle campaign summary/report | Visible disabled |
-| `npm run test:inssa:campaign:security` | OWASP-aligned security campaign. | No by default | read-only | Security findings, reports | Executable |
-| `npm run test:inssa:campaign:security:verify` | Verify known findings from existing evidence. | No | read-only | Verification findings/report | Executable |
-| `npm run test:inssa:campaign:cross-user` | Cross-user access-control campaign. | Yes | live mutation | Cross-user security evidence | Visible disabled |
-| `npm run test:inssa:campaign:reveal-later-security` | Reveal-later access-control validation. | Possible | conditional mutation | Reveal-later security evidence | Visible disabled |
-| `npm run test:inssa:campaign:security:siem` | Security campaign plus SIEM wrapper. | No by default | external transmission | Campaign outputs and SIEM export/send | Hidden |
-| `npm run test:inssa:campaign:cross-user:siem` | Cross-user campaign plus SIEM wrapper. | Yes | live mutation/external transmission | Campaign outputs and SIEM export/send | Hidden |
-| `npm run test:inssa:campaign:reveal-later:siem` | Reveal-later security plus SIEM wrapper. | Possible | conditional mutation/external transmission | Campaign outputs and SIEM export/send | Hidden |
-| `npm run platform:healthcheck` | Validate local platform wiring. | No | read-only | Healthcheck logs/artifact metadata | Admin executable |
-| `npm run report:show` | Open Playwright report. | No | read-only | Browser report viewer | CLI only |
-| `npm run report:open` | Open Playwright report. | No | read-only | Browser report viewer | CLI only |
-| `npm run report:security` | Re-render security HTML report from existing findings. | No | read-only | `reports/security/` HTML | Executable report tool |
-| `npm run report:lifecycle` | Re-render lifecycle HTML report from existing evidence. | No | read-only | `reports/lifecycle/` HTML | Executable report tool |
-| `npm run siem:export` | Generate metadata-only SIEM export. | No | read-only | `reports/siem/latest-siem-export.json` | Executable |
-| `npm run siem:send` | Send SIEM export to Wazuh endpoint. | No | external transmission | Wazuh events | Visible disabled |
-| `npm run dashboard:dev` | Run dashboard in dev mode. | No | operations | Local dashboard server | CLI only |
-| `npm run dashboard:build` | Build dashboard. | No | operations | `.next` build output | CLI only |
-| `npm run dashboard:start` | Start built dashboard. | No | operations | Local dashboard server | CLI only |
+```bash
+cd dashboard
+npx supabase@latest link --project-ref "$SUPABASE_PROJECT_REF"
+npx supabase@latest db push --dry-run
+npx supabase@latest db push
+npm run persistence:provision
+npm run persistence:verify
+```
 
-## Artifact Validation Framework
+Current bundle serving remains authenticated and filesystem-backed. Supabase Storage is the durable copy, not a public CDN. Retention, archive, deletion, and direct Storage serving are not implemented.
 
-Artifact Validation is a first-class platform capability.
+## Monitoring And Notifications
 
-Purpose:
+The scheduler evaluates enabled schedule definitions and creates durable jobs. It never invokes Playwright or npm directly. The worker remains the only executor.
 
-- validate lifecycle visibility and cleanup behavior without creating new capsules
-- consume existing lifecycle artifacts
-- support repeatable verification from evidence
+The Notification Outbox records queued, started, completed, failed, recovery, and evidence-upload events. Email, SMS, Slack, Teams, webhook, and push dispatchers are not implemented.
 
-Artifact Validation commands:
-
-| Workflow | Command | What It Checks |
-| --- | --- | --- |
-| Authenticated Discovery | `npm run test:inssa:discovery` | Direct authenticated retrieval, feed/search/profile/messages visibility. |
-| Public Share Validation | `npm run test:inssa:public-share` | Tokenized, tokenless, logged-out, and authenticated public-share routes. |
-| Cleanup Capability Audit | `npm run test:inssa:cleanup-audit` | Whether owner cleanup controls exist; no delete/archive/unpublish action. |
-
-Selection model:
-
-- explicit lifecycle artifact path, or
-- latest validation-ready lifecycle artifact.
-
-Validation-ready artifact requirements:
-
-- `observedCreateSuccess=true`
-- and at least one retrieval/share identifier such as final share link, capsule ID, or share token.
-
-Dashboard behavior:
-
-- shows artifact path
-- shows artifact type
-- shows artifact timestamp
-- blocks execution if no usable artifact exists
-
-Artifact Validation must not create capsules.
-
-## Artifacts And Reports
-
-Source-of-truth artifact roots:
-
-- `lifecycle-artifacts/`
-- `lifecycle-campaigns/`
-- `security-campaigns/`
-- `test-results/`
-- `playwright-report/`
-- `reports/security/`
-- `reports/lifecycle/`
-- `reports/siem/`
-
-Report roots:
-
-- `reports/security/`
-- `reports/lifecycle/`
-- `reports/siem/`
-- `playwright-report/`
-
-The dashboard serves only allowlisted report files through artifact metadata. Screenshots, videos, traces, lifecycle JSON, and sensitive evidence are not served in V1.
+Authentication Monitoring is the first continuous campaign. Monitor credentials use the canonical `AUTH_MONITOR_*` namespace and are loaded from the same dashboard environment as the worker and scheduler. Production monitoring remains disabled by default and requires `AUTH_MONITOR_ALLOW_PRODUCTION=1` plus exact host confirmation.
 
 ## SIEM And Wazuh
 
-SIEM flow:
-
 ```text
-Campaign artifacts
--> npm run siem:export
--> reports/siem/latest-siem-export.json
--> npm run siem:send
--> Wazuh ingestion API
--> /var/ossec/logs/inssa-qa.log
--> Wazuh decoder/rules
--> dashboards/alerts
+Campaign evidence
+  -> npm run siem:export
+  -> reports/siem/latest-siem-export.json
+  -> npm run siem:send
+  -> authenticated ingestion API
+  -> /var/ossec/logs/inssa-qa.log
+  -> Wazuh decoder/rules/index/dashboard
 ```
 
-Dashboard status:
+The sender requires HTTPS for non-loopback targets and a bearer credential. The ingestion service refuses startup without a credential of at least 32 characters. Screenshots, videos, traces, signed URLs, tokens, and credentials are rejected from SIEM payloads.
 
-- SIEM export is executable.
-- SIEM send is disabled until endpoint preview, dry-run, and explicit confirmation exist.
+## Security Boundaries
 
-References:
+- Dashboard command execution is allowlist-only and uses `shell:false`.
+- Standard INSSA commands are staging-only.
+- Production authentication monitoring has a separate explicit confirmation gate.
+- Supabase service-role credentials are server-only.
+- Evidence paths use canonical `realpath` validation and reject symlink escape.
+- Text logs and served textual evidence are redacted.
+- Wazuh ingestion is authenticated and fails closed.
+- No real environment file, user file, or generated evidence belongs in Git.
 
-- [SIEM Architecture](docs/inssa-siem-architecture.md)
-- [Wazuh Ingestion](docs/wazuh-inssa-ingestion.md)
-- [Wazuh Decoder](docs/wazuh-inssa-decoder.md)
-- [Wazuh Rules](docs/wazuh-inssa-rules.md)
+## Environment
 
-## Future Phases
+Use these templates:
 
-| Phase | Scope | Status |
-| --- | --- | --- |
-| Phase A | Read-only V1: safe tests, security, artifact validation, reports, SIEM export, operations. | Current |
-| Phase B | Controlled lifecycle execution with approval and cleanup workflow. | Future |
-| Phase C | Cross-user and reveal-later dashboard execution. | Future |
-| Phase D | SIEM send workflow with preview/dry-run/confirmation. | Future |
-| Phase E | Deployment maturity, scheduling, retention, object storage, multi-product support. | Future |
+- [.env.example](.env.example): repository-wide reference.
+- [.env.inssa.live-staging.example](.env.inssa.live-staging.example): live INSSA lifecycle gates.
+- [dashboard/.env.example](dashboard/.env.example): Next.js, persistence, worker, scheduler, roles, and SIEM.
+- [performance/k6/.env.example](performance/k6/.env.example): k6 authentication load testing.
 
-## Key Documentation
+The authoritative variable descriptions are in [Environment Setup](docs/environment-setup.md). Never commit `.env`, `.env.local`, credentials, test-user files, or generated evidence.
 
-| Document | Purpose |
-| --- | --- |
-| [Architecture Constitution](docs/qa-platform-architecture-constitution.md) | Governing architecture principles. |
-| [Current State](docs/inssa-platform-current-state.md) | Current implemented platform state. |
-| [Dashboard Architecture](docs/inssa-dashboard-architecture.md) | Dashboard/API/runner/artifact architecture. |
-| [Command Matrix](docs/inssa-command-matrix.md) | Command exposure, risk, outputs, and phase. |
-| [V1 Definition](docs/inssa-v1-definition.md) | Approved V1 scope and non-goals. |
-| [Dashboard Decisions](docs/inssa-dashboard-decisions.md) | Architectural decisions already made. |
-| [Dashboard Roadmap](docs/inssa-dashboard-roadmap.md) | Phase A/B/C roadmap. |
-| [Platform Handoff 2026](docs/inssa-platform-handoff-2026.md) | Future engineer handoff. |
-| [Documentation Audit](docs/inssa-documentation-audit.md) | Freshness classification for existing docs. |
-| [Security Findings](docs/inssa-security-findings.md) | Security finding records. |
-| [Risk Matrix](docs/inssa-risk-matrix.md) | Risk and priority matrix. |
-| [Live Staging Lifecycle](docs/inssa-live-staging-lifecycle.md) | Lifecycle runner behavior. |
-| [Security Campaign](docs/inssa-security-campaign.md) | OWASP campaign architecture. |
-| [Product Behavior Audit](docs/inssa-product-behavior-audit.md) | Black-box staging behavior map. |
+## Release Status
 
-## Troubleshooting
+Platform Core version: `1.0.0`.
 
-| Problem | First Check |
-| --- | --- |
-| Dashboard cannot start | `npm run dashboard:build`, then check `.env.local`. |
-| Login unavailable | Confirm Supabase public URL/key env values. |
-| User role wrong | Check Supabase `app_metadata.inssa_ops_role` and `INSSA_OPS_*_EMAILS`. |
-| Run rejected | Confirm command is in registry and `INSSA_URL=https://staging.inssa.us`. |
-| Artifact Validation blocked | Confirm `lifecycle-artifacts/` contains a validation-ready artifact. |
-| Report will not open | Confirm artifact type/root is allowlisted and not sensitive. |
-| SIEM export empty | Confirm campaign outputs exist under `security-campaigns/` or `lifecycle-campaigns/`. |
-| Live test skipped | Confirm live flags in `.env.inssa.live-staging`. |
+Runtime, local persistence, evidence, worker, scheduler, monitoring, dependency, and code-level security regression checks pass. Production release remains blocked until the historical share tokens documented in [Platform Security Certification](docs/platform-security-certification.md) are invalidated or confirmed expired and removed from Git history. A production deployment must also complete linked Supabase and live Wazuh validation.
 
-## Release Rule
+See [Platform Core v1.0 Release Notes](docs/platform-core-v1.0-release-notes.md), [Known Limitations](docs/known-limitations.md), and [Deployment Checklist](docs/deployment-checklist.md).
 
-Before changing architecture, read [QA Platform Architecture Constitution](docs/qa-platform-architecture-constitution.md). If a change affects the runner, command registry, staging-only safeguards, artifact indexing, report serving, auth/RBAC, or one-active-run model, get explicit approval first.
+## Documentation
+
+Start with [Documentation Index](docs/README.md). It separates authoritative guides, subsystem references, operational Wazuh documentation, product findings, and historical validation records.
+
+Key references:
+
+- [Architecture Constitution](docs/qa-platform-architecture-constitution.md)
+- [Architecture Summary](docs/architecture-summary.md)
+- [Subsystem Summary](docs/subsystem-summary.md)
+- [Current State](docs/inssa-platform-current-state.md)
+- [Execution Foundation](docs/qa-execution-foundation.md)
+- [Evidence Management](docs/EVIDENCE_MANAGEMENT_ARCHITECTURE.md)
+- [Persistence Architecture](docs/platform-persistence-architecture.md)
+- [Campaign Management](docs/campaign-management.md)
+- [Platform Operations](docs/inssa-platform-operations.md)
+- [Security Guide](docs/platform-security-guide.md)
+- [Deployment Guide](docs/platform-deployment-guide.md)
+- [Release Guide](docs/platform-release-guide.md)
+- [Changelog](CHANGELOG.md)
+
+## Architectural Change Control
+
+Explicit approval is required before changing the command registry model, durable job/worker architecture, one-active-run policy, staging safeguards, auth/RBAC model, artifact/evidence compatibility model, evidence path security, persistence provider contract, report serving model, scheduler producer-only boundary, or Notification Outbox boundary.

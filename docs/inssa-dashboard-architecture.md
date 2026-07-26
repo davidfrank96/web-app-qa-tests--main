@@ -1,262 +1,94 @@
-# INSSA Dashboard Architecture
+# INSSA Operations Dashboard Architecture
 
-Last updated: 2026-06-11
+Last reviewed: 2026-07-21
 
-This document describes the current INSSA QA Operations Dashboard architecture implemented under `dashboard/`.
+## Role
 
-## Architecture Flow
+The Next.js dashboard is a thin authenticated operations layer. It presents campaign definitions, enqueues approved commands, observes durable execution, and reviews evidence. It does not contain Playwright or campaign logic.
 
 ```mermaid
 flowchart TD
-  User["Authenticated operator"] --> UI["Next.js Dashboard UI"]
-  UI --> API["Operations API routes"]
-  API --> Auth["Supabase Auth + server-side RBAC"]
-  API --> Registry["Command Registry"]
-  API --> Runner["Runner Service"]
-  Runner --> NPM["Whitelisted npm/Playwright command"]
-  NPM --> Outputs["Generated files"]
-  Runner --> Indexer["Artifact Indexer"]
-  Indexer --> Store["Run Store"]
-  API --> Store
-  UI --> Reports["Report Viewer"]
-  Reports --> ArtifactAPI["GET /api/artifacts/:id/file"]
-  Outputs --> SIEMExport["SIEM Export JSON"]
-  SIEMExport --> WazuhSend["send-to-wazuh.js"]
-  WazuhSend --> Wazuh["Wazuh ingestion/logcollector/decoder/rules/dashboard"]
+  Browser["Authenticated browser"] --> UI["Operations workspaces"]
+  UI --> API["Next.js APIs"]
+  API --> Guard["Supabase identity + RBAC"]
+  API --> Registry["Command registry"]
+  Registry --> Jobs["Durable job store"]
+  Jobs --> Worker["Dedicated worker"]
+  Worker --> Existing["Existing npm and Playwright workflows"]
+  Existing --> RunOutput["Immutable run output"]
+  RunOutput --> Evidence["Artifacts and Evidence Bundles"]
+  Evidence --> UI
 ```
 
-## Dashboard
+## Workspaces
 
-Location:
+The current sidebar contains Overview, Campaign Library, Testing, Security, Lifecycle, Execution, Artifact Validation, Reports/Evidence Workspace, SIEM, Authentication Monitoring, Monitoring, Notifications, Operations, and Runs.
 
-- `dashboard/app/page.tsx`
-- `dashboard/components/inssa-ops-client.tsx`
+Execution and evidence remain separate:
 
-Current sections:
+- Testing/Security/Artifact Validation enqueue approved work.
+- Execution and Runs observe job progress, logs, artifacts, and completion.
+- Reports reviews Evidence Bundles and derived reports.
+- Monitoring/Notifications are read-only operational views.
 
-- Overview
-- Safe Tests
-- Security
-- Lifecycle
-- Artifact Validation
-- Reports
-- SIEM
-- Operations
-- Run History
-- Run Details
+## API Surface
 
-The UI consumes existing API routes only. It does not execute shell commands directly.
+Viewer-or-higher read APIs:
 
-## API Layer
+- `GET /api/campaign-definitions`
+- `GET /api/runs`
+- `GET /api/runs/:id`
+- `GET /api/runs/:id/logs`
+- `GET /api/runs/:id/artifacts`
+- `GET /api/runs/:id/evidence`
+- `GET /api/artifacts/:id`
+- `GET /api/artifacts/:id/file`
+- `GET /api/artifacts/:id/bundle/*`
+- `GET /api/lifecycle-artifacts`
+- `GET /api/notifications` and `GET /api/notifications/:id`
+- `GET /api/monitoring-definitions` and `GET /api/monitoring-definitions/:id`
+- `GET /api/scheduler/status`
 
-Key routes:
+Mutation API:
 
-| Route | Purpose | Minimum Role |
-| --- | --- | --- |
-| `GET /api/campaign-definitions` | List whitelisted commands. | viewer |
-| `GET /api/runs` | List runs and metadata backend summary. | viewer |
-| `POST /api/runs` | Start a whitelisted run. | viewer plus command authorization |
-| `GET /api/runs/:id` | Get one run. | viewer |
-| `GET /api/runs/:id/logs` | Get logs for one run. | viewer |
-| `GET /api/runs/:id/artifacts` | Get artifact metadata for one run. | viewer |
-| `GET /api/lifecycle-artifacts` | List lifecycle artifacts usable for validation. | viewer |
-| `GET /api/artifacts/:id/file` | Serve allowlisted report/SIEM files. | viewer |
+- `POST /api/runs`, guarded by authentication, role, registry, environment, artifact-selection, one-active-run, and idempotency checks.
 
-`POST /api/runs` applies command authorization, environment validation, artifact selection validation where required, and audit logging before starting the runner.
+Authentication APIs:
 
-## Auth Model
+- `POST /api/auth/password`
+- `POST /api/auth/magic-link`
+- `/logout`
 
-Supabase Auth is used for dashboard login.
+## Auth And RBAC
 
-Supported login paths:
+All workspaces redirect anonymous users to `/login`. APIs return `401` for anonymous access and `403` for insufficient role. Client-side visibility is informational only; server guards are authoritative.
 
-- Email/password.
-- Magic link.
-
-Required public env variables:
-
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-
-Server-side fallbacks/keys:
-
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-
-## RBAC Model
-
-Roles:
-
-- `viewer`
-- `operator`
-- `admin`
-
-Role resolution order:
-
-1. Supabase `app_metadata.inssa_ops_role`.
-2. `INSSA_OPS_ADMIN_EMAILS`.
-3. `INSSA_OPS_OPERATOR_EMAILS`.
-4. `INSSA_OPS_VIEWER_EMAILS`.
-5. Default `viewer`.
-
-Permissions:
-
-| Role | Permissions |
+| Role | Server capability |
 | --- | --- |
-| viewer | View dashboard, runs, logs, artifacts, reports, and lifecycle artifact catalog. |
-| operator | Viewer permissions plus safe Phase 1 command execution, excluding admin-only healthcheck. |
-| admin | Operator permissions plus platform healthcheck and future admin actions. |
+| viewer | Read runs, logs, artifacts, evidence, reports, monitoring, notifications, and diagnostics. |
+| operator | Viewer plus enabled registry commands except healthcheck. |
+| admin | Operator plus healthcheck. |
 
-Authorization is enforced server-side. Client-side disabled states are usability only.
+## Execution Model
 
-## Command Registry Model
+`POST /api/runs` creates a run and execution job, then returns `202`. The worker claims and executes the job independently. The UI polls read APIs and never owns execution.
 
-Location:
+## Evidence And Report Serving
 
-- `dashboard/lib/inssa-ops/command-registry.ts`
+- Artifact routes resolve from metadata, never a client path.
+- Playwright reports use bundle-relative serving for assets.
+- Canonical `realpath` checks enforce allowlisted roots and bundle boundaries.
+- Textual outputs are redacted.
+- Evidence Workspace reads existing metadata; it does not mutate evidence.
 
-Registry fields:
+## Diagnostics
 
-- `key`
-- `displayName`
-- `npmScript`
-- `operatorDescription`
-- `commandType`
-- `riskLevel`
-- `phase1Enabled`
-- `mutatesStaging`
-- `producesFindings`
-- `producesReports`
-- `requiresLifecycleArtifact`
-- `playwrightSpec`
-- `timeoutMs`
+The UI shows metadata backend and counts, runner state, API failures with endpoint/status/timestamp, scheduler heartbeat, and admin healthcheck access. Empty backend and failed backend states are distinct.
 
-The runner never accepts arbitrary shell commands. It resolves only registered keys.
+## Styling
 
-## Runner Model
+Dark and light themes use semantic CSS tokens and persisted `localStorage` preference. Theme switching changes presentation only.
 
-Location:
+## Protected Boundaries
 
-- `dashboard/lib/inssa-ops/runner.ts`
-
-Key behavior:
-
-- One active run globally.
-- No queue.
-- `spawn` with `shell:false`.
-- Timeout per command.
-- stdout/stderr captured as run logs.
-- log redaction before persistence.
-- artifacts indexed after command completion.
-- status transitions:
-  - queued
-  - starting
-  - running
-  - indexing_artifacts
-  - passed
-  - passed_with_warnings
-  - failed
-  - failed_startup
-  - cancelled
-  - timed_out
-
-## Environment Guard
-
-Location:
-
-- `dashboard/lib/inssa-ops/environment-guard.ts`
-
-Rules:
-
-- `INSSA_URL` is required for dashboard command execution.
-- `INSSA_URL` must be `https://staging.inssa.us`.
-- Production hosts `inssa.us` and `www.inssa.us` are blocked.
-
-## Artifact Indexing Model
-
-Location:
-
-- `dashboard/lib/inssa-ops/artifact-indexer.ts`
-
-Artifact roots scanned after each run:
-
-- `playwright-report/`
-- `test-results/`
-- `reports/security/`
-- `reports/lifecycle/`
-- `reports/siem/`
-- `lifecycle-artifacts/`
-- `lifecycle-campaigns/`
-- `security-campaigns/`
-
-Stored metadata:
-
-- artifact id
-- run id
-- type
-- content type
-- file path
-- file size
-- created timestamp
-- sha256
-- sensitive flag
-- render-inline flag
-
-The indexer does not move or rewrite files.
-
-## Report Serving Model
-
-Location:
-
-- `dashboard/app/api/artifacts/[id]/file/route.ts`
-
-Allowed roots:
-
-- `playwright-report/`
-- `reports/security/`
-- `reports/lifecycle/`
-- `reports/siem/`
-
-Allowed artifact types:
-
-- Playwright Report
-- Security Report
-- Lifecycle Report
-- SIEM Export
-
-Blocked:
-
-- path traversal
-- unknown roots
-- sensitive artifacts
-- screenshots
-- videos
-- traces
-- raw lifecycle/security evidence outside the allowlist
-
-## Artifact Validation Model
-
-Artifact Validation commands require a lifecycle artifact selected by:
-
-- explicit path, or
-- latest usable artifact.
-
-A usable artifact must have lifecycle success evidence and at least one retrieval/share identifier.
-
-Artifact Validation commands do not create capsules.
-
-## SIEM Model
-
-Local SIEM commands:
-
-- `npm run siem:export`
-- `npm run siem:send`
-
-Dashboard status:
-
-- export is executable.
-- send is visible but disabled.
-
-SIEM export is metadata-only. The sender refuses screenshot/video/trace references and unredacted token values.
-
+The UI must not introduce arbitrary commands, bypass server RBAC, execute campaigns in request handlers, replace artifact/evidence APIs, expose direct Storage credentials, or turn notification records into external delivery.

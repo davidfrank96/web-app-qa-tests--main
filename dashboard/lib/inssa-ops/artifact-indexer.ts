@@ -24,6 +24,7 @@ type FileCandidate = {
 
 export async function indexArtifactsForRun(input: {
   completedAtMs: number;
+  outputRoot?: string;
   runId: string;
   startedAtMs: number;
 }): Promise<InssaArtifactRecord[]> {
@@ -32,14 +33,18 @@ export async function indexArtifactsForRun(input: {
   const untilMs = input.completedAtMs + 2_000;
   const candidates: FileCandidate[] = [];
 
-  for (const artifactRoot of ARTIFACT_ROOTS) {
-    const absoluteRoot = path.join(repoRoot, artifactRoot);
-    candidates.push(...(await collectFiles(absoluteRoot, repoRoot, sinceMs, untilMs)));
+  if (input.outputRoot) {
+    candidates.push(...(await collectFiles(input.outputRoot, repoRoot, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY)));
+  } else {
+    for (const artifactRoot of ARTIFACT_ROOTS) {
+      const absoluteRoot = path.join(repoRoot, artifactRoot);
+      candidates.push(...(await collectFiles(absoluteRoot, repoRoot, sinceMs, untilMs)));
+    }
   }
 
   const artifacts: InssaArtifactRecord[] = [];
   for (const candidate of dedupeByPath(candidates)) {
-    const classification = classifyArtifact(candidate.relativePath);
+    const classification = classifyArtifact(candidate.relativePath, input.outputRoot);
     artifacts.push({
       artifactType: classification.artifactType,
       contentType: classification.contentType,
@@ -100,37 +105,40 @@ async function collectFiles(
   return files;
 }
 
-function classifyArtifact(relativePath: string) {
+export function classifyArtifact(relativePath: string, outputRoot?: string) {
   const normalizedPath = relativePath.split(path.sep).join("/");
-  const extension = path.extname(normalizedPath).toLowerCase();
+  const logicalPath = outputRoot
+    ? path.relative(outputRoot, path.join(getRepoRoot(), relativePath)).split(path.sep).join("/")
+    : normalizedPath;
+  const extension = path.extname(logicalPath).toLowerCase();
   const sensitive =
-    normalizedPath.startsWith("test-results/") ||
-    normalizedPath.startsWith("lifecycle-artifacts/") ||
-    normalizedPath.includes("/cross-user/") ||
-    normalizedPath.includes("/reveal-later/");
+    logicalPath.startsWith("test-results/") ||
+    logicalPath.startsWith("lifecycle-artifacts/") ||
+    logicalPath.includes("/cross-user/") ||
+    logicalPath.includes("/reveal-later/");
 
-  if (normalizedPath === "playwright-report/index.html") {
+  if (logicalPath === "playwright-report/index.html") {
     return artifactClass("Playwright Report", "text/html", false, true);
   }
-  if (normalizedPath.startsWith("reports/security/") && extension === ".html") {
+  if (logicalPath.startsWith("reports/security/") && extension === ".html") {
     return artifactClass("Security Report", "text/html", false, true);
   }
-  if (normalizedPath.startsWith("reports/lifecycle/") && extension === ".html") {
+  if (logicalPath.startsWith("reports/lifecycle/") && extension === ".html") {
     return artifactClass("Lifecycle Report", "text/html", false, true);
   }
-  if (normalizedPath.startsWith("reports/siem/") && extension === ".json") {
+  if (logicalPath.startsWith("reports/siem/") && extension === ".json") {
     return artifactClass("SIEM Export", "application/json", false, false);
   }
-  if (normalizedPath.startsWith("lifecycle-campaigns/") && extension === ".json") {
+  if (logicalPath.startsWith("lifecycle-campaigns/") && extension === ".json") {
     return artifactClass("Campaign Summary", "application/json", false, false);
   }
-  if (normalizedPath.startsWith("security-campaigns/") && extension === ".json") {
+  if (logicalPath.startsWith("security-campaigns/") && extension === ".json") {
     return artifactClass("Campaign Summary", "application/json", sensitive, false);
   }
   if (isImageExtension(extension)) {
     return artifactClass("Screenshot", contentTypeForExtension(extension), sensitive, !sensitive);
   }
-  if (extension === ".zip" || normalizedPath.endsWith(".trace.zip")) {
+  if (extension === ".zip" || logicalPath.endsWith(".trace.zip")) {
     return artifactClass("Trace", "application/zip", true, false);
   }
   if ([".webm", ".mp4", ".mov"].includes(extension)) {

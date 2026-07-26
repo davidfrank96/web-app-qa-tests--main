@@ -5,24 +5,34 @@
   "scripts": {
     "doctor": "node scripts/dashboard-runtime.mjs",
     "clean": "node scripts/dashboard-runtime.mjs --clean",
-    "dev": "node scripts/dashboard-runtime.mjs --mode=dev --startup && next dev",
-    "build": "next build",
-    "start": "node scripts/dashboard-runtime.mjs --mode=start --startup && next start"
+    "dev": "node scripts/dashboard-supervisor.mjs dev",
+    "build": "node scripts/dashboard-build.mjs",
+    "start": "node scripts/dashboard-supervisor.mjs start",
+    "scheduler": "node --import tsx scripts/inssa-scheduler.ts",
+    "worker": "node --import tsx scripts/inssa-worker.ts",
+    "persistence:provision": "node scripts/provision-persistence.mjs",
+    "persistence:verify": "node scripts/provision-persistence.mjs --verify-only",
+    "test:execution-foundation": "node --import tsx --test --test-concurrency=1 tests/*.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.0",
-    "next": "^15.0.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "next": "15.5.18",
+    "react": "19.2.5",
+    "react-dom": "19.2.5"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.49",
+    "postcss": "8.5.10",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.20.6",
     "typescript": "^5.8.0"
+  },
+  "overrides": {
+    "postcss": "$postcss",
+    "sharp": "0.35.0"
   }
 }

@@ -1,5 +1,7 @@
 # INSSA QA Security Platform Final Program Report
 
+> Historical INSSA program summary. It predates Platform Core v1.0 execution, evidence, persistence, monitoring, and security hardening.
+
 ## 1. Executive Summary
 
 The INSSA QA Security Platform is a black-box Playwright QA and security validation framework for `https://staging.inssa.us`. The program built controlled lifecycle tests, security verification campaigns, persistent evidence artifacts, reporting, SIEM normalization, Wazuh ingestion, Wazuh decoder/rule documentation, dashboard engineering, alert routing, and operational runbooks.

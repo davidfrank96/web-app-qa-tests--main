@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import type { InssaArtifactRecord } from "./types";
 import { getRepoRoot } from "./paths";
@@ -48,13 +49,28 @@ const EVIDENCE_CONTENT_TYPES: Record<string, string> = {
 
 export function isPlaywrightReportArtifact(artifact: InssaArtifactRecord) {
   const normalizedPath = artifact.filePath.split(path.sep).join("/");
-  return artifact.artifactType === "Playwright Report" && !artifact.sensitive && normalizedPath === `${PLAYWRIGHT_REPORT_ROOT}/index.html`;
+  return artifact.artifactType === "Playwright Report" && !artifact.sensitive &&
+    (normalizedPath === `${PLAYWRIGHT_REPORT_ROOT}/index.html` ||
+      normalizedPath.endsWith(`/${PLAYWRIGHT_REPORT_ROOT}/index.html`));
 }
 
-export function resolvePlaywrightEvidenceBundleFile(relativePathSegments?: string[]): ResolvedEvidenceBundleFile {
+export async function resolvePlaywrightEvidenceBundleFile(
+  artifact: InssaArtifactRecord,
+  relativePathSegments?: string[]
+): Promise<ResolvedEvidenceBundleFile> {
   const relativePath = normalizeBundleRelativePath(relativePathSegments);
   const repoRoot = getRepoRoot();
-  const bundleRoot = path.resolve(repoRoot, PLAYWRIGHT_REPORT_ROOT);
+  const normalizedArtifactPath = artifact.filePath.split(path.sep).join("/");
+  const runPrefix = `run-output/${artifact.runId}/`;
+  const expectedIndexPath = normalizedArtifactPath.startsWith(runPrefix)
+    ? `${runPrefix}${PLAYWRIGHT_REPORT_ROOT}/index.html`
+    : `${PLAYWRIGHT_REPORT_ROOT}/index.html`;
+  if (normalizedArtifactPath !== expectedIndexPath) {
+    throw new InssaEvidenceServingError("Playwright evidence metadata does not identify a valid bundle root.", 403);
+  }
+  const artifactPath = path.resolve(repoRoot, normalizedArtifactPath);
+  assertInsideRepo(repoRoot, artifactPath);
+  const bundleRoot = path.dirname(artifactPath);
   const absolutePath = path.resolve(bundleRoot, relativePath);
   const relativeToBundle = path.relative(bundleRoot, absolutePath);
 
@@ -62,17 +78,44 @@ export function resolvePlaywrightEvidenceBundleFile(relativePathSegments?: strin
     throw new InssaEvidenceServingError("Evidence bundle path traversal is blocked.", 403);
   }
 
+  const canonical = await resolveCanonicalFileWithinRoot(repoRoot, bundleRoot, absolutePath);
+
   return {
-    absolutePath,
-    bundleRoot,
+    absolutePath: canonical.absolutePath,
+    bundleRoot: canonical.allowedRoot,
     contentType: contentTypeForEvidencePath(relativePath),
     fileName: path.basename(relativePath),
     relativePath
   };
 }
 
+export async function resolveCanonicalFileWithinRoot(repoRoot: string, allowedRoot: string, targetPath: string) {
+  const [canonicalRepoRoot, canonicalAllowedRoot, canonicalTarget] = await Promise.all([
+    fs.realpath(repoRoot),
+    fs.realpath(allowedRoot),
+    fs.realpath(targetPath)
+  ]);
+  assertInsideCanonicalRoot(canonicalRepoRoot, canonicalAllowedRoot, "Evidence allowlist root escapes the repository.");
+  assertInsideCanonicalRoot(canonicalAllowedRoot, canonicalTarget, "Evidence path escapes its canonical allowlist root.");
+  return {
+    absolutePath: canonicalTarget,
+    allowedRoot: canonicalAllowedRoot,
+    repoRoot: canonicalRepoRoot
+  };
+}
+
+export function logicalArtifactPath(artifact: InssaArtifactRecord) {
+  const normalized = artifact.filePath.split(path.sep).join("/");
+  const runPrefix = `run-output/${artifact.runId}/`;
+  return normalized.startsWith(runPrefix) ? normalized.slice(runPrefix.length) : normalized;
+}
+
 export function contentTypeForEvidencePath(filePath: string) {
   return EVIDENCE_CONTENT_TYPES[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
+}
+
+export function safeEvidenceFileName(fileName: string) {
+  return fileName.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 180) || "evidence";
 }
 
 function normalizeBundleRelativePath(relativePathSegments?: string[]) {
@@ -89,4 +132,18 @@ function normalizeBundleRelativePath(relativePathSegments?: string[]) {
   }
 
   return normalized;
+}
+
+function assertInsideRepo(repoRoot: string, absolutePath: string) {
+  const relative = path.relative(repoRoot, absolutePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new InssaEvidenceServingError("Evidence bundle path escapes the repository.", 403);
+  }
+}
+
+function assertInsideCanonicalRoot(root: string, target: string, message: string) {
+  const relative = path.relative(root, target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new InssaEvidenceServingError(message, 403);
+  }
 }
