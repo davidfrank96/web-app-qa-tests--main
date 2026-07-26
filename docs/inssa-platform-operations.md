@@ -1,271 +1,145 @@
-# INSSA Platform Operations
+# QA Operations Platform Operations
 
-This is the primary operations document for the INSSA QA Security Platform.
+Last reviewed: 2026-07-21
 
-## Architecture
+## Daily Startup
 
-```text
-Playwright QA campaigns
--> lifecycle/security artifacts
--> human-readable reports
--> SIEM export
--> Wazuh ingestion
--> Wazuh decoder/rules
--> dashboards
--> alert routing
+```bash
+npm run dashboard:doctor
+npm run dashboard:dev
 ```
 
-Primary target:
+For a production build:
 
-```text
-https://staging.inssa.us
+```bash
+npm run dashboard:clean
+npm run dashboard:build
+npm run dashboard:start
 ```
 
-SIEM endpoint:
+The supervisor owns Next.js, the worker, and scheduler. Use one mode at a time.
 
-```text
-https://wazuh.kbeanprobo.com/inssa
-```
+## Daily Review
 
-## Lifecycle Operations
+1. Confirm Environment, Runner, Backend, Operator, Role, and Last Run in the header.
+2. Review Overview for active or failed runs and API failures.
+3. Review Authentication Monitoring for provider status.
+4. Review Monitoring for scheduler heartbeat and queued jobs.
+5. Review Notifications for failed, dead-letter, lease-expired, or recovery events.
+6. Review Runs for final status, logs, artifacts, and evidence.
+7. Review Evidence Workspace for integrity/upload failures.
+8. Review SIEM/Wazuh according to the SIEM operations guide.
 
-Use safe tests for routine regression:
+## Safe Execution
+
+Use Testing for the Safe Suite. Use Security for Security Campaign/Verification. Use Artifact Validation only after confirming the selected lifecycle artifact path, type, and timestamp.
+
+CLI equivalents:
 
 ```bash
 npm run test:inssa:safe
-```
-
-Use live campaigns only when staging data creation and manual cleanup are approved:
-
-```bash
-npm run test:inssa:campaign:text
-npm run test:inssa:campaign:media
-npm run test:inssa:campaign:video
-npm run test:inssa:campaign:reveal-later
-```
-
-Lifecycle artifacts are written to:
-
-```text
-lifecycle-artifacts/
-lifecycle-campaigns/
-reports/lifecycle/
-```
-
-## Security Operations
-
-Run security campaign:
-
-```bash
 npm run test:inssa:campaign:security
-```
-
-Run verification campaign:
-
-```bash
 npm run test:inssa:campaign:security:verify
+npm run test:inssa:discovery
+npm run test:inssa:public-share
+npm run test:inssa:cleanup-audit
 ```
 
-Run cross-user campaign:
+Live lifecycle and advanced security commands remain dashboard-disabled. Run them from CLI only with approved mutation/cleanup gates.
 
-```bash
-npm run test:inssa:campaign:cross-user
-```
+## Execution Review
 
-Run reveal-later security campaign:
-
-```bash
-npm run test:inssa:campaign:reveal-later-security
-```
-
-Security artifacts are written to:
+The expected state sequence is:
 
 ```text
-security-campaigns/
-reports/security/
+queued -> starting -> running -> indexing_artifacts -> terminal
 ```
 
-## SIEM Operations
+Terminal statuses are `passed`, `passed_with_warnings`, `failed`, `failed_startup`, `cancelled`, and `timed_out`.
 
-Generate export:
+For a stuck job:
+
+1. Do not edit metadata manually.
+2. Confirm worker process and heartbeat.
+3. Inspect the run and execution-job logs.
+4. Restart the supervisor cleanly if the worker died.
+5. Allow lease recovery to requeue or abandon the job.
+6. Confirm recovery events in the Notification Outbox.
+
+## Evidence Review
+
+- Confirm bundle item count, total bytes, and checksum metadata.
+- Confirm upload state matches configured storage provider.
+- Open Playwright through the bundle-aware report action.
+- Preserve local run output when durable upload failed.
+- Do not delete or overwrite durable object keys.
+
+Retention, archive, and deletion are manual deployment responsibilities in v1.0.
+
+## Persistence Operations
+
+Local is the safe default. Before enabling Supabase:
 
 ```bash
+cd dashboard
+npx supabase@latest db push --dry-run
+npx supabase@latest db push
+npm run persistence:provision
+npm run persistence:verify
+cd ..
+npm run dashboard:doctor
+```
+
+Changing providers does not migrate data. Do not alternate providers expecting a shared history.
+
+## Monitoring
+
+The scheduler is producer-only. One-shot validation:
+
+```bash
+npm run dashboard:scheduler -- --once
+```
+
+The Monitoring workspace has no controls. Edit definitions only through an approved persistence migration or controlled administrative process.
+
+Production authentication monitoring remains disabled unless its exact confirmation variables and credentials are configured.
+
+## Notification Outbox
+
+The outbox is read-only. Pending records are expected because no dispatcher exists. Investigate failed/dead-letter only if records were advanced by future approved tooling; Platform Core v1.0 does not deliver them.
+
+## Reports And SIEM
+
+```bash
+npm run report:security
+npm run report:lifecycle
 npm run siem:export
+npm run siem:send -- --dry-run
 ```
 
-Send export:
+Live SIEM send requires HTTPS and a bearer credential. Dashboard send remains disabled. Never send binary evidence or credential-bearing metadata.
+
+## Health And Recovery
 
 ```bash
-SIEM_WAZUH_URL=https://wazuh.kbeanprobo.com/inssa SIEM_SEND_BATCH=1 npm run siem:send
+npm run dashboard:doctor
+npm run platform:healthcheck
+npm --prefix dashboard run test:execution-foundation
 ```
-
-Run campaign and SIEM automation:
-
-```bash
-npm run test:inssa:campaign:security:siem
-npm run test:inssa:campaign:cross-user:siem
-npm run test:inssa:campaign:reveal-later:siem
-```
-
-SIEM outputs:
-
-```text
-reports/siem/latest-siem-export.json
-/var/ossec/logs/inssa-qa.log
-```
-
-## Dashboards
-
-Saved searches:
-
-- INSSA Critical Findings
-- INSSA High Risk Findings
-- INSSA Release Gate Failures
-- INSSA Security Campaign Findings
-- INSSA Lifecycle Campaign Findings
-- INSSA Cleanup Targets
-- INSSA Cross User Findings
-- INSSA Reveal Later Findings
-
-Dashboards:
-
-- INSSA Security Overview
-- INSSA QA Operations
-- INSSA Engineering Review
-
-Reference:
-
-```text
-docs/inssa-dashboard-engineering.md
-docs/inssa-dashboard-runbook.md
-```
-
-## Alerts
-
-Severity mapping:
-
-| Level | Examples | Route |
-| --- | --- | --- |
-| 14 Critical | `unauthorized-visible`, `authentication-bypass` | Email, Slack, incident recommendation. |
-| 10 High | `public-by-id`, `media-publicly-accessible` | Security and engineering channels. |
-| 7 Medium | `share-link-only-visibility`, `token-optional` | QA channel and daily summary. |
-| 3 Informational | `reveal-protected`, `expected-share-access` | Dashboard and weekly report. |
-
-References:
-
-```text
-docs/inssa-alert-routing.md
-docs/inssa-alert-runbook.md
-docs/inssa-notification-testing.md
-```
-
-## Runbooks
-
-| Runbook | Purpose |
-| --- | --- |
-| `docs/inssa-siem-operations.md` | Daily SIEM operations. |
-| `docs/inssa-siem-runbook.md` | Finding response. |
-| `docs/inssa-siem-disaster-recovery.md` | Recovery and rollback. |
-| `docs/inssa-dashboard-runbook.md` | Dashboard maintenance and recovery. |
-| `docs/inssa-alert-runbook.md` | Notification and escalation recovery. |
-
-## Recovery
 
 Recovery order:
 
-1. Verify QA export exists.
-2. Verify SIEM sender dry-run.
-3. Verify ingestion endpoint reachability.
-4. Verify `/var/ossec/logs/inssa-qa.log` receives events.
-5. Verify Wazuh decoder and rules.
-6. Verify dashboard visibility.
-7. Verify notification routing.
+1. Stop the supervisor.
+2. Preserve `.data`, run output, and logs.
+3. Run Runtime Doctor.
+4. Use `dashboard:clean` only for `.next` runtime artifacts.
+5. Verify persistence and environment configuration.
+6. Rebuild/start.
+7. Confirm worker and scheduler heartbeats.
+8. Run the Safe Suite before higher-risk commands.
 
-Commands:
+See [Worker Operations](worker-operations.md), [Dashboard Runtime](dashboard-runtime.md), [Supabase Deployment](supabase-deployment.md), and [SIEM Operations](inssa-siem-operations.md).
 
-```bash
-npm run siem:export
-npm run siem:send -- --dry-run
-npm run platform:healthcheck
-```
+## Release
 
-Server-side Wazuh recovery is documented in:
-
-```text
-docs/inssa-siem-disaster-recovery.md
-```
-
-## Validation
-
-Routine validation:
-
-```bash
-npm run platform:healthcheck
-npm run test:inssa:safe
-npm run siem:export
-npm run siem:send -- --dry-run
-```
-
-Full operational validation requires Wazuh administrative or dashboard access to verify:
-
-- `/var/ossec/logs/inssa-qa.log`
-- `/var/ossec/logs/alerts/alerts.json`
-- decoder output
-- rule output
-- dashboard search results
-- notification routes
-
-## Release Gates
-
-Before release:
-
-1. Safe suite passes or has documented staging blocker.
-2. Security campaign outputs exist.
-3. Security verification outputs exist.
-4. Cross-user outputs exist when cross-user scope changed.
-5. Reveal-later outputs exist when reveal-later scope changed.
-6. Reports are generated.
-7. SIEM export and dry-run pass.
-8. Wazuh send is performed when endpoint access is available.
-9. Cleanup targets are documented.
-
-Reference:
-
-```text
-docs/inssa-siem-release-gate.md
-docs/inssa-platform-validation.md
-docs/inssa-final-platform-status.md
-```
-
-## Cleanup
-
-Live staging artifacts require manual cleanup by the development team.
-
-Cleanup targets are identified from:
-
-```text
-lifecycle-artifacts/*.json
-lifecycle-campaigns/*.json
-security-campaigns/**/*.json
-reports/security/*.html
-reports/lifecycle/*.html
-```
-
-Cleanup rule:
-
-```text
-Delete only exact QA-tagged staging data identified by runId, subject, capsule ID, or artifact path.
-```
-
-## Current Operational Verdict
-
-```text
-OPERATIONAL
-```
-
-Operational warnings:
-
-- `public-by-id`
-- `media-publicly-accessible`
-- reveal-later post-reveal follow-up remains open
-- manual staging cleanup remains required
+Follow [Deployment Checklist](deployment-checklist.md) and [Platform Release Guide](platform-release-guide.md). Current production status is blocked until the historical token remediation in the security certification is complete.

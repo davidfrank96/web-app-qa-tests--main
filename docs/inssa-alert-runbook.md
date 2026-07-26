@@ -83,14 +83,15 @@ Validation event command pattern:
 
 ```bash
 curl -s -X POST https://wazuh.kbeanprobo.com/inssa \
+  -H "authorization: Bearer ${SIEM_WAZUH_TOKEN}" \
   -H 'content-type: application/json' \
   --data '{"schemaVersion":"inssa-qa-siem.v1","source":"web-app-qa-tests","product":"INSSA","eventType":"security_campaign","timestamp":"2026-06-06T00:00:00.000Z","campaign":"notification-validation","environment":"staging","severity":"high","classification":"public-by-id","status":"warning"}'
 ```
 
-If bearer-token protection is enabled, include:
+Bearer authentication is mandatory. Load `SIEM_WAZUH_TOKEN` from the approved secret manager before running the command. Never paste the value into the runbook or shell history.
 
 ```text
-Authorization: Bearer the-configured-ingestion-token
+Authorization: Bearer [redacted]
 ```
 
 Expected validation sequence:

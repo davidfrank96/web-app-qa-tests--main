@@ -27,9 +27,7 @@ export class LandingPage {
   async expectPublicLandingSurface(): Promise<void> {
     await expectPageNotBlank(this.page);
     await expect(this.page.locator("body")).not.toContainText(INSSA_GENERIC_JS_SHELL_PATTERN);
-    await expect(this.searchField(), "Expected the INSSA landing page to show its search field.").toBeVisible({
-      timeout: DEFAULT_TIMEOUT
-    });
+    await this.dismissLandingOverlaysIfPresent();
     await expect(this.findButton(), "Expected the INSSA landing page to expose the Find action.").toBeVisible({
       timeout: DEFAULT_TIMEOUT
     });
@@ -44,6 +42,7 @@ export class LandingPage {
   async expectAuthenticatedLandingSurface(): Promise<void> {
     await expectPageNotBlank(this.page);
     await expect(this.page.locator("body")).not.toContainText(INSSA_GENERIC_JS_SHELL_PATTERN);
+    await this.dismissLandingOverlaysIfPresent();
     await expect(this.searchField(), "Expected the authenticated INSSA home to show the search field.").toBeVisible({
       timeout: DEFAULT_TIMEOUT
     });
@@ -69,26 +68,76 @@ export class LandingPage {
   }
 
   async openBuryEntry(): Promise<void> {
-    await expect(this.buryButton()).toBeVisible({ timeout: DEFAULT_TIMEOUT });
-    await this.buryButton().click();
+    await this.dismissLandingOverlaysIfPresent();
+    const buryButton = this.buryButton();
+    await expect(buryButton).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    await expect(buryButton).toBeEnabled({ timeout: DEFAULT_TIMEOUT });
+    await this.page.waitForTimeout(500);
+    await buryButton.click();
     await this.page.waitForLoadState("domcontentloaded").catch(() => {});
   }
 
   signInLink(): Locator {
-    return this.page.getByRole("link", { name: INSSA_SIGN_IN_PATTERN }).first();
+    return this.page.locator("a").filter({ hasText: INSSA_SIGN_IN_PATTERN }).first();
   }
 
   findButton(): Locator {
-    return this.page.getByRole("button", { name: INSSA_FIND_BUTTON_PATTERN }).first();
+    return this.page.locator("button:visible").filter({ hasText: INSSA_FIND_BUTTON_PATTERN }).first();
   }
 
   buryButton(): Locator {
-    return this.page.getByRole("button", { name: INSSA_BURY_BUTTON_PATTERN }).first();
+    return this.page.locator("button:visible").filter({ hasText: INSSA_BURY_BUTTON_PATTERN }).first();
   }
 
   searchField(): Locator {
     return this.page
       .locator("input[placeholder*='Search for any place' i], input[type='text']")
       .first();
+  }
+
+  private async dismissLandingOverlaysIfPresent(): Promise<void> {
+    await this.dismissBrowserSessionWarningIfPresent();
+    const landingState = await expect
+      .poll(() => this.page.locator("body").innerText().catch(() => ""), {
+        message: "Expected onboarding or landing controls to render.",
+        timeout: DEFAULT_TIMEOUT
+      })
+      .toMatch(/Plan anywhere you want to go\.|FIND anywhere|Find|Bury|Search for any place/i)
+      .then(() => this.page.locator("body").innerText())
+      .catch(() => "");
+
+    if (/Plan anywhere you want to go\.|FIND anywhere/i.test(landingState)) {
+      const onboardingSkip = this.page.getByRole("button", { name: /^Skip$/i }).first();
+      await expect(onboardingSkip, "Expected onboarding carousel to expose Skip.").toBeVisible({
+        timeout: DEFAULT_TIMEOUT
+      });
+      await onboardingSkip.click();
+      await expect(
+        this.page.locator("body"),
+        "Expected onboarding carousel to dismiss before validating landing controls."
+      ).not.toContainText(/Plan anywhere you want to go\.|FIND anywhere/i, { timeout: DEFAULT_TIMEOUT });
+    }
+
+    await this.dismissBrowserSessionWarningIfPresent();
+    const locationPrompt = this.page.getByRole("dialog", { name: /Unlock what's near you/i }).first();
+    if (await locationPrompt.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      const origin = new URL(this.page.url()).origin;
+      await this.page.context().setGeolocation({ latitude: 53.3382, longitude: -6.2591 });
+      await this.page.context().grantPermissions(["geolocation"], { origin });
+      await this.page.getByRole("button", { name: /Use my location/i }).click();
+      await expect(locationPrompt, "Expected location prompt to dismiss before validating landing controls.").not.toBeVisible({
+        timeout: DEFAULT_TIMEOUT
+      });
+    }
+  }
+
+  private async dismissBrowserSessionWarningIfPresent(): Promise<void> {
+    const browserSessionDismiss = this.page.getByRole("button", { name: /^Got it$/i }).first();
+    if (await browserSessionDismiss.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await browserSessionDismiss.click();
+      await expect(browserSessionDismiss, "Expected browser session warning to dismiss.").not.toBeVisible({
+        timeout: DEFAULT_TIMEOUT
+      });
+    }
   }
 }

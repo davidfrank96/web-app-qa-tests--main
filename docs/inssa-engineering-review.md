@@ -1,5 +1,7 @@
 # INSSA Engineering Review
 
+> Historical engineering findings handoff. Current platform architecture and release status are documented separately; product findings remain evidence.
+
 ## Executive Summary
 
 The QA harness now supports controlled black-box lifecycle and security validation against INSSA staging at `https://staging.inssa.us`. The harness is explicitly staging-only for live mutation paths, uses opt-in environment flags for live capsule creation, persists lifecycle artifacts outside transient Playwright output, and produces security/lifecycle reports for engineering review.
@@ -84,4 +86,3 @@ Safety controls:
 4. Add backend cleanup support or a scoped owner UI cleanup flow before expanding high-volume lifecycle campaigns.
 5. Add security headers currently absent on staging: CSP, Referrer-Policy, Permissions-Policy, X-Frame-Options, and X-Content-Type-Options where appropriate.
 6. Keep campaign artifacts out of source control; use report summaries and SIEM metadata for durable sharing.
-
