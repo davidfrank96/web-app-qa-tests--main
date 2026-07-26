@@ -1,5 +1,7 @@
 # INSSA Final Platform Status
 
+> Historical Phase 15 status. Current release status is `BLOCKED`; see `platform-core-v1.0-release-notes.md` and `platform-security-certification.md`.
+
 Current status for the INSSA QA Security Platform after Phase 15 consolidation.
 
 ## Platform Verdict

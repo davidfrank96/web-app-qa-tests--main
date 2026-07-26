@@ -113,8 +113,11 @@ Expected:
 
 Send a validation event locally:
 
+Load `INSSA_INGEST_SHARED_TOKEN` from `/etc/inssa-ingestion.env` in a root-controlled shell before running this request.
+
 ```bash
 curl -s -X POST http://127.0.0.1:8088/inssa \
+  -H "authorization: Bearer ${INSSA_INGEST_SHARED_TOKEN}" \
   -H 'content-type: application/json' \
   --data '{"schemaVersion":"inssa-qa-siem.v1","source":"web-app-qa-tests","product":"INSSA","eventType":"release_gate","timestamp":"2026-06-06T00:00:00.000Z","campaign":"release-gate","environment":"repository","severity":"informational","classification":"validation","status":"passed"}'
 ```
@@ -238,7 +241,7 @@ sudo nginx -T | grep -n "location = /inssa" -A 20
 Command:
 
 ```bash
-SIEM_WAZUH_URL=https://wazuh.kbeanprobo.com/inssa SIEM_SEND_BATCH=1 npm run siem:send
+SIEM_WAZUH_URL=https://wazuh.kbeanprobo.com/inssa SIEM_WAZUH_TOKEN="${SIEM_WAZUH_TOKEN}" SIEM_SEND_BATCH=1 npm run siem:send
 ```
 
 Checks:
@@ -249,7 +252,7 @@ sudo systemctl status nginx --no-pager
 sudo systemctl status inssa-ingestion --no-pager
 ```
 
-Expected `GET /inssa` can return `405`; `POST /inssa` with valid JSON should return `202`.
+Expected `GET /inssa` can return `405`; authenticated `POST /inssa` with valid JSON should return `202`, while a missing or invalid bearer credential must return `401`.
 
 ### Events Accepted But Not Visible
 
