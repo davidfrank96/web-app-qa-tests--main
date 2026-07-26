@@ -866,7 +866,9 @@ function sanitizeValue(value) {
   if (value && typeof value === "object") {
     const sanitized = {};
     for (const [key, entry] of Object.entries(value)) {
-      sanitized[redactSensitiveString(key)] = sanitizeValue(entry);
+      sanitized[redactSensitiveString(key)] = isSensitiveFieldName(key) && !isRedactedValue(entry)
+        ? "[redacted]"
+        : sanitizeValue(entry);
     }
     return sanitized;
   }
@@ -876,10 +878,20 @@ function sanitizeValue(value) {
 function redactSensitiveString(value) {
   if (typeof value !== "string") return value;
   return value
-    .replace(/([?&](?:token|access_token|id_token|refresh_token|auth|code)=)[^&#\s"']+/gi, "$1[redacted]")
+    .replace(/([?&](?:token|access_token|id_token|refresh_token|auth|code|signature|sig|x-amz-signature|x-amz-credential|api_key|apikey|key|password)=)[^&#\s"']+/gi, "$1[redacted]")
     .replace(/\btoken-[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, "token-[redacted]")
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/g, "Bearer [redacted]")
+    .replace(/\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\b/g, "[redacted-jwt]")
+    .replace(/((?:set-cookie|cookie):\s*)[^\r\n]+/gi, "$1[redacted]")
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, (email) => maskEmail(email));
+}
+
+function isSensitiveFieldName(key) {
+  return /^(?:password|secret|private_?key|service_?role_?key|authorization|cookies?|session_?id|access_?token|refresh_?token|id_?token|share_?token|possible_?share_?tokens?)$/i.test(key);
+}
+
+function isRedactedValue(value) {
+  return typeof value === "string" && /^(?:\[redacted(?:-jwt)?\]|<redacted>|Bearer \[redacted\])$/i.test(value);
 }
 
 function sha256File(filePath) {

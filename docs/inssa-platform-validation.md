@@ -1,5 +1,7 @@
 # INSSA Platform Validation
 
+> Historical Phase 14 validation record. Use the current release guide and deployment checklist for Platform Core v1.0 certification.
+
 Phase 14 validates the INSSA QA Security Platform end to end.
 
 Validation rule:

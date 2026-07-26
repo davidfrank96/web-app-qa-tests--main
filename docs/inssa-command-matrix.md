@@ -1,62 +1,110 @@
 # INSSA Command Matrix
 
-Last updated: 2026-06-11
+Last reviewed: 2026-07-21
 
-This matrix covers INSSA-specific npm scripts and the current dashboard exposure status.
+Dashboard exposure is derived from `dashboard/lib/inssa-ops/command-registry.ts` and disabled presentation definitions. CLI status is derived from root `package.json`.
 
-## Dashboard-Exposed Commands
+## Dashboard Registry
 
-| Command | Registry Key | Purpose | Risk | Mutates Staging | Outputs | Dashboard Exposure | Current Phase |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `npm run test:inssa:safe` | `test_inssa_safe` | Run non-mutating INSSA compose/media safe suite. | safe | No | Playwright report, test results | Executable | V1 |
-| `npm run test:inssa:campaign:security` | `test_inssa_campaign_security` | Execute OWASP-aligned black-box security campaign. | read-only | No | Security campaign JSON, reports, Playwright report | Executable | V1 |
-| `npm run test:inssa:campaign:security:verify` | `test_inssa_campaign_security_verify` | Verify known findings from existing artifacts. | read-only | No | Verification JSON/reports | Executable | V1 |
-| `npm run test:inssa:discovery` | `test_inssa_discovery` | Validate authenticated discovery from existing lifecycle artifact. | read-only | No | Playwright report, validation artifacts | Executable with artifact | V1 |
-| `npm run test:inssa:public-share` | `test_inssa_public_share` | Validate public/tokenized/tokenless retrieval from existing lifecycle artifact. | read-only | No | Playwright report, validation artifacts | Executable with artifact | V1 |
-| `npm run test:inssa:cleanup-audit` | `test_inssa_cleanup_audit` | Audit cleanup controls without deleting/archive/unpublish. | read-only | No | Playwright report, cleanup audit evidence | Executable with artifact | V1 |
-| `npm run report:security` | `report_security` | Re-render latest security HTML report from existing findings. | read-only | No | Security HTML reports | Executable as report tool | V1 |
-| `npm run report:lifecycle` | `report_lifecycle` | Re-render latest lifecycle HTML report from existing evidence. | read-only | No | Lifecycle HTML reports | Executable as report tool | V1 |
-| `npm run siem:export` | `siem_export` | Generate metadata-only SIEM export JSON. | read-only | No | `reports/siem/latest-siem-export.json` | Executable | V1 |
-| `npm run platform:healthcheck` | `platform_healthcheck` | Check local platform wiring and expected output locations. | read-only | No | Healthcheck logs/artifacts | Executable for admin | V1 |
+| Registry key | npm script | Purpose | Risk | Mutates staging | Dashboard | Role |
+| --- | --- | --- | --- | --- | --- | --- |
+| `monitor_inssa_auth_staging` | `test:inssa:monitor:auth:staging` | Three-method authentication monitor for staging. | read-only | No | Executable | operator/admin |
+| `monitor_inssa_auth_production` | `test:inssa:monitor:auth:production` | Explicitly confirmed production authentication monitor. | read-only, production guarded | No | Executable when confirmed | operator/admin |
+| `test_inssa_safe` | `test:inssa:safe` | Safe compose/media regression baseline. | safe | No | Executable | operator/admin |
+| `report_security` | `report:security` | Re-render existing security findings. | read-only | No | Executable | operator/admin |
+| `test_inssa_campaign_security` | `test:inssa:campaign:security` | OWASP security campaign. | read-only | No by default | Executable | operator/admin |
+| `test_inssa_campaign_security_verify` | `test:inssa:campaign:security:verify` | Verify existing security evidence. | read-only | No | Executable | operator/admin |
+| `report_lifecycle` | `report:lifecycle` | Re-render lifecycle report. | read-only | No | Executable | operator/admin |
+| `test_inssa_discovery` | `test:inssa:discovery` | Authenticated discovery from selected lifecycle artifact. | read-only | No | Executable with artifact | operator/admin |
+| `test_inssa_public_share` | `test:inssa:public-share` | Tokenized/tokenless/public-share validation. | read-only | No | Executable with artifact | operator/admin |
+| `test_inssa_cleanup_audit` | `test:inssa:cleanup-audit` | Inspect cleanup controls without mutation. | read-only | No | Executable with artifact | operator/admin |
+| `siem_export` | `siem:export` | Generate metadata-only SIEM export. | read-only | No | Executable | operator/admin |
+| `platform_healthcheck` | `platform:healthcheck` | Platform wiring check. | read-only operations | No | Executable | admin |
 
-## Visible But Disabled In Dashboard
+## Lifecycle And Security Campaigns
 
-| Command | Purpose | Risk | Mutates Staging | Why Disabled | Current Phase |
-| --- | --- | --- | --- | --- | --- |
-| `npm run test:inssa:campaign:text` | Text lifecycle campaign. | live mutation | Yes | Requires approval workflow and manual cleanup. | Later |
-| `npm run test:inssa:campaign:media` | Media lifecycle campaign. | live mutation | Yes | Creates staging data and uploads media. | Later |
-| `npm run test:inssa:campaign:video` | Video lifecycle campaign. | live mutation | Yes | Creates staging data and uploads video. | Later |
-| `npm run test:inssa:campaign:reveal-later` | Reveal-later lifecycle campaign. | live mutation | Yes | Creates scheduled staging data and needs post-reveal policy. | Later |
-| `npm run test:inssa:campaign:cross-user` | Cross-user access-control campaign. | live mutation | Yes | Creates staging data and needs secondary-account/cleanup confirmation. | Later |
-| `npm run test:inssa:campaign:reveal-later-security` | Reveal-later security validation. | conditional mutation | Possible | Artifact resume vs creation must be explicit. | Later |
-| `npm run siem:send` | Send SIEM export to Wazuh ingestion endpoint. | external transmission | No | Needs endpoint preview, dry-run, and confirmation workflow. | Later |
-
-## Available CLI Commands Not Exposed As Dashboard Actions
-
-| Command | Purpose | Risk | Mutates Staging | Dashboard Status |
+| Command | Purpose | Risk | Dashboard status | Outputs |
 | --- | --- | --- | --- | --- |
-| `npm run test:inssa` | Run all INSSA tests under project config. | mixed | Possible | Hidden; too broad for dashboard. |
-| `npm run test:inssa:live-staging` | Sequential live staging lifecycle runner. | broad live mutation | Yes | Hidden; should not be primary workflow. |
-| `npm run test:inssa:live-text` | Raw text live create spec. | live mutation | Yes | Hidden; use campaign only after approval workflow. |
-| `npm run test:inssa:live-media` | Raw media live create spec. | live mutation | Yes | Hidden. |
-| `npm run test:inssa:live-video` | Raw video live create spec. | live mutation | Yes | Hidden. |
-| `npm run test:inssa:reveal-later` | Raw reveal-later create spec. | live mutation | Yes | Hidden. |
-| `npm run test:inssa:draft-mutations` | Draft mutation tests. | mutation | Yes | Hidden until mutation policy exists. |
-| `npm run test:inssa:campaign:security:siem` | Security campaign then SIEM export/send wrapper. | external transmission | No | Hidden until SIEM send workflow is approved. |
-| `npm run test:inssa:campaign:cross-user:siem` | Cross-user campaign then SIEM wrapper. | live mutation/external transmission | Yes | Hidden. |
-| `npm run test:inssa:campaign:reveal-later:siem` | Reveal-later security then SIEM wrapper. | conditional mutation/external transmission | Possible | Hidden. |
-| `npm run report:show` | Open Playwright HTML report. | read-only | No | CLI only. |
-| `npm run report:open` | Open Playwright HTML report. | read-only | No | CLI only. |
-| `npm run dashboard:dev` | Start dashboard dev server. | operations | No | CLI only. |
-| `npm run dashboard:build` | Build dashboard. | operations | No | CLI only. |
-| `npm run dashboard:start` | Start dashboard production server. | operations | No | CLI only. |
+| `test:inssa:campaign:text` | Create/validate text lifecycle. | live mutation | Visible disabled | Lifecycle summary, evidence, report |
+| `test:inssa:campaign:media` | Create/validate media lifecycle. | live mutation | Visible disabled | Lifecycle summary, media evidence, report |
+| `test:inssa:campaign:video` | Create/validate video lifecycle. | live mutation | Visible disabled | Lifecycle summary, video evidence, report |
+| `test:inssa:campaign:reveal-later` | Create scheduled lifecycle. | live mutation | Visible disabled | Schedule evidence, report |
+| `test:inssa:campaign:cross-user` | Create and share to secondary user. | high-risk live mutation | Visible disabled | Cross-user findings/report |
+| `test:inssa:campaign:reveal-later-security` | Reveal-time access control campaign. | conditional mutation | Visible disabled | Reveal-later findings/report |
 
-## Exposure Rules
+## Raw INSSA CLI Workflows
 
-- Dashboard-executable commands must be present in `dashboard/lib/inssa-ops/command-registry.ts`.
-- Commands must have `phase1Enabled: true`.
-- Commands must have `mutatesStaging: false`.
-- Artifact Validation commands must require explicit/latest artifact selection.
-- Live lifecycle commands remain disabled until approval and cleanup workflows exist.
-- SIEM send remains disabled until transmission confirmation exists.
+| Command | Purpose | Mutation | Dashboard |
+| --- | --- | --- | --- |
+| `test:inssa` | Run all INSSA project tests. | Mixed | Hidden |
+| `test:inssa:live-staging` | Broad sequential lifecycle workflow. | Yes | Hidden |
+| `test:inssa:live-text` | Raw text creation spec. | Yes | Hidden |
+| `test:inssa:live-media` | Raw media creation spec. | Yes | Hidden |
+| `test:inssa:live-video` | Raw video creation spec. | Yes | Hidden |
+| `test:inssa:reveal-later` | Raw reveal-later creation spec. | Yes | Hidden |
+| `test:inssa:draft-mutations` | Draft mutation/restore coverage. | Yes | Hidden |
 
+## Artifact Validation CLI
+
+| Command | Artifact requirement | Mutation | Output |
+| --- | --- | --- | --- |
+| `test:inssa:discovery` | Successful lifecycle artifact | No | Playwright/evidence output |
+| `test:inssa:public-share` | Successful lifecycle artifact | No | Access-validation evidence |
+| `test:inssa:cleanup-audit` | Successful lifecycle artifact | No destructive action | Cleanup-capability evidence |
+
+## Reports, SIEM, And Operations
+
+| Command | Purpose | Dashboard |
+| --- | --- | --- |
+| `report:show`, `report:open` | Open local Playwright report viewer. | CLI only |
+| `report:security` | Re-render security HTML. | Executable |
+| `report:lifecycle` | Re-render lifecycle HTML. | Executable |
+| `siem:export` | Generate metadata-only export. | Executable |
+| `siem:send` | Send to authenticated Wazuh endpoint. | Visible disabled |
+| `test:inssa:campaign:security:siem` | Campaign/export/send wrapper. | Hidden |
+| `test:inssa:campaign:cross-user:siem` | Cross-user/export/send wrapper. | Hidden |
+| `test:inssa:campaign:reveal-later:siem` | Reveal-later/export/send wrapper. | Hidden |
+| `platform:healthcheck` | Platform healthcheck. | Admin executable |
+| `dashboard:doctor` | Runtime/configuration validation. | CLI only |
+| `dashboard:clean` | Safe `.next` cleanup. | CLI only |
+| `dashboard:dev` | Development supervisor. | CLI only |
+| `dashboard:build` | Production build and doctor validation. | CLI only |
+| `dashboard:start` | Production supervisor. | CLI only |
+| `dashboard:worker` | Dedicated worker. | CLI/service only |
+| `dashboard:scheduler` | Producer-only scheduler. | CLI/service only |
+
+## Other Product Commands
+
+| Command | Status |
+| --- | --- |
+| `test:localman` | Implemented CLI Playwright project; no managed dashboard campaign. |
+| `test:kbean` | Implemented CLI Playwright project; no managed dashboard campaign. |
+| `test:mobile` | Generic mobile project; no managed dashboard campaign. |
+
+## Generic Playwright And Dashboard Commands
+
+| Command | Purpose | Dashboard exposure |
+| --- | --- | --- |
+| `test` | Run the default Playwright suite. | Hidden |
+| `test:ui` | Open Playwright UI mode. | CLI only |
+| `report` | Open the default Playwright report. | CLI only |
+| `install:browsers` | Install Playwright browser binaries. | Setup only |
+| `codegen` | Open Playwright code generation. | Development only |
+| `test:inssa:monitor:auth` | Alias for staging authentication monitoring. | CLI alias; dashboard uses explicit staging key |
+
+Dashboard package-only commands, normally invoked with `npm --prefix dashboard run <command>`:
+
+| Command | Purpose |
+| --- | --- |
+| `doctor` | Runtime/configuration validation. |
+| `clean` | Safe runtime artifact cleanup. |
+| `dev` | Development supervisor. |
+| `build` | Production build and post-build doctor. |
+| `start` | Production supervisor. |
+| `worker` | Dedicated worker. |
+| `scheduler` | Producer-only scheduler. |
+| `persistence:provision` | Verify metadata resources and provision private evidence bucket. |
+| `persistence:verify` | Verify resources without creating the bucket. |
+| `test:execution-foundation` | Run dashboard subsystem regression tests. |
+
+No command omitted from the registry may be invoked through the dashboard.

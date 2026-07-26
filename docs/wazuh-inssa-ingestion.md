@@ -92,9 +92,9 @@ The service uses Node.js built-ins only. No npm package install is required.
 | `INSSA_INGEST_REQUEST_LOG_PATH` | `/var/ossec/logs/inssa-qa-ingestion-requests.log` | Request metadata log. |
 | `INSSA_INGEST_FAILURE_LOG_PATH` | `/var/ossec/logs/inssa-qa-ingestion-errors.log` | Failure diagnostics log. |
 | `INSSA_INGEST_MAX_BODY_BYTES` | `1048576` | Request body limit. |
-| `INSSA_INGEST_SHARED_TOKEN` | empty | Optional bearer token. |
+| `INSSA_INGEST_SHARED_TOKEN` | none | Required bearer credential; minimum 32 characters. |
 
-If `INSSA_INGEST_SHARED_TOKEN` is set, clients must send:
+Every client must send:
 
 ```text
 Authorization: Bearer <token>
@@ -129,6 +129,14 @@ sudo install -o root -g wazuh -m 0640 /dev/null /var/ossec/logs/inssa-qa-ingesti
 sudo install -o root -g wazuh -m 0640 /dev/null /var/ossec/logs/inssa-qa-ingestion-errors.log
 ```
 
+Create the root-readable credential file before installing the service:
+
+```bash
+sudo sh -c 'umask 077; printf "INSSA_INGEST_SHARED_TOKEN=%s\n" "$(openssl rand -hex 32)" > /etc/inssa-ingestion.env'
+sudo chown root:root /etc/inssa-ingestion.env
+sudo chmod 0600 /etc/inssa-ingestion.env
+```
+
 Install the service:
 
 ```bash
@@ -137,18 +145,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now inssa-ingestion
 ```
 
-Optional bearer token override:
-
-```bash
-sudo systemctl edit inssa-ingestion
-```
-
-```ini
-[Service]
-Environment=INSSA_INGEST_SHARED_TOKEN=replace-with-generated-secret
-```
-
-Restart after any override:
+Restart after credential rotation:
 
 ```bash
 sudo systemctl restart inssa-ingestion
@@ -175,10 +172,21 @@ Environment=INSSA_INGEST_EVENT_LOG_PATH=/var/ossec/logs/inssa-qa.log
 Environment=INSSA_INGEST_REQUEST_LOG_PATH=/var/ossec/logs/inssa-qa-ingestion-requests.log
 Environment=INSSA_INGEST_FAILURE_LOG_PATH=/var/ossec/logs/inssa-qa-ingestion-errors.log
 Environment=INSSA_INGEST_MAX_BODY_BYTES=1048576
+EnvironmentFile=/etc/inssa-ingestion.env
 Restart=on-failure
 RestartSec=5
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 ReadWritePaths=/var/ossec/logs
 
 [Install]
@@ -228,7 +236,7 @@ Recommended:
 - Public ingress: `443/tcp` only.
 - Service bind: `127.0.0.1:8088`.
 - Restrict `https://wazuh.kbeanprobo.com/inssa` to known QA runner IPs if feasible.
-- Use `INSSA_INGEST_SHARED_TOKEN` for any internet-reachable deployment.
+- Require `INSSA_INGEST_SHARED_TOKEN` for every deployment, including loopback validation.
 
 Do not expose `8088/tcp` directly to the internet.
 
@@ -268,6 +276,7 @@ Single event through localhost:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8088/inssa \
+  -H "authorization: Bearer ${INSSA_INGEST_SHARED_TOKEN}" \
   -H 'content-type: application/json' \
   --data '{"schemaVersion":"inssa-qa-siem.v1","source":"web-app-qa-tests","product":"INSSA","eventType":"release_gate","timestamp":"2026-06-06T00:00:00.000Z","campaign":"release-gate","environment":"repository","severity":"informational","classification":"validation","status":"passed"}'
 ```
@@ -276,17 +285,17 @@ Batch mode from the QA repo:
 
 ```bash
 npm run siem:export
-SIEM_WAZUH_URL=https://wazuh.kbeanprobo.com/inssa SIEM_SEND_BATCH=1 npm run siem:send
+SIEM_WAZUH_URL=https://wazuh.kbeanprobo.com/inssa SIEM_WAZUH_TOKEN="${SIEM_WAZUH_TOKEN}" SIEM_SEND_BATCH=1 npm run siem:send
 ```
 
 Event-by-event mode from the QA repo:
 
 ```bash
 npm run siem:export
-SIEM_WAZUH_URL=https://wazuh.kbeanprobo.com/inssa npm run siem:send
+SIEM_WAZUH_URL=https://wazuh.kbeanprobo.com/inssa SIEM_WAZUH_TOKEN="${SIEM_WAZUH_TOKEN}" npm run siem:send
 ```
 
-With bearer token:
+Credential validation:
 
 ```bash
 SIEM_WAZUH_URL=https://wazuh.kbeanprobo.com/inssa SIEM_WAZUH_TOKEN=<token> SIEM_SEND_BATCH=1 npm run siem:send
@@ -307,7 +316,10 @@ sudo tail -n 5 /var/ossec/logs/inssa-qa-ingestion-requests.log
 Confirm failure logging:
 
 ```bash
-curl -s -X POST http://127.0.0.1:8088/inssa -H 'content-type: text/plain' --data 'bad'
+curl -s -X POST http://127.0.0.1:8088/inssa \
+  -H "authorization: Bearer ${INSSA_INGEST_SHARED_TOKEN}" \
+  -H 'content-type: text/plain' \
+  --data 'bad'
 sudo tail -n 5 /var/ossec/logs/inssa-qa-ingestion-errors.log
 ```
 
@@ -315,6 +327,7 @@ Confirm schema rejection:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8088/inssa \
+  -H "authorization: Bearer ${INSSA_INGEST_SHARED_TOKEN}" \
   -H 'content-type: application/json' \
   --data '{"schemaVersion":"wrong","source":"web-app-qa-tests","product":"INSSA"}'
 ```

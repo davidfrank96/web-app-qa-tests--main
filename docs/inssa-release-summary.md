@@ -1,5 +1,7 @@
 # INSSA QA Infrastructure Release Summary
 
+> Historical INSSA infrastructure release summary. Current Platform Core v1.0 status is in `platform-core-v1.0-release-notes.md`.
+
 ## Executive Summary
 
 This release packages the INSSA Playwright QA harness for controlled staging lifecycle, security, reporting, SIEM, cross-user, and reveal-later validation. The repo remains a black-box QA harness against `https://staging.inssa.us`; it does not contain INSSA application source code.
@@ -246,3 +248,11 @@ Release evidence:
 - Required engineering/security/risk docs exist.
 
 Warnings are intentionally preserved as engineering findings and should not be hidden or downgraded.
+
+## Platform Persistence Certification
+
+The dashboard platform persistence layer is certified for ordered clean deployment with a managed-service validation note. The repository now owns all run, log, artifact, audit, evidence, execution, outbox, monitoring, and scheduler tables; provisions the private evidence bucket through the supported Storage API; enables RLS; and restricts persistence to the server-side service role. See [Platform Persistence Certification](./platform-persistence-certification.md) for the migration replay, schema, RLS, storage, and regression results.
+
+## Platform Security Certification
+
+Release Hardening Sprint C makes Wazuh ingestion fail closed, requires bearer authentication for every event POST, rejects secret-bearing SIEM metadata, redacts textual dashboard evidence and historical log responses, validates evidence paths using canonical filesystem paths, and updates Next.js/PostCSS to an audit-clean dependency graph. Production release remains blocked by historical share tokens in commit `3506a72a018f`; see [Platform Security Certification](./platform-security-certification.md) for the required invalidation and coordinated history-rewrite action. Deployment also requires a unique `/etc/inssa-ingestion.env` credential.

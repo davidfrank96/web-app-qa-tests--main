@@ -80,6 +80,7 @@ The release gate passes when:
 - Rules map classifications to the documented Wazuh levels.
 - Ingestion service is active and healthy.
 - Nginx proxies `POST /inssa` to the local service.
+- Missing ingestion credentials prevent service startup, and anonymous POSTs return `401`.
 - Valid single-event and batch payloads append one JSON object per line.
 - Invalid schema and oversized payloads are rejected.
 - Wazuh Logcollector reads `/var/ossec/logs/inssa-qa.log`.

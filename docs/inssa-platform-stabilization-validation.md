@@ -1,5 +1,7 @@
 # INSSA Platform Stabilization Validation
 
+> Historical regression record. Current runtime and subsystem validation commands are documented in `dashboard-runtime.md` and `platform-release-guide.md`.
+
 Date: 2026-07-13
 
 ## Scope

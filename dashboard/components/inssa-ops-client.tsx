@@ -14,6 +14,7 @@ type CampaignDefinition = {
   producesReports: boolean;
   requiresLifecycleArtifact?: boolean;
   riskLevel: string;
+  targetEnvironment?: "production" | "staging";
   timeoutMs: number;
 };
 
@@ -35,6 +36,73 @@ type RunLogRecord = {
   message: string;
   sequence: number;
   stream: "stdout" | "stderr" | "system";
+};
+
+type NotificationOutboxRecord = {
+  campaignId: string | null;
+  createdAt: string;
+  environment: string;
+  eventType: string;
+  id: string;
+  message: string;
+  product: string;
+  runId: string | null;
+  severity: string;
+  status: string;
+  title: string;
+};
+
+type MonitoringDefinition = {
+  campaignId: string;
+  createdAt: string;
+  enabled: boolean;
+  environment: string;
+  evidencePolicy: string;
+  id: string;
+  name: string;
+  notificationPolicy: string;
+  product: string;
+  retryPolicy: { backoffMs: number; maxAttempts: number };
+  runPolicy: string;
+  schedule: {
+    dayOfWeek?: number;
+    frequency: "hourly" | "daily" | "weekly";
+    hour?: number;
+    minute: number;
+    timezone: string;
+  } | null;
+  severity: string;
+  timeout: number;
+  triggerType: string;
+  updatedAt: string;
+};
+
+type SchedulerStatus = {
+  heartbeatAt: string | null;
+  jobsQueuedToday: number;
+  lastEvaluationAt: string | null;
+  running: boolean;
+};
+
+type AuthenticationMonitoringCheck = {
+  completedAt: string;
+  durationMs: number;
+  error: string | null;
+  method: string;
+  startedAt: string;
+  status: "failed" | "passed";
+};
+
+type AuthenticationMonitoringSummary = {
+  checks: Record<string, AuthenticationMonitoringCheck>;
+  completedAt: string;
+  durationMs: number;
+  environment: "production" | "staging";
+  overallStatus: "failed" | "passed";
+  runId: string;
+  schemaVersion: 1;
+  startedAt: string;
+  targetHost: string;
 };
 
 type ArtifactRecord = {
@@ -190,6 +258,9 @@ type WorkspaceKey =
   | "execution"
   | "reports"
   | "siem"
+  | "authentication-monitoring"
+  | "monitoring"
+  | "notifications"
   | "operations"
   | "runs";
 
@@ -209,11 +280,19 @@ const WORKSPACE_NAV: WorkspaceNavItem[] = [
   { group: "Evidence", key: "artifact-validation", label: "Artifact Validation" },
   { key: "reports", label: "Reports" },
   { group: "Integrations", key: "siem", label: "SIEM" },
-  { group: "Operations", key: "operations", label: "Operations" },
+  { group: "Operations", key: "authentication-monitoring", label: "Authentication Monitoring" },
+  { key: "monitoring", label: "Monitoring" },
+  { key: "notifications", label: "Notifications" },
+  { key: "operations", label: "Operations" },
   { key: "runs", label: "Runs" }
 ];
 
 const WORKSPACE_COPY: Record<WorkspaceKey, { eyebrow: string; title: string; subtitle: string }> = {
+  "authentication-monitoring": {
+    eyebrow: "Continuous monitoring",
+    subtitle: "Review independent email/password, Google OAuth, and Apple Sign-In health checks across approved INSSA environments.",
+    title: "Authentication Monitoring"
+  },
   "artifact-validation": {
     eyebrow: "Evidence",
     subtitle: "Run read-only discovery, public-share, and cleanup checks against selected lifecycle artifacts.",
@@ -228,6 +307,16 @@ const WORKSPACE_COPY: Record<WorkspaceKey, { eyebrow: string; title: string; sub
     eyebrow: "Live staging",
     subtitle: "Review gated lifecycle campaigns that create staging data and require manual cleanup.",
     title: "Lifecycle"
+  },
+  monitoring: {
+    eyebrow: "Operations",
+    subtitle: "Review reusable campaign definitions and the read-only health of the schedule trigger service.",
+    title: "Monitoring Framework"
+  },
+  notifications: {
+    eyebrow: "Operations",
+    subtitle: "Review durable execution and recovery events awaiting future delivery processing.",
+    title: "Notification Outbox"
   },
   execution: {
     eyebrow: "Pipeline",
@@ -405,6 +494,19 @@ export function InssaOpsClient({
   const [selectedManagedCampaignId, setSelectedManagedCampaignId] = useState("");
   const [runDetailError, setRunDetailError] = useState("");
   const [runHistoryError, setRunHistoryError] = useState(initialLoadError ?? "");
+  const [notifications, setNotifications] = useState<NotificationOutboxRecord[]>([]);
+  const [notificationError, setNotificationError] = useState("");
+  const [notificationStatusFilter, setNotificationStatusFilter] = useState("all");
+  const [notificationSeverityFilter, setNotificationSeverityFilter] = useState("all");
+  const [monitoringDefinitions, setMonitoringDefinitions] = useState<MonitoringDefinition[]>([]);
+  const [monitoringError, setMonitoringError] = useState("");
+  const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null);
+  const [schedulerStatusError, setSchedulerStatusError] = useState("");
+  const [authenticationMonitoringEnvironment, setAuthenticationMonitoringEnvironment] = useState<"production" | "staging">("staging");
+  const [authenticationMonitoringSummary, setAuthenticationMonitoringSummary] = useState<AuthenticationMonitoringSummary | null>(null);
+  const [authenticationMonitoringError, setAuthenticationMonitoringError] = useState("");
+  const [monitoringProductFilter, setMonitoringProductFilter] = useState("all");
+  const [monitoringEnabledFilter, setMonitoringEnabledFilter] = useState("all");
   const [message, setMessage] = useState("");
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceKey>("overview");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
@@ -430,6 +532,44 @@ export function InssaOpsClient({
 
     return () => window.clearInterval(interval);
   }, [selectedRunId]);
+
+  useEffect(() => {
+    if (activeWorkspace !== "notifications") return;
+    void refreshNotifications();
+    const interval = window.setInterval(() => void refreshNotifications(), 5_000);
+    return () => window.clearInterval(interval);
+  }, [activeWorkspace]);
+
+  useEffect(() => {
+    if (activeWorkspace !== "monitoring") return;
+    void refreshMonitoringDefinitions();
+    void refreshSchedulerStatus();
+  }, [activeWorkspace]);
+
+  const authenticationMonitoringRuns = useMemo(() => {
+    const key = authenticationMonitoringEnvironment === "production"
+      ? "monitor_inssa_auth_production"
+      : "monitor_inssa_auth_staging";
+    return runs.filter((run) => run.campaignKey === key);
+  }, [authenticationMonitoringEnvironment, runs]);
+  const latestAuthenticationMonitoringRun = authenticationMonitoringRuns[0] ?? null;
+  const latestAuthenticationMonitoringReport = latestAuthenticationMonitoringRun
+    ? reportArtifacts.find(
+        (artifact) => artifact.runId === latestAuthenticationMonitoringRun.id && artifact.artifactType === "Playwright Report"
+      ) ?? null
+    : null;
+  const lastAuthenticationSuccess = authenticationMonitoringRuns.find((run) => PASSED_STATUSES.has(run.status)) ?? null;
+  const lastAuthenticationFailure = authenticationMonitoringRuns.find((run) => FAILED_STATUSES.has(run.status)) ?? null;
+
+  useEffect(() => {
+    if (activeWorkspace !== "authentication-monitoring") return;
+    if (!latestAuthenticationMonitoringReport) {
+      setAuthenticationMonitoringSummary(null);
+      setAuthenticationMonitoringError("");
+      return;
+    }
+    void refreshAuthenticationMonitoringSummary(latestAuthenticationMonitoringReport);
+  }, [activeWorkspace, latestAuthenticationMonitoringReport?.id]);
 
   useEffect(() => {
     if (selectedRunId) {
@@ -458,6 +598,38 @@ export function InssaOpsClient({
       return true;
     });
   }, [runFilter, runs]);
+  const visibleNotifications = useMemo(() => {
+    return notifications.filter((notification) => {
+      if (notificationStatusFilter !== "all" && notification.status !== notificationStatusFilter) return false;
+      return notificationSeverityFilter === "all" || notification.severity === notificationSeverityFilter;
+    });
+  }, [notificationSeverityFilter, notificationStatusFilter, notifications]);
+  const notificationCounts = useMemo(() => {
+    return {
+      deadLetter: notifications.filter((notification) => notification.status === "dead_letter").length,
+      delivered: notifications.filter((notification) => notification.status === "delivered").length,
+      failed: notifications.filter((notification) => notification.status === "failed").length,
+      pending: notifications.filter((notification) => notification.status === "pending").length
+    };
+  }, [notifications]);
+  const monitoringProducts = useMemo(() => {
+    return Array.from(new Set(monitoringDefinitions.map((definition) => definition.product))).sort();
+  }, [monitoringDefinitions]);
+  const visibleMonitoringDefinitions = useMemo(() => {
+    return monitoringDefinitions.filter((definition) => {
+      if (monitoringProductFilter !== "all" && definition.product !== monitoringProductFilter) return false;
+      if (monitoringEnabledFilter === "enabled" && !definition.enabled) return false;
+      return monitoringEnabledFilter !== "disabled" || !definition.enabled;
+    });
+  }, [monitoringDefinitions, monitoringEnabledFilter, monitoringProductFilter]);
+  const monitoringCounts = useMemo(() => {
+    return {
+      enabled: monitoringDefinitions.filter((definition) => definition.enabled).length,
+      products: new Set(monitoringDefinitions.map((definition) => definition.product)).size,
+      scheduledDefinitions: monitoringDefinitions.filter((definition) => definition.triggerType === "schedule").length,
+      total: monitoringDefinitions.length
+    };
+  }, [monitoringDefinitions]);
 
   const playwrightReport = artifacts.find((artifact) => artifact.artifactType === "Playwright Report");
   const reportRenderCommands = campaignDefinitions.filter((campaign) => campaign.commandType === "report_render");
@@ -653,6 +825,103 @@ export function InssaOpsClient({
       const message = error instanceof Error ? error.message : String(error);
       setRunHistoryError(message);
       recordApiFailure(endpoint, "network", message);
+    }
+  }
+
+  async function refreshNotifications() {
+    const endpoint = "/api/notifications?limit=100";
+    try {
+      const response = await fetch(endpoint, { cache: "no-store" });
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        notifications?: NotificationOutboxRecord[];
+      };
+      if (!response.ok) {
+        const failureMessage = body.error ?? response.statusText;
+        setNotificationError(failureMessage);
+        recordApiFailure(endpoint, response.status, failureMessage);
+        return;
+      }
+      startTransition(() => {
+        setNotificationError("");
+        setNotifications(body.notifications ?? []);
+      });
+    } catch (error) {
+      const failureMessage = error instanceof Error ? error.message : String(error);
+      setNotificationError(failureMessage);
+      recordApiFailure(endpoint, "network", failureMessage);
+    }
+  }
+
+  async function refreshMonitoringDefinitions() {
+    const endpoint = "/api/monitoring-definitions?limit=100";
+    try {
+      const response = await fetch(endpoint, { cache: "no-store" });
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        monitoringDefinitions?: MonitoringDefinition[];
+      };
+      if (!response.ok) {
+        const failureMessage = body.error ?? response.statusText;
+        setMonitoringError(failureMessage);
+        recordApiFailure(endpoint, response.status, failureMessage);
+        return;
+      }
+      startTransition(() => {
+        setMonitoringError("");
+        setMonitoringDefinitions(body.monitoringDefinitions ?? []);
+      });
+    } catch (error) {
+      const failureMessage = error instanceof Error ? error.message : String(error);
+      setMonitoringError(failureMessage);
+      recordApiFailure(endpoint, "network", failureMessage);
+    }
+  }
+
+  async function refreshSchedulerStatus() {
+    const endpoint = "/api/scheduler/status";
+    try {
+      const response = await fetch(endpoint, { cache: "no-store" });
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        scheduler?: SchedulerStatus;
+      };
+      if (!response.ok) {
+        const failureMessage = body.error ?? response.statusText;
+        setSchedulerStatusError(failureMessage);
+        recordApiFailure(endpoint, response.status, failureMessage);
+        return;
+      }
+      startTransition(() => {
+        setSchedulerStatus(body.scheduler ?? null);
+        setSchedulerStatusError("");
+      });
+    } catch (error) {
+      const failureMessage = error instanceof Error ? error.message : String(error);
+      setSchedulerStatusError(failureMessage);
+      recordApiFailure(endpoint, "network", failureMessage);
+    }
+  }
+
+  async function refreshAuthenticationMonitoringSummary(report: ArtifactRecord) {
+    const endpoint = `/api/artifacts/${report.id}/bundle/authentication-monitoring-summary.json`;
+    try {
+      const response = await fetch(endpoint, { cache: "no-store" });
+      const body = (await response.json().catch(() => ({}))) as AuthenticationMonitoringSummary & { error?: string };
+      if (!response.ok) {
+        const failureMessage = body.error ?? response.statusText;
+        setAuthenticationMonitoringError(failureMessage);
+        recordApiFailure(endpoint, response.status, failureMessage);
+        return;
+      }
+      startTransition(() => {
+        setAuthenticationMonitoringError("");
+        setAuthenticationMonitoringSummary(body);
+      });
+    } catch (error) {
+      const failureMessage = error instanceof Error ? error.message : String(error);
+      setAuthenticationMonitoringError(failureMessage);
+      recordApiFailure(endpoint, "network", failureMessage);
     }
   }
 
@@ -1191,7 +1460,7 @@ export function InssaOpsClient({
                         </div>
                         <div className="execution-summary-grid">
                           <MetadataCard label="Campaign" value={executionRun.campaignKey} />
-                          <MetadataCard label="Environment" value="staging" />
+                          <MetadataCard label="Environment" value={executionCampaign?.targetEnvironment ?? "staging"} />
                           <MetadataCard label="Runner Status" value={ACTIVE_STATUSES.has(executionRun.status) ? "running" : "idle"} />
                           <MetadataCard label="Started" value={executionRun.startedAt ? formatDate(executionRun.startedAt) : formatDate(executionRun.createdAt)} />
                           <MetadataCard label="Elapsed Time" value={formatDuration(getRunElapsedMs(executionRun))} />
@@ -1368,6 +1637,304 @@ export function InssaOpsClient({
                     selectedKey={selectedSiemActionKey}
                   />
                 </section>
+              ) : null}
+
+              {activeWorkspace === "authentication-monitoring" ? (
+                <div className="space-y-5">
+                  <section className="workspace-card">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                      <SectionHeader title="Authentication Health" subtitle="Independent checks use real provider flows and existing evidence infrastructure." />
+                      <label className="text-xs text-slate-400">
+                        Environment
+                        <select
+                          className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+                          onChange={(event) => setAuthenticationMonitoringEnvironment(event.target.value as "production" | "staging")}
+                          value={authenticationMonitoringEnvironment}
+                        >
+                          <option value="staging">INSSA Staging</option>
+                          <option value="production">INSSA Production</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    {authenticationMonitoringError ? (
+                      <div className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
+                        <p className="font-semibold">Authentication monitoring evidence failed to load.</p>
+                        <p className="mt-1 break-words">{authenticationMonitoringError}</p>
+                      </div>
+                    ) : latestAuthenticationMonitoringRun ? (
+                      <>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                          <MetadataCard
+                            label="Overall Status"
+                            tone={authenticationMonitoringSummary?.overallStatus === "passed" ? "pass" : "fail"}
+                            value={authenticationMonitoringSummary ? humanizePolicy(authenticationMonitoringSummary.overallStatus) : humanizePolicy(latestAuthenticationMonitoringRun.status)}
+                          />
+                          <MetadataCard label="Execution Time" value={formatDuration(authenticationMonitoringSummary?.durationMs ?? latestAuthenticationMonitoringRun.durationMs)} />
+                          <MetadataCard label="Last Success" value={lastAuthenticationSuccess ? formatDate(lastAuthenticationSuccess.completedAt ?? lastAuthenticationSuccess.createdAt) : "None"} />
+                          <MetadataCard label="Last Failure" value={lastAuthenticationFailure ? formatDate(lastAuthenticationFailure.completedAt ?? lastAuthenticationFailure.createdAt) : "None"} />
+                        </div>
+                        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                          <AuthenticationCheckCard label="Username & Password" result={authenticationMonitoringSummary?.checks["username-password"]} />
+                          <AuthenticationCheckCard label="Google OAuth" result={authenticationMonitoringSummary?.checks["google-oauth"]} />
+                          <AuthenticationCheckCard label="Apple Sign-In" result={authenticationMonitoringSummary?.checks["apple-sign-in"]} />
+                        </div>
+                        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm">
+                          <span className="text-slate-400">Environment</span>
+                          <span className="font-semibold capitalize text-slate-100">{authenticationMonitoringEnvironment}</span>
+                          <span className="text-slate-600">·</span>
+                          <span className="text-slate-400">Target</span>
+                          <span className="font-mono text-xs text-slate-200">{authenticationMonitoringSummary?.targetHost ?? "evidence pending"}</span>
+                          {latestAuthenticationMonitoringReport ? (
+                            <a className="primary-action ml-auto" href={`/api/artifacts/${latestAuthenticationMonitoringReport.id}/file`} rel="noreferrer" target="_blank">
+                              Open Evidence
+                            </a>
+                          ) : null}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-6 text-sm text-slate-400">
+                        <p className="font-semibold text-slate-100">No authentication monitoring runs exist for this environment.</p>
+                        <p className="mt-1">The scheduler or an approved operator must execute the environment-specific monitoring campaign first.</p>
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="workspace-card">
+                    <SectionHeader title="Historical Runs" subtitle={`${authenticationMonitoringRuns.length} authentication monitoring runs for ${authenticationMonitoringEnvironment}.`} />
+                    <div className="monitoring-table-scroll mt-4">
+                      <table className="w-full min-w-[48rem] text-left text-sm">
+                        <thead className="sticky top-0 z-10 bg-slate-950 text-xs uppercase tracking-wide text-slate-500">
+                          <tr>
+                            <th className="px-4 py-3">Run</th>
+                            <th className="px-4 py-3">Status</th>
+                            <th className="px-4 py-3">Started</th>
+                            <th className="px-4 py-3">Duration</th>
+                            <th className="px-4 py-3">Evidence</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800">
+                          {authenticationMonitoringRuns.map((run) => {
+                            const report = reportArtifacts.find((artifact) => artifact.runId === run.id && artifact.artifactType === "Playwright Report");
+                            return (
+                              <tr className="text-slate-300" key={run.id}>
+                                <td className="px-4 py-3 font-mono text-xs">{run.id}</td>
+                                <td className="px-4 py-3"><StatusBadge status={run.status} /></td>
+                                <td className="px-4 py-3 text-xs">{formatDate(run.startedAt ?? run.createdAt)}</td>
+                                <td className="px-4 py-3">{formatDuration(run.durationMs)}</td>
+                                <td className="px-4 py-3">{report ? <a className="text-cyan-200 hover:text-cyan-100" href={`/api/artifacts/${report.id}/file`} rel="noreferrer" target="_blank">Open</a> : "Pending"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+
+              {activeWorkspace === "monitoring" ? (
+                <div className="space-y-5">
+                  <section className="workspace-card">
+                    <SectionHeader title="Monitoring Framework" subtitle="Managed observation definitions for campaigns across products and environments." />
+                    <p className="mt-2 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
+                      Schedule triggers enqueue durable execution jobs only. Campaign execution remains isolated in the existing worker, and notification delivery is not implemented.
+                    </p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <MetadataCard label="Definitions" value={String(monitoringCounts.total)} />
+                      <MetadataCard label="Enabled Definitions" value={String(monitoringCounts.enabled)} />
+                      <MetadataCard label="Products" value={String(monitoringCounts.products)} />
+                      <MetadataCard label="Schedule Definitions" value={String(monitoringCounts.scheduledDefinitions)} />
+                    </div>
+                  </section>
+
+                  <section className="workspace-card">
+                    <SectionHeader title="Scheduler Status" subtitle="Read-only health for the schedule trigger service." />
+                    {schedulerStatusError ? (
+                      <div className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
+                        <p className="font-semibold">Scheduler status failed to load.</p>
+                        <p className="mt-1 break-words">{schedulerStatusError}</p>
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <MetadataCard label="Running" tone={schedulerStatus?.running ? "pass" : "warn"} value={schedulerStatus?.running ? "Yes" : "No"} />
+                        <MetadataCard label="Heartbeat" value={schedulerStatus?.heartbeatAt ? formatDate(schedulerStatus.heartbeatAt) : "Not observed"} />
+                        <MetadataCard label="Last Evaluation" value={schedulerStatus?.lastEvaluationAt ? formatDate(schedulerStatus.lastEvaluationAt) : "Not evaluated"} />
+                        <MetadataCard label="Jobs Queued Today" value={String(schedulerStatus?.jobsQueuedToday ?? 0)} />
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="workspace-card">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                      <SectionHeader title="Monitors" subtitle={`${visibleMonitoringDefinitions.length} of ${monitoringDefinitions.length} definitions shown.`} />
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-xs text-slate-400">
+                          Product
+                          <select className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" onChange={(event) => setMonitoringProductFilter(event.target.value)} value={monitoringProductFilter}>
+                            <option value="all">All products</option>
+                            {monitoringProducts.map((product) => <option key={product} value={product}>{product}</option>)}
+                          </select>
+                        </label>
+                        <label className="text-xs text-slate-400">
+                          Definition status
+                          <select className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" onChange={(event) => setMonitoringEnabledFilter(event.target.value)} value={monitoringEnabledFilter}>
+                            <option value="all">All definitions</option>
+                            <option value="enabled">Enabled</option>
+                            <option value="disabled">Disabled</option>
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+
+                    {monitoringError ? (
+                      <div className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
+                        <p className="font-semibold">Monitoring definitions failed to load.</p>
+                        <p className="mt-1 break-words">{monitoringError}</p>
+                      </div>
+                    ) : (
+                      <div className="monitoring-table-scroll mt-4">
+                        {visibleMonitoringDefinitions.length === 0 ? (
+                          <div className="p-6 text-sm text-slate-400">
+                            <p className="font-semibold text-slate-200">No monitoring definitions match the current filters.</p>
+                            <p className="mt-1">Definitions are provisioned through platform metadata, not from this read-only workspace.</p>
+                          </div>
+                        ) : (
+                          <table className="w-full min-w-[78rem] text-left text-sm">
+                            <thead className="sticky top-0 z-10 bg-slate-950 text-xs uppercase tracking-wide text-slate-500">
+                              <tr>
+                                <th className="px-4 py-3">Monitor</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Product</th>
+                                <th className="px-4 py-3">Campaign</th>
+                                <th className="px-4 py-3">Environment</th>
+                                <th className="px-4 py-3">Trigger</th>
+                                <th className="px-4 py-3">Enabled</th>
+                                <th className="px-4 py-3">Evidence</th>
+                                <th className="px-4 py-3">Notification</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800">
+                              {visibleMonitoringDefinitions.map((definition) => (
+                                <tr className="align-top text-slate-300" key={definition.id}>
+                                  <td className="max-w-xs px-4 py-4">
+                                    <p className="font-semibold text-slate-100">{definition.name}</p>
+                                    <p className="mt-1 font-mono text-xs text-slate-500">{definition.id}</p>
+                                    <p className="mt-2 text-xs text-slate-500">{formatMonitoringPolicySummary(definition)}</p>
+                                  </td>
+                                  <td className="px-4 py-4"><span className={`report-chip ${definition.enabled ? "" : "report-chip-warn"}`}>{monitoringDefinitionStatus(definition)}</span></td>
+                                  <td className="px-4 py-4 font-semibold">{definition.product}</td>
+                                  <td className="max-w-xs break-all px-4 py-4 font-mono text-xs">{definition.campaignId}</td>
+                                  <td className="px-4 py-4 capitalize">{definition.environment}</td>
+                                  <td className="px-4 py-4 capitalize">{humanizePolicy(definition.triggerType)}</td>
+                                  <td className="px-4 py-4">{definition.enabled ? "Yes" : "No"}</td>
+                                  <td className="px-4 py-4 capitalize">{humanizePolicy(definition.evidencePolicy)}</td>
+                                  <td className="px-4 py-4 capitalize">{humanizePolicy(definition.notificationPolicy)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                </div>
+              ) : null}
+
+              {activeWorkspace === "notifications" ? (
+                <div className="space-y-5">
+                  <section className="workspace-card">
+                    <SectionHeader title="Notification Outbox" subtitle="Durable platform events only. External delivery is not implemented." />
+                    <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
+                      This workspace is read only. There is no send action and no notification provider is called by the execution worker.
+                    </p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <MetadataCard label="Pending" value={String(notificationCounts.pending)} />
+                      <MetadataCard label="Failed" value={String(notificationCounts.failed)} />
+                      <MetadataCard label="Delivered" value={String(notificationCounts.delivered)} />
+                      <MetadataCard label="Dead Letter" value={String(notificationCounts.deadLetter)} />
+                    </div>
+                  </section>
+
+                  <section className="workspace-card">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                      <SectionHeader title="Event Journal" subtitle={`${visibleNotifications.length} of ${notifications.length} events shown.`} />
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-xs text-slate-400">
+                          Status
+                          <select className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" onChange={(event) => setNotificationStatusFilter(event.target.value)} value={notificationStatusFilter}>
+                            <option value="all">All statuses</option>
+                            <option value="pending">Pending</option>
+                            <option value="processing">Processing</option>
+                            <option value="delivered">Delivered</option>
+                            <option value="failed">Failed</option>
+                            <option value="dead_letter">Dead Letter</option>
+                          </select>
+                        </label>
+                        <label className="text-xs text-slate-400">
+                          Severity
+                          <select className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200" onChange={(event) => setNotificationSeverityFilter(event.target.value)} value={notificationSeverityFilter}>
+                            <option value="all">All severities</option>
+                            <option value="critical">Critical</option>
+                            <option value="high">High</option>
+                            <option value="medium">Medium</option>
+                            <option value="low">Low</option>
+                            <option value="informational">Informational</option>
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+
+                    {notificationError ? (
+                      <div className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
+                        <p className="font-semibold">Notification outbox failed to load.</p>
+                        <p className="mt-1 break-words">{notificationError}</p>
+                      </div>
+                    ) : (
+                      <div className="notification-table-scroll mt-4">
+                        {visibleNotifications.length === 0 ? (
+                          <p className="p-5 text-sm text-slate-400">No notification events match the current filters.</p>
+                        ) : (
+                          <table className="w-full min-w-[64rem] text-left text-sm">
+                            <thead className="sticky top-0 z-10 bg-slate-950 text-xs uppercase tracking-wide text-slate-500">
+                              <tr>
+                                <th className="px-4 py-3">Time</th>
+                                <th className="px-4 py-3">Severity</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Event</th>
+                                <th className="px-4 py-3">Run</th>
+                                <th className="px-4 py-3">Campaign</th>
+                                <th className="px-4 py-3">Environment</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800">
+                              {visibleNotifications.map((notification) => (
+                                <tr className="align-top text-slate-300" key={notification.id}>
+                                  <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">{formatDate(notification.createdAt)}</td>
+                                  <td className="px-4 py-3"><span className={`notification-severity notification-severity-${notification.severity}`}>{notification.severity}</span></td>
+                                  <td className="px-4 py-3"><span className="report-chip report-chip-blue">{notification.status.replace("_", " ")}</span></td>
+                                  <td className="max-w-md px-4 py-3">
+                                    <p className="font-semibold text-slate-100">{notification.title}</p>
+                                    <p className="mt-1 break-words text-xs text-slate-500">{notification.eventType} · {notification.message}</p>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {notification.runId ? (
+                                      <button className="break-all font-mono text-xs text-cyan-200 hover:underline" onClick={() => { setSelectedRunId(notification.runId ?? ""); setActiveWorkspace("runs"); }} type="button">
+                                        {notification.runId}
+                                      </button>
+                                    ) : <span className="text-slate-600">none</span>}
+                                  </td>
+                                  <td className="px-4 py-3 font-mono text-xs">{notification.campaignId ?? "platform"}</td>
+                                  <td className="px-4 py-3"><p>{notification.environment}</p><p className="text-xs text-slate-500">{notification.product}</p></td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                </div>
               ) : null}
 
               {activeWorkspace === "operations" ? (
@@ -2340,6 +2907,20 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs ring-1 ${className}`}>{status}</span>;
 }
 
+function AuthenticationCheckCard({ label, result }: { label: string; result?: AuthenticationMonitoringCheck }) {
+  const passed = result?.status === "passed";
+  return (
+    <article className={`rounded-2xl border p-4 ${passed ? "border-emerald-300/20 bg-emerald-300/5" : "border-rose-300/20 bg-rose-300/5"}`}>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="font-semibold text-slate-100">{label}</h3>
+        <span className={`report-chip ${passed ? "" : "report-chip-warn"}`}>{result ? result.status.toUpperCase() : "NO DATA"}</span>
+      </div>
+      <p className="mt-3 text-sm text-slate-400">Timing: {result ? formatDuration(result.durationMs) : "not recorded"}</p>
+      {result?.error ? <p className="mt-2 break-words text-xs leading-5 text-rose-200">{result.error}</p> : null}
+    </article>
+  );
+}
+
 function EvidenceWorkspace({
   bundleSearch,
   bundleSort,
@@ -3196,6 +3777,23 @@ function formatLogTime(value: string) {
   }).format(new Date(value));
 }
 
+function monitoringDefinitionStatus(definition: MonitoringDefinition) {
+  if (!definition.enabled) return "Disabled";
+  if (definition.triggerType === "schedule" && !definition.schedule) return "Incomplete";
+  return "Defined";
+}
+
+function formatMonitoringPolicySummary(definition: MonitoringDefinition) {
+  const retry = definition.retryPolicy.maxAttempts === 1
+    ? "1 attempt"
+    : `${definition.retryPolicy.maxAttempts} attempts`;
+  return `${humanizePolicy(definition.runPolicy)} · ${retry} · ${formatDuration(definition.timeout)}`;
+}
+
+function humanizePolicy(value: string) {
+  return value.replaceAll("_", " ");
+}
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
@@ -3329,7 +3927,7 @@ function managedCampaignFromRegistry(campaign: CampaignDefinition): ManagedCampa
     commandKey: campaign.key,
     description: campaign.operatorDescription,
     disabledReason: null,
-    environment: "Staging",
+    environment: campaign.targetEnvironment === "production" ? "Production" : "Staging",
     estimatedDuration: formatDuration(campaign.timeoutMs),
     evidenceProduced,
     executionEnabled: campaign.phase1Enabled && !campaign.mutatesStaging,
@@ -3383,6 +3981,7 @@ function managedCampaignFromDisabled(command: DisabledCommandCard, category: Cam
 }
 
 function categoryForCommand(campaign: CampaignDefinition): CampaignCategory {
+  if (campaign.key.startsWith("monitor_inssa_auth_")) return "Operations";
   if (SAFE_COMMAND_KEYS.includes(campaign.key)) return "Safe Tests";
   if (SECURITY_COMMAND_KEYS.includes(campaign.key)) return "Security";
   if (ARTIFACT_VALIDATION_COMMAND_KEYS.includes(campaign.key)) return "Artifact Validation";
@@ -3402,6 +4001,9 @@ function producesForCommand(campaign: CampaignDefinition) {
 }
 
 function evidenceProducedForCommand(campaign: CampaignDefinition) {
+  if (campaign.key.startsWith("monitor_inssa_auth_")) {
+    return ["Independent authentication results", "Screenshots", "Console and network logs", "Failure traces", "Playwright report", "Evidence bundle metadata"];
+  }
   if (campaign.commandType === "artifact_validation") {
     return ["Playwright report", "Lifecycle validation JSON", "Evidence bundle metadata"];
   }
@@ -3417,7 +4019,12 @@ function evidenceProducedForCommand(campaign: CampaignDefinition) {
 }
 
 function prerequisitesForCommand(campaign: CampaignDefinition) {
-  const prerequisites = ["Authenticated operator or admin session", "INSSA_URL must resolve to staging.inssa.us"];
+  const prerequisites = ["Authenticated operator or admin session"];
+  if (campaign.targetEnvironment === "production") {
+    prerequisites.push("Production authentication monitor credentials", "Explicit production monitoring enablement and exact host confirmation");
+  } else {
+    prerequisites.push("INSSA_URL must resolve to staging.inssa.us");
+  }
   if (campaign.requiresLifecycleArtifact) {
     prerequisites.push("Explicit lifecycle artifact selection or latest usable lifecycle artifact");
   }
@@ -3431,6 +4038,7 @@ function prerequisitesForCommand(campaign: CampaignDefinition) {
 }
 
 function relatedReportsForCommand(campaign: CampaignDefinition) {
+  if (campaign.key.startsWith("monitor_inssa_auth_")) return ["Authentication monitoring summary", "Playwright report"];
   if (campaign.key.includes("security")) return ["Security report", "Playwright report"];
   if (campaign.commandType === "artifact_validation") return ["Playwright report", "Lifecycle report"];
   if (campaign.commandType === "report_render") return ["Rendered HTML report"];

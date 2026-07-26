@@ -17,8 +17,9 @@ export async function GET(request: NextRequest) {
 
   const metadataBackend = await getInssaRunStoreSummary();
   try {
-    const runs = await getInssaRunStore().listRuns();
-    return NextResponse.json({ metadataBackend, runs });
+    const allRuns = await getInssaRunStore().listRuns();
+    const page = paginate(allRuns, request.nextUrl.searchParams);
+    return NextResponse.json({ metadataBackend, runs: page.items, pagination: page.pagination });
   } catch (error) {
     return NextResponse.json(
       {
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
 
   const result = await startInssaPhase1Run({
     campaignKey,
+    idempotencyKey: request.headers.get("idempotency-key") ?? undefined,
     lifecycleArtifact,
     requestedBy: auth.user.email || auth.user.id
   });
@@ -112,6 +114,26 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ run: result.run }, { status: result.status });
+}
+
+function paginate<T>(items: T[], searchParams: URLSearchParams) {
+  const requestedLimit = Number(searchParams.get("limit"));
+  if (!Number.isInteger(requestedLimit) || requestedLimit <= 0) {
+    return { items, pagination: { hasMore: false, limit: items.length, nextCursor: null, total: items.length } };
+  }
+  const limit = Math.min(requestedLimit, 100);
+  const offset = Math.max(0, Number(searchParams.get("cursor")) || 0);
+  const pageItems = items.slice(offset, offset + limit);
+  const nextOffset = offset + pageItems.length;
+  return {
+    items: pageItems,
+    pagination: {
+      hasMore: nextOffset < items.length,
+      limit,
+      nextCursor: nextOffset < items.length ? String(nextOffset) : null,
+      total: items.length
+    }
+  };
 }
 
 function parseArtifactSelection(value: unknown): InssaLifecycleArtifactSelection | null {

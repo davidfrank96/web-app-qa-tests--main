@@ -1,5 +1,7 @@
 # Evidence Bundle Authenticated Validation Report
 
+> Historical validation record. Its blocked result was superseded by `DASHBOARD_AUTHENTICATION_COMPLETION_REPORT.md` and `EVIDENCE_SYSTEM_CERTIFICATION.md`. Do not use this file as current subsystem status.
+
 Date: 2026-07-13
 
 Sprint: Phase 2.6, Authenticated Evidence Validation

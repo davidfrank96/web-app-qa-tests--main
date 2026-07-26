@@ -27,6 +27,7 @@ export type InssaCommandDefinition = {
   producesReports: boolean;
   requiresLifecycleArtifact?: boolean;
   riskLevel: InssaCommandRiskLevel;
+  targetEnvironment?: "production" | "staging";
   timeoutMs: number;
 };
 
@@ -53,6 +54,106 @@ export type InssaRunRecord = {
   startedAt: string | null;
   status: InssaRunStatus;
   updatedAt: string;
+};
+
+export type InssaExecutionJobStatus =
+  | "queued"
+  | "claimed"
+  | "running"
+  | "completed"
+  | "failed"
+  | "abandoned";
+
+export type InssaExecutionJobRecord = {
+  attempt: number;
+  campaignKey: string;
+  claimedAt: string | null;
+  claimedBy: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  heartbeatAt: string | null;
+  id: string;
+  idempotencyKey: string;
+  lastError: string | null;
+  leaseExpiresAt: string | null;
+  lifecycleArtifact: ResolvedInssaLifecycleArtifactSelection | null;
+  maxAttempts: number;
+  runId: string;
+  schemaVersion: 1;
+  status: InssaExecutionJobStatus;
+  updatedAt: string;
+};
+
+export type NotificationOutboxStatus = "pending" | "processing" | "delivered" | "failed" | "dead_letter";
+
+export type NotificationSeverity = "informational" | "low" | "medium" | "high" | "critical";
+
+export type NotificationEventType =
+  | "run_queued"
+  | "run_started"
+  | "run_completed"
+  | "run_failed"
+  | "worker_restarted"
+  | "worker_lease_expired"
+  | "job_recovery"
+  | "evidence_upload_failed"
+  | "execution_failed";
+
+export type NotificationOutboxRecord = {
+  attemptCount: number;
+  campaignId: string | null;
+  correlationId: string;
+  createdAt: string;
+  deduplicationKey: string;
+  deliveredAt: string | null;
+  environment: string;
+  errorMessage: string | null;
+  eventType: NotificationEventType;
+  id: string;
+  lastAttemptAt: string | null;
+  message: string;
+  payload: Record<string, unknown>;
+  product: string;
+  provider: string | null;
+  providerMessageId: string | null;
+  runId: string | null;
+  schemaVersion: 1;
+  severity: NotificationSeverity;
+  status: NotificationOutboxStatus;
+  title: string;
+};
+
+export type CreateNotificationOutboxInput = Pick<
+  NotificationOutboxRecord,
+  | "campaignId"
+  | "correlationId"
+  | "deduplicationKey"
+  | "environment"
+  | "eventType"
+  | "message"
+  | "payload"
+  | "product"
+  | "runId"
+  | "severity"
+  | "title"
+>;
+
+export type InssaRunOutputManifestEntry = {
+  artifactType: string;
+  contentType: string;
+  relativePath: string;
+  sha256: string;
+  sizeBytes: number;
+};
+
+export type InssaRunOutputManifest = {
+  campaignKey: string;
+  completedAt: string;
+  entries: InssaRunOutputManifestEntry[];
+  generatedAt: string;
+  runId: string;
+  schemaVersion: 1;
+  startedAt: string;
 };
 
 export type InssaRunLogRecord = {

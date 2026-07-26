@@ -1,312 +1,123 @@
 # Evidence Management Architecture
 
-Last updated: 2026-07-13
-
-This document defines the Evidence Management foundation for the QA Operations Platform.
-
-The platform architecture remains:
-
-```text
-Playwright Tests
-↓
-Campaign Runners
-↓
-Evidence Bundles
-↓
-Reports
-↓
-SIEM Export
-↓
-Wazuh
-↓
-Dashboard
-```
+Last reviewed: 2026-07-21
 
 ## Purpose
 
-Evidence Management makes evidence the durable platform object.
-
-Reports are derived views. Existing artifact records remain available as a backward-compatible projection.
-
-The current implementation includes metadata, bundle-aware serving, and durable storage upload. It does not change test execution, campaign scripts, Playwright behavior, report generation, SIEM export, Wazuh integration, authentication, authorization, or UI behavior.
-
-## Evidence Bundle
-
-An Evidence Bundle is the logical evidence set produced by one run.
-
-Examples:
-
-- Safe suite Playwright evidence.
-- Security campaign evidence.
-- Security verification evidence.
-- Artifact validation evidence.
-- Lifecycle report rendering evidence.
-- SIEM export evidence.
-- Platform healthcheck evidence.
-
-Current bundle fields include:
-
-- `id`
-- `runId`
-- `campaignKey`
-- `product`
-- `environment`
-- `bundleType`
-- `title`
-- `status`
-- `rootPath`
-- `storageBackend`
-- `storagePrefix`
-- `uploadStatus`
-- `uploadedAt`
-- `uploadError`
-- `createdAt`
-- `indexedAt`
-- `itemCount`
-- `totalBytes`
-- `retentionClass`
-- `sensitive`
-- `sourceArtifactId`
-- `checksumManifest`
-
-Current bundle status:
-
-- `indexed`
-
-Current storage backend:
-
-- `local-filesystem`
-- `supabase-storage`
-
-The local filesystem remains the runner scratch space. Supabase Storage is the durable evidence store when `INSSA_EVIDENCE_STORAGE_PROVIDER=supabase` is configured.
-
-## Evidence Item
-
-An Evidence Item is one file or evidence object inside an Evidence Bundle.
-
-Examples:
-
-- Playwright report HTML.
-- Playwright report data file.
-- Screenshot.
-- Video.
-- Trace ZIP.
-- Error context Markdown.
-- Security JSON.
-- Lifecycle JSON.
-- Rendered security report.
-- Rendered lifecycle report.
-- SIEM export JSON.
-
-Current item fields include:
-
-- `id`
-- `bundleId`
-- `runId`
-- `campaignKey`
-- `artifactId`
-- `itemType`
-- `fileName`
-- `relativePath`
-- `storageKey`
-- `contentType`
-- `sizeBytes`
-- `sha256`
-- `sensitive`
-- `renderInline`
-- `retentionClass`
-- `storageBackend`
-- `uploadStatus`
-- `uploadedAt`
-- `uploadError`
-- `createdAt`
-- `metadata`
-
-Each Evidence Item references the compatibility artifact it was derived from through `artifactId`.
-
-## Bundle Lifecycle
-
-Current lifecycle:
+Evidence Management preserves the complete output of a campaign as a run-owned aggregate. It supports INSSA today and uses product/environment/campaign identity suitable for Localman, KBean, and future products.
 
 ```text
-Run completes
-↓
-Existing artifact indexer scans known roots
-↓
-Compatibility Artifact records are persisted
-↓
-Evidence Bundle metadata is derived from those artifacts
-↓
-Evidence Item metadata is derived from those artifacts
-↓
-Successful runs upload Evidence Items to durable storage when configured
-↓
-Upload size and SHA-256 integrity are verified
-↓
-Evidence Bundle and Evidence Item metadata are updated
+Campaign -> Run -> Evidence Bundle -> Evidence Items -> Reports -> SIEM Export
 ```
 
-If no artifacts are produced, no bundle is created.
+## Models
 
-If evidence metadata persistence or durable upload fails, the run must not fail. The runner records a system log warning and preserves local filesystem evidence.
+### Evidence Bundle
 
-## Relationships
+One aggregate for one run. It records run/campaign/product/environment identity, bundle type, root path, item count, total bytes, sensitivity, retention class, checksum manifest, local/durable storage state, and upload outcome.
 
-Canonical relationship:
+### Evidence Item
+
+One file relative to the Bundle root. It records artifact compatibility identity, type, content type, relative path, size, SHA-256, sensitivity, inline-render policy, retention class, storage key/backend, and upload outcome.
+
+### Artifact Compatibility
+
+Artifact remains the response model for established run/artifact APIs. New evidence metadata is additive. Compatibility APIs and the report archive continue to work without requiring clients to understand Bundle metadata.
+
+## Creation Lifecycle
 
 ```text
-Campaign
-↓
-Run
-↓
-Evidence Bundle
-↓
-Evidence Items
-↓
-Reports
-↓
-SIEM Export
+Worker completes command
+-> finalize run-output/<runId>/evidence-manifest.json
+-> deterministic artifact indexing
+-> replace run artifact metadata
+-> build Evidence Bundle and Items
+-> replace run evidence metadata
+-> upload through configured provider
+-> verify size and SHA-256
+-> update upload metadata
 ```
 
-Phase 1 records:
+Evidence creation does not change Playwright, campaign scripts, or report generation.
 
-- Run to Evidence Bundle through `runId`.
-- Evidence Bundle to Evidence Items through `bundleId`.
-- Evidence Item to compatibility Artifact through `artifactId`.
-- Campaign to bundle/item through `campaignKey`.
+## Run Isolation
 
-Reports and SIEM exports are represented as Evidence Items when they are indexed as current artifacts.
+Every dashboard-run command receives output variables for a unique `run-output/<runId>/` root. The manifest captures run identity, campaign key, timestamps, and file hashes. Historical dashboard evidence resolves through run-scoped paths, never `latest` aliases.
+
+Shared legacy output roots remain inputs for CLI compatibility and deterministic copying into run output; they are not historical identity.
+
+## Bundle Serving
+
+Playwright is an Evidence Bundle, not one HTML file. Authenticated routes serve bundle-relative HTML, CSS, JavaScript, JSON, images, fonts, attachments, videos, and trace files with appropriate content types.
+
+Security rules:
+
+- resolve the bundle from artifact metadata
+- reject arbitrary client filesystem paths
+- decode and normalize the relative path
+- canonicalize repository root, bundle root, and target with `realpath`
+- enforce containment after canonicalization
+- reject symlink escape and directories
+- redact supported textual output
+- require viewer-or-higher authentication
+
+The compatibility endpoint `GET /api/artifacts/:id/file` remains supported.
+
+## Storage
+
+### Local Filesystem
+
+Local run output is runner scratch space, development evidence, and current bundle-serving source.
+
+### Supabase Postgres
+
+Stores metadata only. It does not store report or media bytes.
+
+### Supabase Storage
+
+Stores durable evidence bytes in a private bucket using immutable keys:
+
+```text
+<product>/<environment>/<campaignKey>/<runId>/<bundleId>/<relativePath>
+```
+
+Uploads use no overwrite. Existing objects are accepted on retry only when downloaded content matches expected size and SHA-256.
+
+If a configured upload fails, local evidence remains available and metadata records failure. There is no silent provider switch.
+
+## Evidence Workspace
+
+The Reports workspace is the Evidence Workspace. It supports bundle search/sort/filter, bundle and item metadata, previews for supported content, Playwright bundle viewing, related artifacts/reports/runs, storage state, integrity state, and the evidence chain.
+
+It does not execute campaigns or mutate evidence.
+
+## Retention
+
+Metadata includes a retention class, but Platform Core v1.0 does not implement retention execution, archive, restore, or deletion. Operators must preserve incomplete uploads and follow deployment storage policy manually.
+
+## Multi-Product Rules
+
+Bundle identity includes product and environment. Product additions must reuse the Bundle/Item/storage/serving contracts. They must not create product-specific evidence tables or public storage buckets.
 
 ## Backward Compatibility
 
-Existing artifact behavior is preserved.
-
-These APIs continue to behave as before:
+These existing APIs remain valid:
 
 - `GET /api/runs`
 - `GET /api/runs/:id`
-- `GET /api/runs/:id/logs`
 - `GET /api/runs/:id/artifacts`
 - `GET /api/artifacts/:id`
 - `GET /api/artifacts/:id/file`
 
-Existing dashboard report links continue to use artifact IDs.
+Evidence APIs add:
 
-Existing artifact records remain the compatibility layer for:
+- `GET /api/runs/:id/evidence`
+- `GET /api/artifacts/:id/bundle/*`
 
-- report archive
-- run details
-- artifact validation visibility
-- report file serving
+## Remaining Approved Work
 
-No bundle-serving API is introduced in Phase 1.
-
-## Current Storage
-
-Local JSON backend:
-
-- `dashboard/.data/inssa-runs.json`
-- stores runs, logs, audit events, artifacts, evidence bundles, and evidence items.
-
-Supabase metadata backend:
-
-- existing run/log/artifact behavior remains unchanged.
-- evidence bundle/item persistence is modeled for future metadata tables.
-- if a configured Supabase environment does not yet contain evidence tables, evidence persistence should be treated as a non-fatal metadata warning.
-
-Durable storage:
-
-- Provider abstraction supports `local-filesystem` and `supabase-storage`.
-- Files are uploaded to a private Supabase Storage bucket when `INSSA_EVIDENCE_STORAGE_PROVIDER=supabase` is set.
-- Bucket defaults to `inssa-evidence` and can be overridden with `INSSA_EVIDENCE_SUPABASE_BUCKET`.
-- Upload uses the server-side `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
-- Objects are stored under `inssa/<environment>/<campaignKey>/<runId>/<bundleId>/<relativePath>`.
-- Each upload is verified by downloading the object and comparing size and SHA-256.
-- If Supabase Storage is unavailable, evidence remains available from the local filesystem and upload metadata is marked failed or local-only.
-
-Current storage phase does not implement retention, archive, deletion, search, or object-storage migration for historical evidence.
-
-## Retention Classes
-
-Phase 1 records retention intent only.
-
-Retention classes:
-
-- `default`
-- `short-lived`
-- `security-evidence`
-- `cleanup-evidence`
-- `siem-metadata`
-
-No retention engine, archive workflow, or deletion workflow is implemented in Phase 1.
-
-## Future Phases
-
-Phase 2: Bundle serving
-
-- Add authenticated bundle-relative file serving.
-- Serve Playwright report bundles as bundles, not single HTML files.
-- Preserve existing artifact file routes.
-
-Phase 3: Durable storage
-
-- Implemented.
-- Adds a storage provider abstraction.
-- Uploads successful run evidence to private Supabase Storage when configured.
-- Verifies size and SHA-256 before marking upload complete.
-- Keeps local filesystem as runner scratch space and fallback.
-
-Phase 4: Retention
-
-- Enforce retention classes.
-- Add archive/delete eligibility.
-- Preserve cleanup/security evidence until closure.
-
-Phase 5: Evidence Workspace
-
-- Add Evidence Explorer.
-- Add Bundle Details.
-- Add Evidence Chain.
-- Add Related Reports, Runs, Campaigns, and SIEM export views.
-
-Phase 6: Production deployment
-
-- Use Supabase metadata as primary.
-- Use private object storage for binary evidence.
-- Add backup and recovery procedures.
-
-## Non-Goals For Phase 1
-
-Phase 1 does not implement:
-
-- Supabase Storage.
-- Object storage.
-- Retention enforcement.
-- Bundle-relative serving.
-- Evidence Workspace.
-- Screenshot serving.
-- Trace serving.
-- Video serving.
-- Archive workflows.
-- Deletion workflows.
-- UI changes.
-- Playwright changes.
-- Runner execution changes.
-- Campaign script changes.
-- Report generation changes.
-- SIEM export changes.
-
-## Non-Goals For Durable Storage
-
-Durable storage does not implement:
-
-- Retention engine.
-- Archive workflow.
-- Deletion workflow.
-- Evidence Workspace.
-- Search.
-- Cleanup workflows.
-- Storage analytics.
-- Supabase Storage as the primary serving path.
-
-Authenticated dashboard report serving remains local-bundle based for backward compatibility.
+- retention/archive/deletion engine
+- optional direct durable-object serving behind the same auth/RBAC boundary
+- historical bundle metadata backfill
+- backend migration tooling
+- broader multi-product campaigns

@@ -3,6 +3,34 @@ import type { InssaCommandDefinition } from "./types";
 export const INSSA_PHASE1_COMMANDS: InssaCommandDefinition[] = [
   {
     commandType: "campaign",
+    displayName: "Authentication Monitoring - Staging",
+    key: "monitor_inssa_auth_staging",
+    mutatesStaging: false,
+    npmScript: "test:inssa:monitor:auth:staging",
+    operatorDescription: "Checks email/password, Google OAuth, and Apple Sign-In against INSSA staging and records independent authentication results.",
+    phase1Enabled: true,
+    producesFindings: true,
+    producesReports: true,
+    riskLevel: "read_only",
+    targetEnvironment: "staging",
+    timeoutMs: 2 * 60 * 1000
+  },
+  {
+    commandType: "campaign",
+    displayName: "Authentication Monitoring - Production",
+    key: "monitor_inssa_auth_production",
+    mutatesStaging: false,
+    npmScript: "test:inssa:monitor:auth:production",
+    operatorDescription: "Runs the allowlisted read-only authentication monitor against INSSA production. Requires explicit production monitoring confirmation.",
+    phase1Enabled: true,
+    producesFindings: true,
+    producesReports: true,
+    riskLevel: "read_only",
+    targetEnvironment: "production",
+    timeoutMs: 2 * 60 * 1000
+  },
+  {
+    commandType: "campaign",
     displayName: "INSSA Safe Suite",
     key: "test_inssa_safe",
     mutatesStaging: false,

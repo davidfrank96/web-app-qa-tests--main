@@ -53,7 +53,7 @@ Related docs:
 | [Platform Current State](inssa-platform-current-state.md) | Current dashboard/platform source of truth. |
 | [Command Matrix](inssa-command-matrix.md) | Current CLI and dashboard command exposure. |
 | [V1 Definition](inssa-v1-definition.md) | Approved dashboard V1 scope. |
-| [Historical Current State](inssa-current-state.md) | Earlier state summary retained for context. |
+| [Current State](inssa-platform-current-state.md) | Current Platform Core implementation snapshot. |
 
 ## 2. Architecture
 
@@ -553,7 +553,7 @@ npm run siem:send
 
 | Topic | Primary Section | Supporting Docs |
 | --- | --- | --- |
-| Project overview | This guide, Project Overview | [Current State](inssa-current-state.md), [Release Summary](inssa-release-summary.md) |
+| Project overview | This guide, Project Overview | [Current State](inssa-platform-current-state.md), [Release Notes](platform-core-v1.0-release-notes.md) |
 | Lifecycle architecture | This guide, Lifecycle Coverage | [Live Staging Lifecycle Runner](inssa-live-staging-lifecycle.md) |
 | Campaign architecture | This guide, Campaign Matrix | [Live Staging Lifecycle Runner](inssa-live-staging-lifecycle.md), [Security Campaign](inssa-security-campaign.md) |
 | Security architecture | This guide, Security Coverage | [Security Campaign](inssa-security-campaign.md), [Security Findings](inssa-security-findings.md) |

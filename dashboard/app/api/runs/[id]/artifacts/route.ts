@@ -16,6 +16,19 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     return NextResponse.json({ error: `Run not found: ${id}` }, { status: 404 });
   }
 
-  const artifacts = await store.getArtifacts(id);
-  return NextResponse.json({ artifacts });
+  const allArtifacts = await store.getArtifacts(id);
+  const requestedLimit = Number(request.nextUrl.searchParams.get("limit"));
+  const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 500) : allArtifacts.length;
+  const offset = Math.max(0, Number(request.nextUrl.searchParams.get("cursor")) || 0);
+  const artifacts = allArtifacts.slice(offset, offset + limit);
+  const nextOffset = offset + artifacts.length;
+  return NextResponse.json({
+    artifacts,
+    pagination: {
+      hasMore: nextOffset < allArtifacts.length,
+      limit,
+      nextCursor: nextOffset < allArtifacts.length ? String(nextOffset) : null,
+      total: allArtifacts.length
+    }
+  });
 }

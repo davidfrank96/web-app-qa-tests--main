@@ -1,5 +1,7 @@
 # Dashboard Authentication Completion Report
 
+> Historical acceptance record. Current authentication architecture is documented in `inssa-dashboard-architecture.md` and `environment-setup.md`.
+
 Date: 2026-07-13
 
 Sprint: Dashboard Authentication Completion

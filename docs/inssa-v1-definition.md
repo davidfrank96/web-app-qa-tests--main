@@ -1,114 +1,53 @@
-# INSSA QA Operations Platform V1 Definition
+# QA Operations Platform Core v1.0 Definition
 
-Last updated: 2026-06-11
+Last reviewed: 2026-07-21
 
-V1 is the first complete usable version of the INSSA QA Operations Dashboard. It is intentionally read-only/safe-first and does not expose live mutation campaigns.
+## Complete Scope
 
-## V1 Goals
+Platform Core v1.0 provides:
 
-- Allow authenticated users to view the dashboard.
-- Allow operators/admins to run safe/read-only commands.
-- Track run history.
-- Capture logs.
-- Index artifacts.
-- Open generated reports.
-- Generate SIEM metadata exports.
-- Validate existing lifecycle artifacts without creating new capsules.
-- Surface diagnostics when APIs or metadata backends fail.
+- authenticated dashboard and server-side viewer/operator/admin RBAC
+- registry-only command execution
+- durable execution jobs and a dedicated worker
+- one active run globally
+- run history, incremental logs, artifacts, manifests, and evidence metadata
+- authenticated Evidence Bundle serving and Evidence Workspace
+- local metadata/evidence support
+- Supabase metadata and private Storage support
+- security/lifecycle report review
+- metadata-only SIEM export and authenticated ingestion service
+- durable Notification Outbox with no provider delivery
+- Monitoring Framework and schedule trigger
+- staging/production-guarded Authentication Monitoring
+- Runtime Doctor, persistence provisioning, healthcheck, and security controls
 
-## V1 Sections
+## Dashboard-Enabled Product Workflows
 
-| Section | V1 Capability |
-| --- | --- |
-| Overview | Run counts and latest activity. |
-| Safe Tests | Execute INSSA Safe Suite. |
-| Security | Execute Security Campaign and Security Verification. |
-| Lifecycle | Show live lifecycle commands as disabled future actions. |
-| Artifact Validation | Execute authenticated discovery, public-share validation, and cleanup audit using selected artifacts. |
-| Reports | Review Playwright, Security, Lifecycle, and SIEM report artifacts. |
-| SIEM | Generate metadata-only export. |
-| Operations | Run admin healthcheck and inspect metadata/API diagnostics. |
-| Run History | View and filter runs. |
-| Run Details | View status, logs, artifact metadata, and report links. |
+- INSSA Safe Suite
+- Security Campaign
+- Security Verification
+- Authenticated Discovery
+- Public Share Validation
+- Cleanup Capability Audit
+- security and lifecycle report rendering
+- SIEM export
+- platform healthcheck
+- authentication monitoring
 
-## V1 In Scope
+## Explicitly Outside v1.0
 
-- Supabase Auth.
-- Server-side RBAC.
-- Command registry.
-- Safe/read-only command execution.
-- One active run.
-- Local JSON metadata backend.
-- Optional Supabase metadata backend detection/counts.
-- Incremental run logs.
-- Artifact indexing.
-- Report file serving for allowlisted report files.
-- Lifecycle artifact selection for validation commands.
-- Metadata backend diagnostics.
-- API failure visibility.
+- enabling lifecycle mutation from the dashboard
+- cross-user and reveal-later security dashboard execution
+- arbitrary command execution
+- multiple concurrent workers/runs
+- external notification dispatch
+- dashboard SIEM send
+- evidence retention/archive/deletion engine
+- direct browser access to Supabase Storage
+- automatic local-to-Supabase history migration
+- Localman/KBean managed campaign execution
+- general-purpose analytics or governance workflows
 
-## V1 Out Of Scope
+## Certification Meaning
 
-- Scheduling.
-- Deployment automation.
-- Live lifecycle command execution from dashboard.
-- Text/media/video/reveal-later mutation campaigns from dashboard.
-- Cross-user campaign execution from dashboard.
-- Reveal-later security execution from dashboard if it can create/resume mutation flows.
-- SIEM send from dashboard.
-- Artifact downloads for screenshots/videos/traces.
-- Automatic cleanup.
-- Multi-product dashboard support.
-- Findings workflow or triage management.
-- Notification integrations.
-- Object-storage artifact migration.
-- Supabase migrations as the only supported metadata store.
-
-## V1 Command Set
-
-Executable:
-
-- `test:inssa:safe`
-- `test:inssa:campaign:security`
-- `test:inssa:campaign:security:verify`
-- `test:inssa:discovery`
-- `test:inssa:public-share`
-- `test:inssa:cleanup-audit`
-- `report:security`
-- `report:lifecycle`
-- `siem:export`
-- `platform:healthcheck`
-
-Visible but disabled:
-
-- `test:inssa:campaign:text`
-- `test:inssa:campaign:media`
-- `test:inssa:campaign:video`
-- `test:inssa:campaign:reveal-later`
-- `test:inssa:campaign:cross-user`
-- `test:inssa:campaign:reveal-later-security`
-- `siem:send`
-
-Hidden:
-
-- broad live staging runner
-- raw live create commands
-- draft mutation commands
-- campaign-with-SIEM wrapper commands
-- arbitrary npm commands
-
-## V1 Acceptance Criteria
-
-V1 is complete when:
-
-- Anonymous users cannot access dashboard UI or APIs.
-- Viewer can read runs/logs/artifacts/reports but cannot start runs.
-- Operator can start safe/read-only commands except admin healthcheck.
-- Admin can run healthcheck.
-- `test:inssa:safe` completes through the dashboard.
-- Security campaign and security verification are visible and executable.
-- Artifact Validation requires artifact selection.
-- Report archive is categorized and internally scrollable.
-- SIEM export works and SIEM send remains disabled.
-- Run History and Run Detail show diagnostics instead of silent empty states.
-
+`1.0.0` identifies the implemented Platform Core contract. It does not by itself certify a target production deployment. Production certification additionally requires the repository security blocker and environment-specific Supabase/Wazuh checks in the release guide to pass.

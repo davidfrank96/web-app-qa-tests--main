@@ -48,17 +48,16 @@ export async function persistEvidenceBundleToDurableStorage(
   bundle: InssaEvidenceBundleRecord,
   items: InssaEvidenceItemRecord[]
 ): Promise<InssaEvidenceStorageResult> {
-  const config = readEvidenceStorageConfig();
-  if (config.provider === "local") {
-    return {
-      bundle: markBundleLocalOnly(bundle),
-      items: items.map(markItemLocalOnly),
-      message: "Durable evidence storage is not configured; evidence remains on the local filesystem.",
-      status: "local_only"
-    };
-  }
-
   try {
+    const config = readEvidenceStorageConfig();
+    if (config.provider === "local") {
+      return {
+        bundle: markBundleLocalOnly(bundle),
+        items: items.map(markItemLocalOnly),
+        message: "Durable evidence storage is not configured; evidence remains on the local filesystem.",
+        status: "local_only"
+      };
+    }
     return await uploadBundleToSupabase(config, bundle, items);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -82,7 +81,9 @@ function readEvidenceStorageConfig(): EvidenceStorageConfig {
   const bucket = process.env.INSSA_EVIDENCE_SUPABASE_BUCKET?.trim() || "inssa-evidence";
 
   if (!supabaseUrl || !serviceRoleKey) {
-    return { provider: "local" };
+    throw new Error(
+      "Supabase evidence storage requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY; refusing an implicit local fallback."
+    );
   }
 
   return {
@@ -122,13 +123,19 @@ async function uploadBundleToSupabase(
     const storageKey = `${storagePrefix}/${localRelativePath}`;
     const upload = await bucket.upload(storageKey, body, {
       contentType: item.contentType,
-      upsert: true
+      upsert: false
     });
-    if (upload.error) {
-      throw new Error(`Supabase Storage upload failed for ${localRelativePath}: ${upload.error.message}`);
+    // A retry may find an immutable key already present. Accept it only when the
+    // persisted bytes exactly match the run's evidence metadata.
+    let verification: UploadVerification;
+    try {
+      verification = await verifySupabaseObject(bucket, storageKey);
+    } catch (error) {
+      if (upload.error) {
+        throw new Error(`Supabase Storage upload failed for ${localRelativePath}: ${upload.error.message}`);
+      }
+      throw error;
     }
-
-    const verification = await verifySupabaseObject(bucket, storageKey);
     if (verification.sizeBytes !== item.sizeBytes) {
       throw new Error(
         `Supabase Storage size verification failed for ${localRelativePath}: expected ${item.sizeBytes}, received ${verification.sizeBytes}`
@@ -139,7 +146,6 @@ async function uploadBundleToSupabase(
         `Supabase Storage checksum verification failed for ${localRelativePath}: expected ${item.sha256}, received ${verification.sha256}`
       );
     }
-
     checksumManifest[localRelativePath] = verification.sha256;
     totalBytes += verification.sizeBytes;
     uploadedItems.push({

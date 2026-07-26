@@ -1,5 +1,7 @@
 # Release Gate Gitignore And Secrets Audit
 
+> Historical 2026-06-01 audit. Current repository security status is maintained in `platform-security-certification.md`.
+
 Date: 2026-06-01  
 Repository: `web-app-qa-tests`  
 Scope: local QA harness repository, tracked files, ignored local files, generated lifecycle/security evidence, reports, traces, videos, screenshots, and environment files.
