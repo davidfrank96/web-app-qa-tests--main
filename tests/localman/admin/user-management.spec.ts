@@ -49,6 +49,10 @@ type VisibleUser = {
 
 test.describe.serial("Local Man admin user management", () => {
   const credentials = getAdminCredentials();
+  test.skip(
+    !credentials,
+    "LOCALMAN_ADMIN_EMAIL and LOCALMAN_ADMIN_PASSWORD are required for Local Man admin user management."
+  );
   const suffix = Date.now().toString(36);
   const adminUser: QaUserRecord = {
     email: `qa_admin_${suffix}@test.com`,
@@ -62,6 +66,10 @@ test.describe.serial("Local Man admin user management", () => {
   };
 
   test.afterAll(async ({ browser }, testInfo) => {
+    if (!credentials) {
+      return;
+    }
+
     const baseURL = testInfo.project.use.baseURL;
     const context = await browser.newContext(typeof baseURL === "string" ? { baseURL } : {});
     const page = await context.newPage();
@@ -91,6 +99,10 @@ test.describe.serial("Local Man admin user management", () => {
   });
 
   test("admin can create and delete qa admin and agent users safely", async ({ page }) => {
+    if (!credentials) {
+      throw new Error("Local Man admin credentials were unavailable after the suite credential gate.");
+    }
+
     test.slow();
 
     await loginToAdmin(page, credentials);
@@ -127,13 +139,11 @@ test.describe.serial("Local Man admin user management", () => {
   });
 });
 
-function getAdminCredentials(): Credentials {
+function getAdminCredentials(): Credentials | null {
   const email = process.env.LOCALMAN_ADMIN_EMAIL?.trim();
   const password = process.env.LOCALMAN_ADMIN_PASSWORD?.trim();
 
-  if (!email || !password) {
-    throw new Error("LOCALMAN_ADMIN_EMAIL and LOCALMAN_ADMIN_PASSWORD must be configured for Local Man admin user tests.");
-  }
+  if (!email || !password) return null;
 
   return { email, password };
 }

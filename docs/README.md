@@ -1,6 +1,6 @@
 # Documentation Index
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-07-27
 
 This index is the authoritative map for repository documentation. A document marked **Historical** is retained as release, discovery, or validation evidence and must not be used as the current implementation specification.
 
@@ -17,6 +17,7 @@ This index is the authoritative map for repository documentation. A document mar
 | [Environment Setup](environment-setup.md) | Current | Environment files, variables, and secret boundaries. |
 | [Platform Operations](inssa-platform-operations.md) | Current | Daily operation, startup, execution, and recovery. |
 | [Deployment Checklist](deployment-checklist.md) | Current | Release deployment acceptance gate. |
+| [CI/CD Pipeline](ci-cd.md) | Current | Required checks, job graph, environment policy, and local reproduction. |
 | [Platform Core v1.0 Release Notes](platform-core-v1.0-release-notes.md) | Current | Release scope, limitations, and certification state. |
 | [Repository Documentation Certification](repository-documentation-certification.md) | Current | Sprint D audit evidence and verdict. |
 

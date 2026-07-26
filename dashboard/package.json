@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "doctor": "node scripts/dashboard-runtime.mjs",
     "clean": "node scripts/dashboard-runtime.mjs --clean",
     "dev": "node scripts/dashboard-supervisor.mjs dev",

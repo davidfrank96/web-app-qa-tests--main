@@ -13,6 +13,10 @@ import { withInssaStabilityMonitor } from "../../utils/monitor";
 test.describe("INSSA USA compose location matrix", () => {
   test.describe.configure({ mode: "serial" });
   test.setTimeout(120_000);
+  test.skip(
+    !hasInssaTestCredentials(),
+    "INSSA_TEST_EMAIL and INSSA_TEST_PASSWORD are required for authenticated location-matrix checks."
+  );
 
   test.beforeAll(() => {
     assertValidInssaUrl();
@@ -80,3 +84,7 @@ test.describe("INSSA USA compose location matrix", () => {
     });
   }
 });
+
+function hasInssaTestCredentials() {
+  return Boolean(process.env.INSSA_TEST_EMAIL?.trim() && process.env.INSSA_TEST_PASSWORD?.trim());
+}

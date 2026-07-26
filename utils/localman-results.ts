@@ -126,7 +126,9 @@ export function createLocalManResultCollector(testInfo: TestInfo) {
         ...consoleErrors,
         ...pageErrors,
         ...networkFailures,
-        ...(testInfo.errors ?? []).map((error) => error.message)
+        ...(testInfo.errors ?? [])
+          .map((error) => error.message)
+          .filter((message): message is string => Boolean(message))
       ]);
       const route = inferRouteFromPages(pages);
       const status = deriveStatus(testInfo, loadTimes);
