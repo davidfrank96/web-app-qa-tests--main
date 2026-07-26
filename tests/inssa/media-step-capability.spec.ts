@@ -8,6 +8,10 @@ import { withInssaStabilityMonitor } from "../../utils/monitor";
 test.describe("INSSA media step capability audit", () => {
   test.describe.configure({ mode: "serial" });
   test.setTimeout(90_000);
+  test.skip(
+    !hasInssaTestCredentials(),
+    "INSSA_TEST_EMAIL and INSSA_TEST_PASSWORD are required for the authenticated media-step audit."
+  );
 
   test.beforeAll(() => {
     assertValidInssaUrl();
@@ -60,3 +64,7 @@ test.describe("INSSA media step capability audit", () => {
     });
   });
 });
+
+function hasInssaTestCredentials() {
+  return Boolean(process.env.INSSA_TEST_EMAIL?.trim() && process.env.INSSA_TEST_PASSWORD?.trim());
+}

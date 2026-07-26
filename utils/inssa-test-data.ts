@@ -1,7 +1,8 @@
 export const INSSA_FIND_BUTTON_PATTERN = /^find$/i;
 export const INSSA_BURY_BUTTON_PATTERN = /^bury$/i;
 export const INSSA_SIGN_IN_PATTERN = /^sign in$/i;
-export const INSSA_FIND_CHOOSER_PATTERN = /uncover nearby time capsules|choose what you want to uncover|uncover now/i;
+export const INSSA_FIND_CHOOSER_PATTERN =
+  /uncover nearby time capsules|choose what you want to uncover|uncover now|ask anything|nearby or abroad/i;
 export const INSSA_TIME_CAPSULE_ROUTE_PATTERN = /\/timecapsule(?:\?|$)/i;
 export const INSSA_TIME_CAPSULE_NEXT_PATTERN = /next=.*%2Ftimecapsule/i;
 export const INSSA_DRAFTS_ROUTE = "/messages?tab=1&drafts=1";

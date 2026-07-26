@@ -18,12 +18,17 @@ Current Platform Core version: `1.0.0`. Use the detailed [Deployment Checklist](
 | Monitoring | Authentication-monitor discovery remains credential-free and execution guards remain intact. |
 | Secrets | No real env files, private keys, JWTs, service-role keys, or credentials are tracked. |
 | Git history | No historical ref contains live share tokens, signed URLs, credentials, or private keys. |
+| CI/CD | Both required contexts pass for the correct deterministic commands described in [CI/CD Pipeline](./ci-cd.md). |
 
 ## Commands
 
 ```bash
 npm audit
 npm --prefix dashboard audit
+npm run typecheck
+npm --prefix dashboard run typecheck
+CI=true INSSA_URL=https://staging.inssa.us npm run test:ci:playwright
+npm run test:ci:auth-monitor:discovery
 node --test services/inssa-ingestion/server.test.js scripts/siem/security-hardening.test.js
 npm --prefix dashboard run test:execution-foundation
 npm run dashboard:doctor
@@ -41,3 +46,5 @@ Live staging campaigns are not required for an infrastructure-only release unles
 - `BLOCKED`: any anonymous ingestion, secret exposure, traversal/symlink escape, vulnerable production dependency, failed build, failed persistence gate, or missing environment guard.
 
 Current repository verdict is `BLOCKED` until the historical share-token remediation in [Platform Security Certification](./platform-security-certification.md) is complete. Platform Core implementation completion does not override that security gate.
+
+CI/CD certification is independent of the production security verdict. Branch protection must require `Playwright QA / test` and `QA Enforcement / Playwright QA Gate`.

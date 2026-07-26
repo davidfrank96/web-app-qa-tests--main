@@ -59,12 +59,15 @@ export class LandingPage {
   }
 
   async openFindChooser(): Promise<void> {
-    await expect(this.findButton()).toBeVisible({ timeout: DEFAULT_TIMEOUT });
-    await this.findButton().click();
-    await expect(
-      this.page.getByText(INSSA_FIND_CHOOSER_PATTERN).first(),
-      "Expected Find to open the nearby capsule chooser."
-    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    await this.dismissLandingOverlaysIfPresent();
+    const chooser = this.page.getByText(INSSA_FIND_CHOOSER_PATTERN).first();
+    if (!(await chooser.isVisible({ timeout: 1_000 }).catch(() => false))) {
+      await expect(this.findButton()).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+      await this.findButton().click();
+    }
+    await expect(chooser, "Expected Find to open the nearby capsule chooser.").toBeVisible({
+      timeout: DEFAULT_TIMEOUT
+    });
   }
 
   async openBuryEntry(): Promise<void> {
