@@ -10,6 +10,8 @@ import {
 } from "../../utils/inssa-test-data";
 
 const DEFAULT_TIMEOUT = 15_000;
+const LOCATION_PROMPT_ATTEMPTS = 3;
+const LOCATION_PROMPT_ATTEMPT_TIMEOUT = 3_000;
 
 export class LandingPage {
   constructor(private readonly page: Page) {}
@@ -122,16 +124,62 @@ export class LandingPage {
     }
 
     await this.dismissBrowserSessionWarningIfPresent();
-    const locationPrompt = this.page.getByRole("dialog", { name: /Unlock what's near you/i }).first();
-    if (await locationPrompt.isVisible({ timeout: 1_000 }).catch(() => false)) {
-      const origin = new URL(this.page.url()).origin;
-      await this.page.context().setGeolocation({ latitude: 53.3382, longitude: -6.2591 });
-      await this.page.context().grantPermissions(["geolocation"], { origin });
-      await this.page.getByRole("button", { name: /Use my location/i }).click();
-      await expect(locationPrompt, "Expected location prompt to dismiss before validating landing controls.").not.toBeVisible({
-        timeout: DEFAULT_TIMEOUT
-      });
+    await this.dismissLocationPromptIfPresent();
+  }
+
+  private async dismissLocationPromptIfPresent(): Promise<void> {
+    if (!(await this.locationPrompt().isVisible({ timeout: 1_000 }).catch(() => false))) {
+      return;
     }
+
+    const origin = new URL(this.page.url()).origin;
+    await this.page.context().setGeolocation({ latitude: 53.3382, longitude: -6.2591 });
+    await this.page.context().grantPermissions(["geolocation"], { origin });
+
+    for (let attempt = 1; attempt <= LOCATION_PROMPT_ATTEMPTS; attempt += 1) {
+      const locationPrompt = this.locationPrompt();
+      if (!(await locationPrompt.isVisible({ timeout: 500 }).catch(() => false))) {
+        return;
+      }
+
+      const useLocationButton = locationPrompt.getByRole("button", { name: /Use my location/i }).first();
+      try {
+        await expect(useLocationButton, "Expected the current location consent button to be visible.").toBeVisible({
+          timeout: LOCATION_PROMPT_ATTEMPT_TIMEOUT
+        });
+        await expect(useLocationButton, "Expected the current location consent button to be enabled.").toBeEnabled({
+          timeout: LOCATION_PROMPT_ATTEMPT_TIMEOUT
+        });
+        await useLocationButton.click({ timeout: LOCATION_PROMPT_ATTEMPT_TIMEOUT });
+        await expect(
+          this.locationPrompt(),
+          "Expected location prompt to dismiss before validating landing controls."
+        ).not.toBeVisible({ timeout: DEFAULT_TIMEOUT });
+        return;
+      } catch (error) {
+        const promptStillVisible = await this.locationPrompt().isVisible({ timeout: 500 }).catch(() => false);
+        if (!promptStillVisible) {
+          return;
+        }
+        if (attempt === LOCATION_PROMPT_ATTEMPTS || !this.isTransientLocationPromptError(error)) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  private locationPrompt(): Locator {
+    return this.page.getByRole("dialog", { name: /Unlock what's near you/i }).first();
+  }
+
+  private isTransientLocationPromptError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return /element.*(?:detached|not attached|not stable)|not visible|locator no longer visible|(?:use my location.*timeout|timeout.*use my location)/is.test(
+      error.message
+    );
   }
 
   private async dismissBrowserSessionWarningIfPresent(): Promise<void> {

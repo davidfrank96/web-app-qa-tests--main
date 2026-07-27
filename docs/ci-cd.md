@@ -31,7 +31,7 @@ The final gate depends on these mandatory jobs:
 | --- | --- |
 | Repository integrity | `npm ci`, safe-suite discovery, authentication-monitor discovery, `git diff --check` |
 | Root TypeScript | `npm ci`, `npm run typecheck` |
-| Dashboard build and runtime | dashboard `npm ci`, dashboard typecheck, `npm run dashboard:build`, `npm run dashboard:doctor` |
+| Dashboard build and runtime | root and dashboard `npm ci`, dashboard typecheck, `npm run dashboard:build`, `npm run dashboard:doctor` |
 | Certified platform subsystems | dashboard `npm ci`, `npm run test:ci:platform` |
 | Ingestion and SIEM security | root `npm ci`, `npm run test:ci:security` |
 | Production dependency audit | root/dashboard `npm ci`, root/dashboard `npm audit --omit=dev --audit-level=high` |
@@ -60,7 +60,7 @@ Production URLs, production monitor confirmations, Supabase service-role keys, W
 
 ## Local Reproduction
 
-Use Node 20 to match GitHub Actions:
+Use Node 22 LTS to match the package engine contract, Runtime Doctor, and GitHub Actions:
 
 ```bash
 npm ci
@@ -91,6 +91,8 @@ The Playwright workflow uploads:
 
 Artifacts are retained for seven days. Local environment files, auth state under the operating-system temporary directory, `.next`, dashboard metadata, lifecycle artifacts, campaign outputs, and SIEM credentials are not uploaded.
 
+The location-consent helper re-resolves the current dialog and visible button after staging re-renders the prompt. Retries are limited to transient detachment, stability, and visibility failures; no fixed sleep is used. Playwright retains traces, screenshots, and videos only for failed attempts.
+
 ## Prohibited CI Execution
 
 Ordinary required checks must not execute:
@@ -109,3 +111,5 @@ Optional provider and mutation campaigns require separate, explicitly approved w
 The 2026-07-26 failures in both required checks occurred in the Playwright command before browser execution. Full Actions logs showed `tests/localman/admin/user-management.spec.ts` and `tests/localman/admin/vendor-management.spec.ts` throwing during module import because Localman admin secrets were absent. Both workflows also used unrestricted `npm test`, which included credentialed and mutation suites outside the release-gate scope.
 
 The repair moves Localman admin credentials behind explicit suite gates, makes INSSA authenticated safe checks skip clearly when fork-safe secrets are unavailable, and replaces unrestricted execution with named deterministic CI commands.
+
+The 2026-07-27 remediation standardizes required CI on Node 22 LTS, installs both dependency trees before the certified dashboard build, pins patched Next.js and PostCSS releases, and synchronizes the location prompt through observable state. The aggregate gate remains unchanged and still requires every prerequisite to succeed. The separate `Playwright QA / test` check remains outside the aggregate job graph by design, so branch protection must continue to require both contexts.

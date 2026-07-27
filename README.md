@@ -152,7 +152,7 @@ See [Command Matrix](docs/inssa-command-matrix.md) for the complete CLI and dash
 
 Prerequisites:
 
-- Node.js `18.18` or newer
+- Node.js `22` LTS
 - repository and dashboard dependencies
 - Playwright browsers
 - `dashboard/.env.local` configured from `dashboard/.env.example`
