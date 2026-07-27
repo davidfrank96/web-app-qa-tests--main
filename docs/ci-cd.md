@@ -93,6 +93,8 @@ Artifacts are retained for seven days. Local environment files, auth state under
 
 The location-consent helper re-resolves the current dialog and visible button after staging re-renders the prompt. Retries are limited to transient detachment, stability, and visibility failures; no fixed sleep is used. Playwright retains traces, screenshots, and videos only for failed attempts.
 
+The strict console classifier records the staging `logEvent` telemetry function's known HTTP `400` console message as acceptable staging noise. The rule is limited to that exact staging endpoint, status, and console issue type; other cloud-function failures, HTTP `5xx` responses, page errors, and functional API failures remain release-blocking.
+
 ## Prohibited CI Execution
 
 Ordinary required checks must not execute:
