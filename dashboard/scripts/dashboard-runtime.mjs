@@ -173,13 +173,13 @@ function loadEnvFiles() {
 
 function checkNodeVersion() {
   const version = process.versions.node;
-  const [major, minor] = version.split(".").map((part) => Number(part));
-  const ok = major > 18 || (major === 18 && minor >= 18);
+  const [major] = version.split(".").map((part) => Number(part));
+  const ok = major === 22;
   return makeCheck(
     "Node version",
     ok ? "PASS" : "FAIL",
-    `Detected Node ${version}. Next.js 15 requires Node 18.18 or newer.`,
-    ok ? null : "Install a supported Node runtime before starting the dashboard."
+    `Detected Node ${version}. The QA Operations Platform supports Node 22 LTS.`,
+    ok ? null : "Install Node 22 LTS before starting the dashboard."
   );
 }
 
