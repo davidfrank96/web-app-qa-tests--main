@@ -4,6 +4,10 @@ This document defines the stable runtime workflow for the QA Operations Platform
 
 The dashboard is a Next.js app under `dashboard/`. Runtime failures have previously been traced to stale or mixed `.next` artifacts, including missing `BUILD_ID`, malformed `build-manifest.json`, missing app route bundles, and production startup against development artifacts.
 
+## Supported Runtime
+
+The certified runtime is Node.js 22 LTS. Use the repository `.nvmrc` before installing dependencies or invoking the dashboard wrappers. Runtime Doctor treats every other Node major version as unsupported so local, CI, worker, scheduler, and Supabase persistence behavior use one runtime path.
+
 ## Commands
 
 | Command | Purpose |

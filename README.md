@@ -152,7 +152,7 @@ See [Command Matrix](docs/inssa-command-matrix.md) for the complete CLI and dash
 
 Prerequisites:
 
-- Node.js `18.18` or newer
+- Node.js `22` LTS
 - repository and dashboard dependencies
 - Playwright browsers
 - `dashboard/.env.local` configured from `dashboard/.env.example`
@@ -189,6 +189,17 @@ npm --prefix dashboard run test:execution-foundation
 ```
 
 Live lifecycle commands require the explicit gates documented in [.env.inssa.live-staging.example](.env.inssa.live-staging.example) and create manual cleanup obligations.
+
+## CI/CD
+
+Branch protection requires:
+
+- `Playwright QA / test`
+- `QA Enforcement / Playwright QA Gate`
+
+The Playwright check runs only the approved non-destructive INSSA safe suite against staging. The enforcement gate validates repository integrity, root and dashboard TypeScript, the certified dashboard build and Runtime Doctor, platform subsystem regressions, ingestion/SIEM security, and production dependency audits. Authentication monitoring remains credential-free during discovery and runs only through its dedicated campaign command.
+
+See [CI/CD Pipeline](docs/ci-cd.md) for the exact job graph, fork behavior, secret requirements, prohibited workflows, failure artifacts, and local reproduction commands.
 
 ## Persistence And Evidence
 
@@ -282,6 +293,7 @@ Key references:
 - [Security Guide](docs/platform-security-guide.md)
 - [Deployment Guide](docs/platform-deployment-guide.md)
 - [Release Guide](docs/platform-release-guide.md)
+- [CI/CD Pipeline](docs/ci-cd.md)
 - [Changelog](CHANGELOG.md)
 
 ## Architectural Change Control

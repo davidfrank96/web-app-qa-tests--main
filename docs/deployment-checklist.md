@@ -4,10 +4,15 @@ Every required item must have captured evidence for the target environment.
 
 ## Repository
 
+- [ ] `Playwright QA / test` passes.
+- [ ] `QA Enforcement / Playwright QA Gate` passes with every mandatory prerequisite successful.
+- [ ] Authentication-monitor discovery passes without provider credentials.
+- [ ] Required checks use only the approved staging-safe scope in [CI/CD Pipeline](./ci-cd.md).
 - [ ] Git history share-token remediation is complete and affected tokens are invalid/expired.
 - [ ] No real environment, credential, key, user-data, or generated evidence file is tracked.
 - [ ] Root and dashboard versions are `1.0.0`.
 - [ ] Root and dashboard `npm audit` return zero unresolved vulnerabilities.
+- [ ] Root and dashboard TypeScript checks pass.
 - [ ] Documentation link and command validation pass.
 
 ## Host And Runtime

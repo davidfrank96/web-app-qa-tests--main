@@ -2,53 +2,168 @@ name: QA Enforcement
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-enforcement-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  INSSA_URL: https://staging.inssa.us
+  PLAYWRIGHT_HTML_OPEN: never
+  AUTH_MONITOR_ALLOW_PRODUCTION: "0"
+
 jobs:
+  repository-integrity:
+    name: Repository integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate workflow-safe test discovery
+        run: |
+          npm run test:ci:playwright:list
+          npm run test:ci:auth-monitor:discovery
+      - name: Check patch integrity
+        run: |
+          git diff --check
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            git diff --check HEAD^ HEAD
+          fi
+
+  root-typescript:
+    name: Root TypeScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
+  dashboard:
+    name: Dashboard build and runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            dashboard/package-lock.json
+      - run: npm ci
+      - run: npm --prefix dashboard ci
+      - run: npm --prefix dashboard run typecheck
+      - name: Clean production build
+        run: npm run dashboard:build
+      - name: Runtime Doctor
+        run: npm run dashboard:doctor
+
+  platform-foundation:
+    name: Certified platform subsystems
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm --prefix dashboard ci
+      - run: npm run test:ci:platform
+
+  security-regression:
+    name: Ingestion and SIEM security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:ci:security
+
+  dependency-security:
+    name: Production dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            dashboard/package-lock.json
+      - run: npm ci
+      - run: npm --prefix dashboard ci
+      - name: Root production audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Dashboard production audit
+        run: npm --prefix dashboard audit --omit=dev --audit-level=high
+
   qa:
     name: Playwright QA Gate
+    if: always()
+    needs:
+      - repository-integrity
+      - root-typescript
+      - dashboard
+      - platform-foundation
+      - security-regression
+      - dependency-security
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      CI: "true"
-      LOCALMAN_URL: ${{ secrets.LOCALMAN_URL }}
-      KBEAN_URL: ${{ secrets.KBEAN_URL }}
-      INSSA_URL: ${{ secrets.INSSA_URL }}
-      LOCALMAN_ADMIN_EMAIL: ${{ secrets.LOCALMAN_ADMIN_EMAIL }}
-      LOCALMAN_ADMIN_PASSWORD: ${{ secrets.LOCALMAN_ADMIN_PASSWORD }}
-      INSSA_TEST_EMAIL: ${{ secrets.INSSA_TEST_EMAIL }}
-      INSSA_TEST_PASSWORD: ${{ secrets.INSSA_TEST_PASSWORD }}
-      PLAYWRIGHT_HTML_OPEN: never
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps
-
-      - name: Run QA suite
-        run: npm run test
-
-      - name: Upload Playwright report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: playwright-report/
-          if-no-files-found: error
-          retention-days: 7
+      - name: Enforce mandatory QA conclusions
+        env:
+          REPOSITORY_INTEGRITY: ${{ needs.repository-integrity.result }}
+          ROOT_TYPESCRIPT: ${{ needs.root-typescript.result }}
+          DASHBOARD: ${{ needs.dashboard.result }}
+          PLATFORM_FOUNDATION: ${{ needs.platform-foundation.result }}
+          SECURITY_REGRESSION: ${{ needs.security-regression.result }}
+          DEPENDENCY_SECURITY: ${{ needs.dependency-security.result }}
+        run: |
+          failed=0
+          for prerequisite in \
+            REPOSITORY_INTEGRITY \
+            ROOT_TYPESCRIPT \
+            DASHBOARD \
+            PLATFORM_FOUNDATION \
+            SECURITY_REGRESSION \
+            DEPENDENCY_SECURITY
+          do
+            result="${!prerequisite}"
+            printf '%s=%s\n' "$prerequisite" "$result"
+            if [ "$result" != "success" ]; then
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "QA Enforcement blocked: one or more mandatory prerequisites did not succeed."
+            exit 1
+          fi
+          echo "QA Enforcement passed: every mandatory prerequisite succeeded."

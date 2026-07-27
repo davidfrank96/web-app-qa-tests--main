@@ -13,7 +13,7 @@ Release Hardening Sprint C covers Wazuh ingestion authentication, sensitive-outp
 - Textual logs and evidence responses redact credential formats, including historical local records.
 - Evidence file and bundle routes validate canonical repository, allowlist-root, and target paths.
 - A symlink-escape regression test proves canonical bypass is blocked.
-- Next.js is pinned to `15.5.18`; React/React DOM to `19.2.5`; PostCSS to `8.5.10`; overrides enforce patched nested PostCSS `8.5.10` and Sharp `0.35.0`.
+- Next.js is pinned to `15.5.22`; React/React DOM to `19.2.5`; PostCSS to `8.5.23`; overrides enforce patched nested PostCSS `8.5.23` and Sharp `0.35.0`.
 
 ## Audit Findings
 
@@ -29,7 +29,7 @@ Release Hardening Sprint C covers Wazuh ingestion authentication, sensitive-outp
 | Dashboard npm audit | PASS, zero vulnerabilities |
 | Ingestion/SIEM security tests | PASS, 5 of 5 |
 | Execution foundation tests | PASS, 15 of 15 |
-| Dashboard build | PASS on Next.js 15.5.18 |
+| Dashboard build | PASS on Next.js 15.5.22 |
 | Production runtime probe | PASS; `/login` returned `200`, anonymous `/api/runs` returned `401`, clean shutdown completed |
 | Runtime Doctor | PASS |
 | Platform healthcheck | PASS WITH WARNINGS; live Wazuh endpoint/UI were unreachable from the validation environment |

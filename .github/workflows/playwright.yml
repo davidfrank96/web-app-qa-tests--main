@@ -5,10 +5,23 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playwright-qa-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: "true"
+      INSSA_URL: https://staging.inssa.us
+      PLAYWRIGHT_HTML_OPEN: never
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,25 +29,28 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
 
-      - name: Run Playwright tests
-        run: npm test
-        env:
-          LOCALMAN_URL: ${{ secrets.LOCALMAN_URL }}
-          KBEAN_URL: ${{ secrets.KBEAN_URL }}
-          INSSA_URL: ${{ secrets.INSSA_URL }}
+      - name: Verify approved suite discovery
+        run: npm run test:ci:playwright:list
 
-      - name: Upload Playwright report
-        if: always()
+      - name: Run approved non-destructive Playwright suite
+        run: npm run test:ci:playwright
+
+      - name: Upload sanitized Playwright evidence
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
-          path: playwright-report/
+          name: playwright-safe-suite-${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
           retention-days: 7

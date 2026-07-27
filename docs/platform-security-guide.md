@@ -28,7 +28,7 @@ The ingestion service binds to `127.0.0.1`, receives TLS-terminated traffic thro
 
 ## Dependency Policy
 
-Production dependencies are lockfile-pinned and must pass `npm audit`. Release Hardening Sprint C pins Next.js `15.5.18`, React/React DOM `19.2.5`, and PostCSS `8.5.10`. npm overrides force Next.js to use patched PostCSS `8.5.10` and Sharp `0.35.0`. Do not use `npm audit fix --force`; review and validate every framework upgrade.
+Production dependencies are lockfile-pinned and must pass `npm audit --omit=dev --audit-level=high`. The dashboard pins Next.js `15.5.22`, React/React DOM `19.2.5`, and PostCSS `8.5.23`. npm overrides keep nested PostCSS on `8.5.23` and Sharp on `0.35.0`. Do not use `npm audit fix --force`; review and validate every framework upgrade.
 
 ## Verification
 

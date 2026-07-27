@@ -24,7 +24,7 @@ export default defineConfig({
     ? [["html", { outputFolder: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR }], ["list"]]
     : [["html"], ["list"]],
   use: {
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
     actionTimeout: 10_000,
