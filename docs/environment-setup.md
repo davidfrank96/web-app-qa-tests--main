@@ -1,5 +1,9 @@
 # Environment Setup
 
+## Runtime
+
+Use Node.js 22 LTS for the root test framework, dashboard, worker, scheduler, persistence tooling, and CI reproduction. The root and dashboard package engine declarations mark other major versions unsupported, and Runtime Doctor fails when the active major version is not 22.
+
 ## Environment Files
 
 | File | Consumer | Commit policy |

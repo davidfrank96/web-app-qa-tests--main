@@ -96,7 +96,6 @@ async function runRapidNearbyBurst(input: {
   request: {
     get: (url: string, options?: { failOnStatusCode?: boolean }) => Promise<{
       headers(): Record<string, string>;
-      redirectedFrom(): unknown;
       status(): number;
       text(): Promise<string>;
       url(): string;
@@ -113,7 +112,6 @@ async function runNearbyRequest(
   request: {
     get: (url: string, options?: { failOnStatusCode?: boolean }) => Promise<{
       headers(): Record<string, string>;
-      redirectedFrom(): unknown;
       status(): number;
       text(): Promise<string>;
       url(): string;

@@ -18,6 +18,7 @@ type DiscoveryState =
       vendorCards: Locator[];
       vendorSignal: "map-markers" | "selected-vendor" | "vendor-cards";
     };
+type VendorDiscoveryState = Extract<DiscoveryState, { kind: "vendors" }>;
 
 type DiscoveryContext = {
   localman: LocalManPage;
@@ -40,8 +41,10 @@ async function loadDiscovery(page: Page): Promise<DiscoveryContext> {
   };
 }
 
-function skipIfNoVendors(state: DiscoveryState) {
-  test.skip(state.kind === "empty", "Local Man discovery rendered the validated empty state in this environment.");
+function skipIfNoVendors(state: DiscoveryState): asserts state is VendorDiscoveryState {
+  if (state.kind === "empty") {
+    test.skip(true, "Local Man discovery rendered the validated empty state in this environment.");
+  }
 }
 
 test.describe("Local Man vendor discovery", () => {

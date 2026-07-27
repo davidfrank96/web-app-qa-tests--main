@@ -45,9 +45,17 @@ type VendorRecord = {
 
 test.describe.serial("Local Man admin vendor management", () => {
   const credentials = getAdminCredentials();
+  test.skip(
+    !credentials,
+    "LOCALMAN_ADMIN_EMAIL and LOCALMAN_ADMIN_PASSWORD are required for Local Man admin vendor management."
+  );
   const vendor = buildVendorRecord();
 
   test.afterAll(async ({ browser }, testInfo) => {
+    if (!credentials) {
+      return;
+    }
+
     const baseURL = testInfo.project.use.baseURL;
     const context = await browser.newContext(typeof baseURL === "string" ? { baseURL } : {});
     const page = await context.newPage();
@@ -83,6 +91,10 @@ test.describe.serial("Local Man admin vendor management", () => {
   });
 
   test("admin can validate and manage the vendor lifecycle through the public app", async ({ page }) => {
+    if (!credentials) {
+      throw new Error("Local Man admin credentials were unavailable after the suite credential gate.");
+    }
+
     test.slow();
 
     await test.step("sign in and reach the vendor workspace", async () => {
@@ -207,13 +219,11 @@ function buildVendorRecord(): VendorRecord {
   };
 }
 
-function getAdminCredentials() {
+function getAdminCredentials(): { email: string; password: string } | null {
   const email = process.env.LOCALMAN_ADMIN_EMAIL?.trim();
   const password = process.env.LOCALMAN_ADMIN_PASSWORD?.trim();
 
-  if (!email || !password) {
-    throw new Error("LOCALMAN_ADMIN_EMAIL and LOCALMAN_ADMIN_PASSWORD must be configured for Local Man admin tests.");
-  }
+  if (!email || !password) return null;
 
   return { email, password };
 }

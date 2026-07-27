@@ -42,6 +42,11 @@ baseTest.describe("INSSA time capsule compose entry", () => {
 });
 
 authenticatedTest.describe("INSSA time capsule compose entry", () => {
+  authenticatedTest.skip(
+    !hasInssaTestCredentials(),
+    "INSSA_TEST_EMAIL and INSSA_TEST_PASSWORD are required for authenticated safe-suite checks."
+  );
+
   authenticatedTest.beforeAll(() => {
     assertValidInssaUrl();
     getInssaTestCredentials();
@@ -98,3 +103,7 @@ authenticatedTest.describe("INSSA time capsule compose entry", () => {
     });
   });
 });
+
+function hasInssaTestCredentials() {
+  return Boolean(process.env.INSSA_TEST_EMAIL?.trim() && process.env.INSSA_TEST_PASSWORD?.trim());
+}

@@ -70,6 +70,8 @@ const FIRESTORE_CHANNEL_PATTERN =
 const FAILED_RESOURCE_4XX_PATTERN = /Failed to load resource: the server responded with a status of (400|404)/i;
 const TELEMETRY_NOISE_PATTERN =
   /csp\.withgoogle\.com|report-only Content Security Policy|google-analytics\.com\/g\/collect|sentry\.io\/api\/|google\.com\/recaptcha|firebaseinstallations\.googleapis\.com/i;
+const KBEAN_STAGING_LOG_EVENT_400_PATTERN =
+  /Failed to load resource: the server responded with a status of 400[\s\S]*us-central1-kbean-stg-fcm\.cloudfunctions\.net\/logEvent|us-central1-kbean-stg-fcm\.cloudfunctions\.net\/logEvent[\s\S]*Failed to load resource: the server responded with a status of 400/i;
 const GOOGLE_MAPS_VECTOR_FALLBACK_PATTERN =
   /Attempted to load a Vector Map, but failed\. Falling back to Raster|developers\.google\.com\/maps\/documentation\/javascript\/webgl\/support/i;
 const AZURE_PROFILE_FAILURE_PATTERN =
@@ -152,6 +154,14 @@ export function classifyInssaIssue(issue: InssaIssueLike): ClassifiedInssaIssue 
   if (FIREBASE_RETRYABLE_AUTH_NETWORK_PATTERN.test(searchable)) {
     return {
       category: "retryable-network-error",
+      issue,
+      severity: "acceptable"
+    };
+  }
+
+  if (issue.kind === "console" && KBEAN_STAGING_LOG_EVENT_400_PATTERN.test(searchable)) {
+    return {
+      category: "acceptable-staging-noise",
       issue,
       severity: "acceptable"
     };
