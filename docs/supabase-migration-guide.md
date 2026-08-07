@@ -10,6 +10,8 @@
 | 4 | `20260723_monitoring_framework.sql` | Monitoring definitions and initial catalog |
 | 5 | `20260724_scheduler_trigger.sql` | Schedule configuration, occurrence ledger, scheduler status |
 | 6 | `20260725_authentication_monitoring.sql` | Authentication-monitor definitions |
+| 7 | `20260802_admin_live_campaigns.sql` | Sanitized live execution context, cleanup metadata, and approval/preflight/cleanup audit events |
+| 8 | `20260802_deferred_cleanup_ledger.sql` | Deferred-cleanup ledger, retention metadata, limits support, indexes, RLS, and service-role-only access |
 
 Dependencies flow only forward. No later migration recreates or replaces an earlier subsystem's function.
 
@@ -32,7 +34,7 @@ The current chain was applied to an empty PostgreSQL 18 database with Supabase r
 - 12 foreign keys.
 - 18 primary/unique constraints.
 - 44 check constraints.
-- RLS enabled on all 11 tables.
+- RLS enabled on all 12 tables.
 - Zero anon/authenticated table privileges.
 - Two service-role-only security-definer RPCs with empty search paths.
 - Bucket provisioning is separately verified through `npm run persistence:provision` and the supported Storage API.

@@ -1,6 +1,6 @@
 # QA Platform Architecture Constitution
 
-Last ratified: 2026-07-21
+Last ratified: 2026-08-02
 Applies to Platform Core version `1.0.0`
 
 This is the governing architectural source of truth. A change that conflicts with it requires explicit architecture approval before implementation.
@@ -80,7 +80,7 @@ Production authentication monitoring is a narrowly approved read-only exception.
 
 ## 6. Lifecycle Constitution
 
-Text, media, video, and reveal-later lifecycle campaigns create staging data. Dashboard execution remains disabled until an approved workflow provides:
+Text, media, video, and reveal-later lifecycle campaigns create staging data. Dashboard execution is permitted only through the approved governed workflow, which provides:
 
 - explicit approval
 - clear operator identity
@@ -90,6 +90,8 @@ Text, media, video, and reveal-later lifecycle campaigns create staging data. Da
 - no production target
 
 Visibility in the Campaign Library does not imply execution approval.
+
+The governed workflow is admin-only, fixes the target to `staging.inssa.us`, requires explicit acknowledgements and confirmation, repeats preflight server-side, creates a durable one-attempt job, and records a cleanup manifest. Raw mutation primitives remain hidden. Reveal-later campaigns must explicitly choose create or resume; resume must validate approved staging artifact ownership, schedule, and lifecycle state.
 
 ## 7. Security Constitution
 

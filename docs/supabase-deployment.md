@@ -32,7 +32,7 @@ npx supabase@latest db push --dry-run
 npx supabase@latest db push
 ```
 
-Apply the complete ordered directory. Do not run individual SQL fragments in the dashboard SQL editor. The first migration creates core run/evidence tables; later migrations add execution, outbox, monitoring, scheduler, and authentication-monitor definitions.
+Apply the complete ordered directory. Do not run individual SQL fragments in the dashboard SQL editor. The first migration creates core run/evidence tables; later migrations add execution, outbox, monitoring, scheduler, authentication-monitor definitions, and governed live-campaign execution/cleanup metadata.
 
 ## 3. Provision Supported Storage Resources
 
@@ -67,8 +67,8 @@ Never prefix the service-role variable with `NEXT_PUBLIC_` and never expose it t
 
 In the Supabase dashboard verify:
 
-- 11 platform tables exist in `public`.
-- RLS is enabled on all 11 tables.
+- 12 platform tables exist in `public`, including `cleanup_ledger`.
+- RLS is enabled on all 12 tables.
 - `inssa-evidence` exists and is private.
 - No anon/authenticated policies expose platform tables or evidence objects.
 - `claim_inssa_execution_job` and `recover_inssa_execution_job_records` exist.

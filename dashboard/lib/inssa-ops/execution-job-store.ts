@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { withLocalFileLock } from "./local-file-lock";
 import { getLocalExecutionJobStorePath } from "./paths";
-import type { InssaExecutionJobRecord, ResolvedInssaLifecycleArtifactSelection } from "./types";
+import type { InssaExecutionJobRecord, InssaLiveExecutionContext, ResolvedInssaLifecycleArtifactSelection } from "./types";
 
 type JobStoreSnapshot = {
   jobs: InssaExecutionJobRecord[];
@@ -13,6 +13,8 @@ export type EnqueueExecutionJobInput = {
   campaignKey: string;
   idempotencyKey: string;
   lifecycleArtifact?: ResolvedInssaLifecycleArtifactSelection;
+  executionContext?: InssaLiveExecutionContext;
+  maxAttempts?: number;
   runId: string;
 };
 
@@ -27,6 +29,7 @@ export interface InssaExecutionJobStore {
   enqueue(input: EnqueueExecutionJobInput): Promise<{ created: boolean; job: InssaExecutionJobRecord }>;
   getByIdempotencyKey(idempotencyKey: string): Promise<InssaExecutionJobRecord | null>;
   getByRunId(runId: string): Promise<InssaExecutionJobRecord | null>;
+  getActive(): Promise<InssaExecutionJobRecord | null>;
   heartbeat(jobId: string, workerId: string, leaseMs: number): Promise<void>;
   markRunning(jobId: string, workerId: string, leaseMs: number): Promise<void>;
   recoverAbandoned(): Promise<InssaExecutionJobRecord[]>;
@@ -63,10 +66,11 @@ class LocalExecutionJobStore implements InssaExecutionJobStore {
         heartbeatAt: null,
         id: crypto.randomUUID(),
         idempotencyKey: input.idempotencyKey,
+        executionContext: input.executionContext ?? null,
         lastError: null,
         leaseExpiresAt: null,
         lifecycleArtifact: input.lifecycleArtifact ?? null,
-        maxAttempts: 2,
+        maxAttempts: input.maxAttempts ?? 2,
         runId: input.runId,
         schemaVersion: 1,
         status: "queued",
@@ -134,6 +138,11 @@ class LocalExecutionJobStore implements InssaExecutionJobStore {
     return snapshot.jobs.find((job) => job.runId === runId) ?? null;
   }
 
+  async getActive() {
+    const snapshot = await readSnapshot(getLocalExecutionJobStorePath());
+    return snapshot.jobs.find((job) => ["claimed", "queued", "running"].includes(job.status)) ?? null;
+  }
+
   async recoverAbandoned() {
     return this.write(async (snapshot) => recoverExpiredJobs(snapshot));
   }
@@ -187,10 +196,11 @@ class SupabaseExecutionJobStore implements InssaExecutionJobStore {
       heartbeatAt: null,
       id: crypto.randomUUID(),
       idempotencyKey: input.idempotencyKey,
+      executionContext: input.executionContext ?? null,
       lastError: null,
       leaseExpiresAt: null,
       lifecycleArtifact: input.lifecycleArtifact ?? null,
-      maxAttempts: 2,
+      maxAttempts: input.maxAttempts ?? 2,
       runId: input.runId,
       schemaVersion: 1,
       status: "queued",
@@ -232,6 +242,11 @@ class SupabaseExecutionJobStore implements InssaExecutionJobStore {
 
   async getByRunId(runId: string) {
     const rows = await this.request(`execution_jobs?run_id=eq.${encodeURIComponent(runId)}&limit=1`);
+    return rows[0] ? fromRow(rows[0]) : null;
+  }
+
+  async getActive() {
+    const rows = await this.request("execution_jobs?status=in.(queued,claimed,running)&order=created_at.asc&limit=1");
     return rows[0] ? fromRow(rows[0]) : null;
   }
 
@@ -330,6 +345,7 @@ function toRow(job: InssaExecutionJobRecord) {
     heartbeat_at: job.heartbeatAt,
     id: job.id,
     idempotency_key: job.idempotencyKey,
+    execution_context: job.executionContext,
     last_error: job.lastError,
     lease_expires_at: job.leaseExpiresAt,
     lifecycle_artifact: job.lifecycleArtifact,
@@ -352,6 +368,7 @@ function fromRow(row: Record<string, unknown>): InssaExecutionJobRecord {
     heartbeatAt: nullableString(row.heartbeat_at),
     id: String(row.id),
     idempotencyKey: String(row.idempotency_key),
+    executionContext: (row.execution_context as InssaLiveExecutionContext | null) ?? null,
     lastError: nullableString(row.last_error),
     leaseExpiresAt: nullableString(row.lease_expires_at),
     lifecycleArtifact: (row.lifecycle_artifact as ResolvedInssaLifecycleArtifactSelection | null) ?? null,

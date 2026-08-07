@@ -95,8 +95,8 @@ The governing rules are in [QA Platform Architecture Constitution](docs/qa-platf
 | Overview | Runner, backend, recent activity, and platform summary. | None |
 | Campaign Library | Product-aware campaign definitions and readiness. | Existing enabled commands only |
 | Testing | Dedicated INSSA Safe Suite action. | Operator/admin |
-| Security | Security Campaign and Security Verification. | Operator/admin |
-| Lifecycle | Text, media, video, and reveal-later campaign orientation. | Disabled |
+| Security | Security Campaign, Security Verification, Cross-User, and Reveal-Later Security. | Read-only actions operator/admin; live actions admin only |
+| Lifecycle | Text, media, video, and reveal-later governed campaign execution. | Admin only; staging approval and cleanup required |
 | Execution | Active run timeline, logs, outputs, and completion. | Observational |
 | Artifact Validation | Discovery, public-share, and cleanup audits using selected evidence. | Operator/admin with artifact selection |
 | Reports | Evidence explorer, item preview, integrity, storage, reports, and related evidence. | None |
@@ -113,7 +113,7 @@ The governing rules are in [QA Platform Architecture Constitution](docs/qa-platf
 | --- | --- |
 | Viewer | View dashboard, runs, logs, artifacts, evidence, reports, monitors, notifications, and diagnostics. |
 | Operator | Viewer permissions plus enabled safe/read-only commands, excluding platform healthcheck. |
-| Admin | Operator permissions plus platform healthcheck. |
+| Admin | Operator permissions plus platform healthcheck and governed live staging campaigns after approval/preflight. |
 
 Role resolution uses `app_metadata.inssa_ops_role`, then optional email allowlists, then defaults to `viewer`. API authorization is server-side.
 
@@ -124,6 +124,12 @@ Executable from the dashboard:
 - `test:inssa:safe`
 - `test:inssa:campaign:security`
 - `test:inssa:campaign:security:verify`
+- `test:inssa:campaign:text` for admins after live approval
+- `test:inssa:campaign:media` for admins after live approval
+- `test:inssa:campaign:video` for admins after live approval
+- `test:inssa:campaign:reveal-later` for admins in explicit create/resume mode
+- `test:inssa:campaign:cross-user` for admins after secondary-account preflight
+- `test:inssa:campaign:reveal-later-security` for admins in explicit create/resume mode
 - `test:inssa:discovery`
 - `test:inssa:public-share`
 - `test:inssa:cleanup-audit`
@@ -135,8 +141,6 @@ Executable from the dashboard:
 
 Visible but disabled:
 
-- text, media, video, and reveal-later lifecycle campaigns
-- cross-user and reveal-later security campaigns
 - SIEM send
 
 Hidden from dashboard execution:
@@ -210,7 +214,7 @@ INSSA_OPS_METADATA_STORE=local
 INSSA_EVIDENCE_STORAGE_PROVIDER=local
 ```
 
-Durable deployments use Supabase Postgres for metadata and a private Supabase Storage bucket for evidence bytes. Apply all six ordered migrations and provision the bucket before selecting Supabase providers:
+Durable deployments use Supabase Postgres for metadata and a private Supabase Storage bucket for evidence bytes. Apply all seven ordered migrations and provision the bucket before selecting Supabase providers:
 
 ```bash
 cd dashboard

@@ -108,7 +108,7 @@ export function createInssaLifecycleNetworkMonitor(input: {
       return;
     }
 
-    const textForExtraction = [request.url(), request.postData() ?? ""].join("\n");
+    const textForExtraction = expandLifecycleExtractionText([request.url(), request.postData() ?? ""].join("\n"));
     recordObservation({
       collectionPaths: extractCollectionPaths(textForExtraction),
       event: "request",
@@ -141,7 +141,7 @@ export function createInssaLifecycleNetworkMonitor(input: {
       responseText = await response.text().catch(() => null);
     }
 
-    const textForExtraction = [request.url(), responseText ?? ""].join("\n");
+    const textForExtraction = expandLifecycleExtractionText([request.url(), responseText ?? ""].join("\n"));
     recordObservation({
       collectionPaths: extractCollectionPaths(textForExtraction),
       debugBodySnippet: debugEnabled ? sanitizeBodySnippet(responseText) : undefined,
@@ -165,7 +165,7 @@ export function createInssaLifecycleNetworkMonitor(input: {
       return;
     }
 
-    const textForExtraction = [request.url(), request.failure()?.errorText ?? ""].join("\n");
+    const textForExtraction = expandLifecycleExtractionText([request.url(), request.failure()?.errorText ?? ""].join("\n"));
     recordObservation({
       collectionPaths: extractCollectionPaths(textForExtraction),
       debugBodySnippet: debugEnabled ? sanitizeBodySnippet(request.failure()?.errorText ?? null) : undefined,
@@ -417,6 +417,31 @@ function extractPossibleDocumentIds(value: string): string[] {
   }
 
   return [...ids];
+}
+
+export function extractInssaLifecycleIdentifiers(value: string) {
+  const expanded = expandLifecycleExtractionText(value);
+  return {
+    capsuleIds: extractPossibleCapsuleIds(expanded),
+    documentIds: extractPossibleDocumentIds(expanded),
+    shareTokens: extractPossibleShareTokens(expanded)
+  };
+}
+
+function expandLifecycleExtractionText(value: string): string {
+  const variants = new Set([value]);
+  let current = value;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const decoded = decodeURIComponent(current.replace(/\+/g, " "));
+      variants.add(decoded);
+      if (decoded === current) break;
+      current = decoded;
+    } catch {
+      break;
+    }
+  }
+  return [...variants].join("\n");
 }
 
 function extractPossibleCapsuleIds(value: string): string[] {
