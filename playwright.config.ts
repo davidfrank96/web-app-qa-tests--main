@@ -9,6 +9,8 @@ dotenv.config({
 
 console.log("Loaded INSSA_URL:", process.env.INSSA_URL);
 
+const mutationRecording = process.env.INSSA_MUTATION_RECORDING === "1";
+
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
@@ -25,8 +27,8 @@ export default defineConfig({
     : [["html"], ["list"]],
   use: {
     trace: "retain-on-failure",
-    screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    screenshot: mutationRecording ? "on" : "only-on-failure",
+    video: mutationRecording ? "on" : "retain-on-failure",
     actionTimeout: 10_000,
     navigationTimeout: 20_000
   },

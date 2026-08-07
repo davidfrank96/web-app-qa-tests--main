@@ -52,6 +52,7 @@ The local `.env.inssa.live-staging` file is ignored by git. Do not commit real c
 | `INSSA_ENABLE_MEDIA_CAPSULE_TESTS=1` | Enables one-image live media capsule creation. |
 | `INSSA_ENABLE_VIDEO_CAPSULE_TESTS=1` | Enables one-video live capsule creation. |
 | `INSSA_ENABLE_REVEAL_LATER_CAPSULE_TESTS=1` | Enables reveal-later live capsule creation. |
+| `INSSA_REVEAL_LATER_LIFECYCLE_ARTIFACT_PATH` | Runner-managed approved artifact path for explicit dashboard Resume mode. |
 | `INSSA_ENABLE_MUTATION_TESTS=1` | Enables draft-write and draft-restore mutation-gated specs. |
 | `INSSA_US_MARKET_LOCATION=nyc` | Selects one live USA market location for media/video tests. |
 | `INSSA_LIVE_CAPSULE_ARTIFACT_PATH` | Explicit artifact JSON consumed by read-only lifecycle specs. |
@@ -122,6 +123,40 @@ scripts/inssa/run-lifecycle-campaign.js
 ```
 
 It loads `.env.inssa.live-staging` when present, hard-blocks non-staging hosts, runs one create spec with one worker and zero retries, locates the newly written `lifecycle-artifacts/<runId>*.json` artifact by exact QA subject prefix for that campaign type, then sets `INSSA_LIVE_CAPSULE_ARTIFACT_PATH` for downstream read-only phases. It does not use latest-artifact lookup inside a campaign after creation.
+
+### Dashboard Admin Execution
+
+The dashboard exposes only the four governed campaign wrappers above, never `live-text`, `live-media`, `live-video`, `reveal-later`, or the broad `live-staging` primitive. An authenticated admin must use `Review and Run`, confirm the exact staging target, complete all five acknowledgements, type `RUN STAGING MUTATION`, and pass campaign-specific server preflight. Viewer/operator execution is denied with `403`.
+
+Every mutation job has one attempt so the final Bury/share action is not automatically retried. The worker preserves immutable run evidence and creates `cleanup-manifest.json`. Deferred Cleanup Mode may permit the next live campaign when every unresolved object is identified, attributed to a dedicated QA account, sanitized, safely represented in the durable ledger, within age/count/rate limits, and truthfully marked `deferred` or `cleanup_unavailable`. Unknown or unexpected objects remain blocking.
+
+The current Text flow is:
+
+```text
+Compose
+→ Add media & bury
+→ Bury
+→ Reveal settings (Step 1 of 2)
+→ Shared capsule + Reveal now
+→ Continue
+→ Send or save (Step 2 of 2)
+→ 0 selected
+→ select the configured secondary QA contact
+→ 1 selected
+→ Bury, send to 1 contact, then share more
+→ success/share surface
+```
+
+The Text harness requires `INSSA_SECONDARY_TEST_EMAIL`, verifies the exact contact identity and `0 → 1` count transition, and invokes the final contact-share action once. A successful persistence response without a captured capsule ID is classified `failed_cleanup_identity`; it requires cleanup investigation and forbids automatic retry.
+
+### Active Cleanup Hold (2026-08-02)
+
+Failed dashboard run `dd7b8a3d-7bcc-4409-8d3c-ef7a99ad70bb` created staging draft `timeCapsules/Zd7QsNEJGbMXOSvAn3qc` before contact finalization. The trace proves a successful Firestore write and no recipients, share token, or media. The one owner UI Delete attempt completed its confirmation, but the dialog explicitly described removing the message for the current user while retaining it for recipients. At `2026-08-02T21:30:08.755Z`, a fresh authenticated direct-route load and exact-document Firestore read/listen traffic still confirmed the active draft. This is tracked as [INSSA-CLEANUP-001](./inssa-text-lifecycle-cleanup-defect.md) with `cleanup_unavailable`, the exact originating run, dedicated QA ownership, sanitized evidence, and a 90-day retention target. It remains unresolved INSSA staging data; the ledger does not claim or perform deletion.
+
+Reveal-Later supports two explicit modes:
+
+- Create: run the normal create phase and record the new run-owned artifact.
+- Resume: select a successful staging reveal-later artifact with owner, scheduled timestamp, and lifecycle-state evidence. The server passes the validated path through `INSSA_REVEAL_LATER_LIFECYCLE_ARTIFACT_PATH`.
 
 Campaign artifact matching:
 

@@ -1,6 +1,6 @@
 # Operations API Reference
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-08-02
 
 All Operations APIs are same-origin Next.js routes. Except login/magic-link, every route requires a valid Supabase session and viewer-or-higher role. Mutation authorization is server-side.
 
@@ -19,14 +19,18 @@ All Operations APIs are same-origin Next.js routes. Except login/magic-link, eve
 | --- | --- | --- |
 | `GET` | `/api/campaign-definitions` | Registry definitions. |
 | `GET` | `/api/lifecycle-artifacts` | Validation-ready lifecycle artifact options. |
+| `POST` | `/api/campaign-approvals` | Admin-only live-campaign approval-open audit or preflight. Does not enqueue work. |
 | `GET` | `/api/runs` | Run history and metadata backend summary. Supports `limit`, `cursor`. |
-| `POST` | `/api/runs` | Enqueue enabled command. Body: `campaignKey`; artifact validators also accept `artifactSelection`. Optional `Idempotency-Key` header. |
+| `POST` | `/api/runs` | Enqueue enabled command. Body: `campaignKey`; artifact validators accept `artifactSelection`; governed live campaigns require validated `liveApproval`. Optional `Idempotency-Key` header. |
 | `GET` | `/api/runs/:id` | Run metadata. |
 | `GET` | `/api/runs/:id/logs` | Incremental logs. Supports `after`, `limit`. |
 | `GET` | `/api/runs/:id/artifacts` | Artifact metadata. Supports `limit`, `cursor`. |
 | `GET` | `/api/runs/:id/evidence` | Evidence Bundles and Items. Supports `limit`, `cursor`. |
+| `POST` | `/api/runs/:id/cleanup` | Admin-only manual cleanup confirmation for a terminal mutation run. |
 
 `POST /api/runs` returns `202` when queued, `400` for invalid environment/input, `403` for role/registry denial, and `409` when active-work protection prevents enqueueing.
+
+Live campaign preflight is authoritative on the server and is repeated at enqueue time. Target URLs are never accepted from the browser.
 
 ## Artifacts And Evidence
 

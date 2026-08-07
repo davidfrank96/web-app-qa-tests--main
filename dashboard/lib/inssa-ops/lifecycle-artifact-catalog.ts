@@ -7,6 +7,7 @@ import type {
 } from "./types";
 
 export type InssaLifecycleArtifactOption = {
+  artifactId: string | null;
   artifactType: string;
   createdAt: string | null;
   filePath: string;
@@ -14,7 +15,10 @@ export type InssaLifecycleArtifactOption = {
   artifactValidationReady: boolean;
   modifiedAt: string;
   observedCreateSuccess: boolean;
+  lifecycleState: string | null;
+  owner: string | null;
   runId: string | null;
+  scheduledAtIso: string | null;
   subject: string | null;
   timestamp: string;
 };
@@ -88,8 +92,12 @@ export async function resolveInssaLifecycleArtifactSelection(
 
 function toResolvedSelection(option: InssaLifecycleArtifactOption): ResolvedInssaLifecycleArtifactSelection {
   return {
+    artifactId: option.artifactId,
     artifactType: option.artifactType,
     filePath: option.filePath,
+    lifecycleState: option.lifecycleState,
+    owner: option.owner,
+    scheduledAtIso: option.scheduledAtIso,
     timestamp: option.timestamp
   };
 }
@@ -104,7 +112,9 @@ async function readArtifactOption(repoRoot: string, artifactRoot: string, entry:
     const artifact = JSON.parse(body) as Record<string, unknown>;
     const modifiedAt = new Date(stat.mtimeMs).toISOString();
     const createdAt = typeof artifact.createdAt === "string" ? artifact.createdAt : null;
+    const revealSchedule = isRecord(artifact.revealLaterSchedule) ? artifact.revealLaterSchedule : null;
     return {
+      artifactId: firstString(artifact.possibleFinalCapsuleId, artifact.draftIdBeforeCreate, artifact.runId),
       artifactType: classifyLifecycleArtifact(entry, artifact),
       artifactValidationReady: isArtifactValidationReady(artifact),
       createdAt,
@@ -112,7 +122,10 @@ async function readArtifactOption(repoRoot: string, artifactRoot: string, entry:
       fileSize: stat.size,
       modifiedAt,
       observedCreateSuccess: artifact.observedCreateSuccess === true,
+      lifecycleState: firstString(artifact.revealLaterFlowClassification, artifact.lifecycleClassification),
+      owner: firstString(artifact.maskedTestEmail, artifact.maskedOwnerEmail),
       runId: typeof artifact.runId === "string" ? artifact.runId : null,
+      scheduledAtIso: firstString(artifact.scheduledAtIso, revealSchedule?.scheduledAtIso),
       subject: typeof artifact.subject === "string" ? artifact.subject : null,
       timestamp: createdAt ?? modifiedAt
     };
@@ -148,4 +161,12 @@ function normalizeArtifactPath(input: string) {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+function firstString(...values: unknown[]) {
+  return values.find((value): value is string => typeof value === "string" && Boolean(value.trim())) ?? null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

@@ -1,6 +1,6 @@
 # INSSA Dashboard Decisions
 
-Last updated: 2026-07-21
+Last updated: 2026-08-02
 
 This document records architectural decisions already made for the INSSA QA Operations Dashboard.
 
@@ -48,19 +48,21 @@ Implication:
 - The dashboard must show the selected artifact path, type, and timestamp before execution.
 - Execution must fail if no validation-ready artifact exists.
 
-## Decision 4: Lifecycle Campaigns Remain Gated
+## Decision 4: Lifecycle Campaigns Use Governed Admin Enablement
 
-Decision: Text, media, video, and reveal-later lifecycle campaigns remain visible but disabled in the dashboard.
+Decision: Text, media, video, reveal-later, cross-user, and reveal-later security wrappers are executable only by admins through a staging-only approval and preflight workflow.
 
 Rationale:
 
 - They create staging data.
 - They require manual cleanup evidence.
-- They should not be triggered casually from the dashboard without approval UX.
+- They must not be triggered casually, retried around irreversible final actions, or exposed through raw mutation primitives.
 
 Implication:
 
-- Lifecycle commands are orientation cards, not executable controls, in V1.
+- Viewer/operator users see `Admin approval required` and receive server-side `403` responses.
+- Admins must use `Review and Run`, satisfy campaign prerequisites, accept cleanup ownership, and type `RUN STAGING MUTATION`.
+- Reveal-later execution requires explicit create-new or resume-approved-artifact selection.
 
 ## Decision 5: SIEM Export Is Enabled, SIEM Send Is Disabled
 
@@ -118,8 +120,8 @@ Rationale:
 Implication:
 
 - `viewer` can read.
-- `operator` can run safe commands.
-- `admin` can run healthcheck.
+- `operator` can run safe/read-only commands but cannot run live mutation or healthcheck.
+- `admin` can run healthcheck and may enter the governed live mutation approval workflow.
 
 ## Decision 9: Evidence Serving Uses Metadata, Canonical Paths, And Bundle Roots
 

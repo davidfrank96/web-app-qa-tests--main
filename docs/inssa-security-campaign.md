@@ -187,6 +187,8 @@ Run cross-user access-control verification:
 npm run test:inssa:campaign:cross-user
 ```
 
+The dashboard exposes this governed wrapper to admins only. Approval requires the exact staging target, distinct primary/secondary QA accounts, cleanup ownership, all mutation acknowledgements, and `RUN STAGING MUTATION`. The raw create/share primitives and campaign-plus-SIEM wrappers remain hidden.
+
 This campaign intentionally creates one QA-tagged staging capsule with the primary QA account, then signs in with the secondary QA account and probes exact known routes/surfaces. It requires:
 
 ```text
@@ -220,6 +222,8 @@ Hard failures:
 - `media-publicly-accessible`
 
 Manual cleanup remains required for the capsule created by User A.
+
+Reveal-Later Security follows the same admin-only workflow and requires an explicit Create or Resume choice. Resume accepts only a successful staging reveal-later artifact with owner, reveal timestamp, and lifecycle-state evidence; the validated path is passed through `INSSA_REVEAL_LATER_SECURITY_ARTIFACT_PATH`. Both security mutation wrappers run as durable one-attempt jobs and produce a cleanup manifest. SIEM send remains disabled.
 
 List the OWASP baseline spec only:
 

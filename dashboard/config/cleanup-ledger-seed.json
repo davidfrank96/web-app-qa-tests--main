@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "records": [
+    {
+      "affectedUsers": [
+        "t***@gmail.com"
+      ],
+      "campaignKey": "test_inssa_campaign_text",
+      "createdAt": "2026-08-02T14:39:51.154Z",
+      "dedicatedQaAccount": true,
+      "deferredAt": "2026-08-02T21:30:08.755Z",
+      "environment": "staging",
+      "evidencePaths": [
+        "run-output/dd7b8a3d-7bcc-4409-8d3c-ef7a99ad70bb/cleanup-manifest.json",
+        "run-output/dd7b8a3d-7bcc-4409-8d3c-ef7a99ad70bb/cleanup-investigation.json",
+        "docs/inssa-text-lifecycle-cleanup-defect.md"
+      ],
+      "id": "dd7b8a3d-7bcc-4409-8d3c-ef7a99ad70bb:time_capsule:Zd7QsNEJGbMXOSvAn3qc",
+      "notes": "INSSA-CLEANUP-001: the authenticated owner UI Delete action removes a message view but does not remove the exact timeCapsules object. No approved direct database cleanup mechanism is available.",
+      "objectId": "Zd7QsNEJGbMXOSvAn3qc",
+      "objectPath": "timeCapsules/Zd7QsNEJGbMXOSvAn3qc",
+      "objectType": "time_capsule",
+      "originatingRunId": "dd7b8a3d-7bcc-4409-8d3c-ef7a99ad70bb",
+      "ownerAccount": "t***@gmail.com",
+      "product": "INSSA",
+      "reasonCode": "INSSA-CLEANUP-001",
+      "resolvedAt": null,
+      "retentionUntil": "2026-10-31T14:39:51.154Z",
+      "safelyAccounted": true,
+      "schemaVersion": 1,
+      "securitySensitive": false,
+      "sensitiveValuesExcluded": true,
+      "status": "cleanup_unavailable",
+      "unexpectedData": false,
+      "updatedAt": "2026-08-02T21:30:08.755Z",
+      "verificationMethods": [
+        "Fresh authenticated owner UI direct-route verification",
+        "Exact-object Firestore read/listen network verification"
+      ]
+    }
+  ]
+}

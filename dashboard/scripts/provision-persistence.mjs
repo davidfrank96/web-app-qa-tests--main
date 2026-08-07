@@ -17,7 +17,8 @@ const REQUIRED_TABLES = [
   "notification_outbox",
   "monitoring_definitions",
   "monitoring_schedule_occurrences",
-  "scheduler_runtime_status"
+  "scheduler_runtime_status",
+  "cleanup_ledger"
 ];
 
 const verifyOnly = process.argv.includes("--verify-only");

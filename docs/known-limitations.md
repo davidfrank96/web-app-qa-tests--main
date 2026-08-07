@@ -1,6 +1,6 @@
 # Platform Core v1.0 Known Limitations
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-08-02
 
 ## Release Blockers
 
@@ -11,8 +11,9 @@ Last reviewed: 2026-07-21
 ## Execution
 
 - One active run globally; parallel campaign execution is not supported.
-- Live lifecycle, cross-user, and reveal-later security commands remain dashboard-disabled.
-- Raw CLI lifecycle campaigns require manual cleanup responsibility.
+- Governed lifecycle, cross-user, and reveal-later security commands are admin-only and staging-only; they still require explicit manual cleanup confirmation.
+- Cleanup confirmation records operator completion but does not independently delete or verify product data.
+- Raw mutation primitives remain hidden and retain manual cleanup responsibility when invoked directly by developers.
 - Cancellation is represented in the model but no general dashboard cancellation workflow is provided.
 
 ## Evidence And Storage

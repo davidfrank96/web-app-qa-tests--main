@@ -8,7 +8,7 @@ Status: **CERTIFIED WITH MANAGED-SERVICE VALIDATION NOTE**
 
 The repository now contains a complete, ordered, replay-safe persistence layer for all implemented platform subsystems. Local persistence and SQL migration replay are certified. Existing authenticated Supabase evidence upload is already certified. A disposable remote Supabase project was not created during this sprint; a deployment owner must run the documented linked-project migration/advisor verification before promoting a new managed environment.
 
-The currently configured project was checked read-only. Its private evidence bucket is reachable, but all 11 platform metadata REST resources return `404`, confirming that this migration chain has not been applied there. The active configuration remains `local` for metadata and evidence, so current operation is not broken. Do not set `INSSA_OPS_METADATA_STORE=supabase` on that project until migrations are applied.
+The currently configured project was checked read-only. All 12 platform metadata REST resources return `404`, including the deferred-cleanup ledger, confirming that this migration chain has not been applied there. The active configuration remains `local` for metadata and evidence, so current local operation is not broken. Do not set `INSSA_OPS_METADATA_STORE=supabase` or the Supabase evidence provider on that project until migrations and private-bucket verification pass.
 
 ## Migration Report
 

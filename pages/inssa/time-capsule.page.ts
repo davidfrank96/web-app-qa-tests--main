@@ -221,7 +221,13 @@ export type InssaContactSelectionDiagnostic = {
   beforeSnapshot: InssaRevealSettingsModalSnapshot;
   selectedContactLabel: string;
   selectedCountChanged: boolean;
+  targetIdentityVerified: boolean;
   visibleButtonsChanged: boolean;
+};
+
+export type InssaExactContactSelection = InssaContactSelectionDiagnostic & {
+  selectedRowCount: number;
+  selectedRowVerified: boolean;
 };
 
 export type InssaRevealLaterScheduleEvidence = {
@@ -2115,6 +2121,11 @@ export class TimeCapsulePage {
 
   async selectFirstVisibleContactForDiagnostic(input: { targetLabelPattern?: RegExp } = {}): Promise<InssaContactSelectionDiagnostic> {
     const beforeSnapshot = await this.waitForContactListReadyForDiagnostic();
+    if (beforeSnapshot.selectedContactsCount !== 0) {
+      throw new Error(
+        `Expected contact-share selection to begin at 0 selected; observed ${beforeSnapshot.selectedContactsCount ?? "unknown"}.`
+      );
+    }
     const bodyText = await this.page.locator("body").innerText().catch(() => "");
     const rawContactLabels = extractVisibleContactLabels(bodyText, { maskEmails: false });
     const selectableLabels = input.targetLabelPattern
@@ -2177,7 +2188,105 @@ export class TimeCapsulePage {
       beforeSnapshot,
       selectedContactLabel: maskContactDiagnostic(selectedRawLabel),
       selectedCountChanged,
+      targetIdentityVerified: input.targetLabelPattern ? regexMatches(input.targetLabelPattern, selectedRawLabel) : true,
       visibleButtonsChanged
+    };
+  }
+
+  async selectExactContactForLifecycle(targetEmail: string): Promise<InssaExactContactSelection> {
+    const normalizedEmail = normalizeContactEmail(targetEmail);
+    if (!normalizedEmail) {
+      throw new Error("Expected a valid approved contact email before lifecycle contact selection.");
+    }
+
+    const beforeSnapshot = await this.waitForContactListReadyForDiagnostic();
+    if (!/send or save/i.test(beforeSnapshot.stepTitle ?? "")) {
+      throw new Error(
+        `Expected the current contact-selection title to be "Send or save"; observed "${beforeSnapshot.stepTitle ?? "unknown"}".`
+      );
+    }
+    if (!/step\s*2\s*of\s*2/i.test(beforeSnapshot.selectedContactsStepLabel ?? beforeSnapshot.stepLabel ?? "")) {
+      throw new Error(
+        `Expected lifecycle contact selection to be on Step 2 of 2; observed "${
+          beforeSnapshot.selectedContactsStepLabel ?? beforeSnapshot.stepLabel ?? "unknown"
+        }".`
+      );
+    }
+    if (beforeSnapshot.selectedContactsCount !== 0) {
+      throw new Error(
+        `Expected lifecycle contact selection to begin at 0 selected; observed ${
+          beforeSnapshot.selectedContactsCount ?? "unknown"
+        }.`
+      );
+    }
+
+    const initialRow = await this.findUniqueExactContactRow(normalizedEmail);
+    await expect(initialRow, `Expected exact contact row ${maskContactDiagnostic(normalizedEmail)} to be visible.`).toBeVisible({
+      timeout: DEFAULT_TIMEOUT
+    });
+    await expect(initialRow, `Expected exact contact row ${maskContactDiagnostic(normalizedEmail)} to be enabled.`).toBeEnabled({
+      timeout: DEFAULT_TIMEOUT
+    });
+
+    let clickCompleted = false;
+    for (let attempt = 0; attempt < 2 && !clickCompleted; attempt += 1) {
+      const currentSnapshot = await this.snapshotRevealSettingsModal();
+      if (currentSnapshot.selectedContactsCount === 1) {
+        clickCompleted = true;
+        break;
+      }
+
+      const currentRow = await this.findUniqueExactContactRow(normalizedEmail);
+      try {
+        await currentRow.click({ timeout: DEFAULT_TIMEOUT });
+        clickCompleted = true;
+      } catch (error) {
+        const afterClickError = await this.snapshotRevealSettingsModal();
+        if (afterClickError.selectedContactsCount === 1) {
+          clickCompleted = true;
+          break;
+        }
+        if (attempt === 1) {
+          throw error;
+        }
+      }
+    }
+
+    await expect
+      .poll(
+        async () => {
+          const snapshot = await this.snapshotRevealSettingsModal();
+          const reResolvedRow = await this.findUniqueExactContactRow(normalizedEmail).catch(() => null);
+          return {
+            count: snapshot.selectedContactsCount,
+            rowSelected: reResolvedRow ? await this.isContactRowSelected(reResolvedRow) : false,
+            selectedRows: await this.countSelectedContactRows()
+          };
+        },
+        {
+          intervals: [100, 250, 500],
+          timeout: DEFAULT_TIMEOUT,
+          message: `Expected exact contact ${maskContactDiagnostic(
+            normalizedEmail
+          )} to be the only selected row after a 0-to-1 transition.`
+        }
+      )
+      .toEqual({ count: 1, rowSelected: true, selectedRows: 1 });
+
+    const reResolvedRow = await this.findUniqueExactContactRow(normalizedEmail);
+    const afterSnapshot = await this.snapshotRevealSettingsModal();
+    const selectedRowCount = await this.countSelectedContactRows();
+    const selectedRowVerified = await this.isContactRowSelected(reResolvedRow);
+
+    return {
+      afterSnapshot,
+      beforeSnapshot,
+      selectedContactLabel: maskContactDiagnostic(normalizedEmail),
+      selectedCountChanged: beforeSnapshot.selectedContactsCount === 0 && afterSnapshot.selectedContactsCount === 1,
+      selectedRowCount,
+      selectedRowVerified,
+      targetIdentityVerified: selectedRowVerified && selectedRowCount === 1,
+      visibleButtonsChanged: beforeSnapshot.visibleButtons.join("\n") !== afterSnapshot.visibleButtons.join("\n")
     };
   }
 
@@ -2209,6 +2318,14 @@ export class TimeCapsulePage {
   }
 
   async clickBuryThenChooseWhoToShareWithOnce(): Promise<string> {
+    const preClickSnapshot = await this.snapshotRevealSettingsModal();
+    if (preClickSnapshot.selectedContactsCount !== 1) {
+      throw new Error(
+        `Refusing contact-share finalization without exactly 1 selected contact; observed ${
+          preClickSnapshot.selectedContactsCount ?? "unknown"
+        }.`
+      );
+    }
     const buttons = this.page.getByRole("button", { name: INSSA_BURY_THEN_CHOOSE_SHARE_PATTERN });
     const visibleEnabledIndexes: number[] = [];
     const count = await buttons.count();
@@ -2240,6 +2357,24 @@ export class TimeCapsulePage {
     const label = (await button.innerText().catch(() => "")) || "Bury contact-share action";
     await button.click();
     return label.replace(/\s+/g, " ").trim();
+  }
+
+  async waitForPostContactFinalizationEvidence(): Promise<InssaLiveCapsuleShareEvidence> {
+    let evidence = await this.readLiveCapsuleShareEvidence();
+    await expect
+      .poll(
+        async () => {
+          evidence = await this.readLiveCapsuleShareEvidence();
+          return this.hasStrongLiveCapsuleShareEvidence(evidence);
+        },
+        {
+          intervals: [500, 1_000, 2_000],
+          timeout: POST_CONTINUE_SUCCESS_TIMEOUT,
+          message: "Expected success/share evidence after the single contact-share finalization action."
+        }
+      )
+      .toBeTruthy();
+    return evidence;
   }
 
   async chooseSkipContactsAndShareLink(): Promise<string> {
@@ -2293,6 +2428,63 @@ export class TimeCapsulePage {
     }
 
     return null;
+  }
+
+  private async findUniqueExactContactRow(normalizedEmail: string): Promise<Locator> {
+    const dialog = this.page.getByRole("dialog").filter({ hasText: INSSA_CONTACT_SELECTION_CURRENT_TITLE_PATTERN });
+    await expect(dialog, 'Expected the visible "Send or save" contact-selection dialog.').toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    const exactEmail = dialog.getByText(normalizedEmail, { exact: true });
+    const matchingEmailCount = await exactEmail.count();
+    if (matchingEmailCount !== 1) {
+      throw new Error(
+        `Expected exactly one visible contact email matching ${maskContactDiagnostic(normalizedEmail)}; found ${matchingEmailCount}.`
+      );
+    }
+
+    const row = exactEmail.locator("xpath=ancestor::*[@role='button'][1]");
+    if ((await row.count()) !== 1) {
+      throw new Error(
+        `Expected exact contact ${maskContactDiagnostic(normalizedEmail)} to belong to exactly one selectable contact row.`
+      );
+    }
+    return row;
+  }
+
+  private async countSelectedContactRows(): Promise<number> {
+    const dialog = this.page.getByRole("dialog").filter({ hasText: INSSA_CONTACT_SELECTION_CURRENT_TITLE_PATTERN });
+    const rows = dialog.locator("div[role='button']");
+    let selectedRows = 0;
+    for (let index = 0; index < (await rows.count()); index += 1) {
+      const row = rows.nth(index);
+      if (await this.isContactRowSelected(row)) {
+        selectedRows += 1;
+      }
+    }
+    return selectedRows;
+  }
+
+  private async isContactRowSelected(row: Locator): Promise<boolean> {
+    const attributes = await Promise.all(
+      ["aria-checked", "aria-pressed", "aria-selected", "data-selected", "data-state"].map((name) =>
+        row.getAttribute(name).catch(() => null)
+      )
+    );
+    if (attributes.some((value) => /^(?:true|checked|selected|on)$/i.test(value ?? ""))) {
+      return true;
+    }
+
+    const className = (await row.getAttribute("class").catch(() => null)) ?? "";
+    if (/(?:^|\s)Mui-selected(?:\s|$)/.test(className)) {
+      return true;
+    }
+
+    return row
+      .locator(
+        '[aria-checked="true"], [aria-selected="true"], [data-selected="true"], [data-testid*="RadioButtonChecked"], [data-testid*="CheckCircle"]'
+      )
+      .first()
+      .isVisible()
+      .catch(() => false);
   }
 
   async readLiveCapsuleShareEvidence(): Promise<InssaLiveCapsuleShareEvidence> {
@@ -2485,6 +2677,10 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function regexMatches(pattern: RegExp, value: string): boolean {
+  return new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, "")).test(value);
+}
+
 function extractVisibleSuccessText(bodyText: string): string | null {
   const match = bodyText
     .split(/\n+/)
@@ -2559,6 +2755,11 @@ function extractVisibleContactLabels(
 
 function maskContactDiagnostic(value: string): string {
   return value.replace(/\b([A-Z0-9._%+-])[A-Z0-9._%+-]*(@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi, "$1***$2");
+}
+
+function normalizeContactEmail(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
 }
 
 function extractCapsuleIdFromCandidate(candidate: string | null): string | null {

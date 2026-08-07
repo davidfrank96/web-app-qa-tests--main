@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { indexArtifactsForRun } from "../lib/inssa-ops/artifact-indexer";
+import { classifyArtifact, indexArtifactsForRun } from "../lib/inssa-ops/artifact-indexer";
 import { ActiveExecutionJobError, getInssaExecutionJobStore } from "../lib/inssa-ops/execution-job-store";
 import {
   InssaEvidenceServingError,
@@ -100,6 +100,11 @@ test("run output produces an immutable manifest and indexable artifact paths", a
   } finally {
     await fs.rm(repoRoot, { force: true, recursive: true });
   }
+});
+
+test("phase-scoped Playwright reports remain reports without promoting trace viewer HTML", () => {
+  assert.equal(classifyArtifact("playwright-report/create/index.html").artifactType, "Playwright Report");
+  assert.equal(classifyArtifact("playwright-report/create/trace/index.html").artifactType, "HTML Report");
 });
 
 test("evidence metadata preserves the command target environment", () => {

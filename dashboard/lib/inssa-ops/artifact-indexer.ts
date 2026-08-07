@@ -117,8 +117,11 @@ export function classifyArtifact(relativePath: string, outputRoot?: string) {
     logicalPath.includes("/cross-user/") ||
     logicalPath.includes("/reveal-later/");
 
-  if (logicalPath === "playwright-report/index.html") {
+  if (/^playwright-report\/(?:index\.html|(?!trace\/)[^/]+\/index\.html)$/.test(logicalPath)) {
     return artifactClass("Playwright Report", "text/html", false, true);
+  }
+  if (logicalPath === "cleanup-manifest.json") {
+    return artifactClass("Cleanup Manifest", "application/json", true, false);
   }
   if (logicalPath.startsWith("reports/security/") && extension === ".html") {
     return artifactClass("Security Report", "text/html", false, true);

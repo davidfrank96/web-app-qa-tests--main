@@ -66,12 +66,14 @@ All workspaces redirect anonymous users to `/login`. APIs return `401` for anony
 | Role | Server capability |
 | --- | --- |
 | viewer | Read runs, logs, artifacts, evidence, reports, monitoring, notifications, and diagnostics. |
-| operator | Viewer plus enabled registry commands except healthcheck. |
-| admin | Operator plus healthcheck. |
+| operator | Viewer plus enabled safe/read-only registry commands except healthcheck; live mutation is denied. |
+| admin | Operator plus healthcheck and governed live staging campaigns after approval/preflight. |
 
 ## Execution Model
 
 `POST /api/runs` creates a run and execution job, then returns `202`. The worker claims and executes the job independently. The UI polls read APIs and never owns execution.
+
+Governed mutation requests first pass `/api/campaign-approvals` and repeat the same server-side preflight in `POST /api/runs`. The browser cannot provide a target URL. The server requires the exact staging host, an admin role, a healthy supervisor/worker path, no active job, campaign prerequisites, five acknowledgements, and the exact confirmation phrase. Mutation jobs have one attempt so irreversible final actions are not automatically retried.
 
 ## Evidence And Report Serving
 

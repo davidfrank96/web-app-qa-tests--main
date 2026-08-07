@@ -11,6 +11,7 @@ const ARTIFACT_DIR = path.resolve(process.cwd(), "lifecycle-artifacts");
 const CAMPAIGN_RESULT_DIR = path.resolve(process.cwd(), "lifecycle-campaigns");
 const DISCOVERY_ARTIFACT_DIR = path.resolve(process.cwd(), "test-results", "inssa-live-capsule-artifacts");
 const ENV_FILE = path.resolve(process.cwd(), ".env.inssa.live-staging");
+const REVEAL_LATER_RESUME_ARTIFACT_ENV = "INSSA_REVEAL_LATER_LIFECYCLE_ARTIFACT_PATH";
 
 const CAMPAIGNS = {
   text: {
@@ -76,21 +77,39 @@ async function main() {
 
   const summary = createBaseSummary(campaign);
   const createStartedAtMs = Date.now();
+  const resumeArtifactPath = campaignName === "reveal-later" ? process.env[REVEAL_LATER_RESUME_ARTIFACT_ENV]?.trim() : "";
 
   console.log(`\nINSSA lifecycle campaign:${campaign.label}`);
-  console.log(`CREATE: ${campaign.createSpec}`);
-  const createResult = await runPlaywrightSpec(campaign.createSpec, process.env);
-  summary.creation = summarizeCommand(createResult);
-  if (createResult.code !== 0) {
-    summary.status = "failed";
-    summary.failurePhase = "create";
-    summary.lifecycleNetworkClassification = "lifecycle-failed";
-    writeCampaignSummary(summary);
-    process.exitCode = createResult.code || 1;
-    return;
+  let createResult;
+  let creationArtifact;
+  if (resumeArtifactPath) {
+    console.log(`RESUME: ${resumeArtifactPath}`);
+    createResult = { code: 0, resumed: true, signal: null };
+    summary.creation = { code: 0, resumed: true, signal: null };
+    summary.notes.push("Creation phase skipped because an explicitly approved reveal-later artifact was selected.");
+    creationArtifact = resolveExistingRevealLaterArtifact(resumeArtifactPath);
+  } else {
+    console.log(`CREATE: ${campaign.createSpec}`);
+    createResult = await runPlaywrightSpec(campaign.createSpec, process.env, "create");
+    summary.creation = summarizeCommand(createResult);
+    if (createResult.code !== 0) {
+      const failedArtifact = findNewestCampaignArtifact(campaign, createStartedAtMs, { requireSuccess: false });
+      const cleanupIdentityFailed = failedArtifact?.artifact?.cleanupIdentityStatus === "failed_cleanup_identity";
+      summary.status = cleanupIdentityFailed ? "failed_cleanup_identity" : "failed";
+      summary.failurePhase = cleanupIdentityFailed ? "cleanup-identity" : "create";
+      summary.lifecycleNetworkClassification = "lifecycle-failed";
+      if (cleanupIdentityFailed) {
+        summary.creationArtifactPath = failedArtifact.path;
+        summary.runId = failedArtifact.artifact.runId ?? null;
+        summary.possibleFinalCapsuleId = failedArtifact.artifact.possibleFinalCapsuleId ?? null;
+        summary.notes.push("Cleanup Investigation Required. Persistence succeeded without a captured capsule ID; automatic retry is forbidden.");
+      }
+      writeCampaignSummary(summary);
+      process.exitCode = createResult.code || 1;
+      return;
+    }
+    creationArtifact = findNewestCampaignArtifact(campaign, createStartedAtMs);
   }
-
-  const creationArtifact = findNewestCampaignArtifact(campaign, createStartedAtMs);
   if (!creationArtifact) {
     summary.status = "failed";
     summary.failurePhase = "create-artifact";
@@ -147,7 +166,7 @@ async function main() {
 
   console.log(`\nDISCOVERY: ${DISCOVERY_SPEC}`);
   console.log(`Artifact: ${creationArtifact.path}`);
-  const discoveryResult = await runPlaywrightSpec(DISCOVERY_SPEC, downstreamEnv);
+  const discoveryResult = await runPlaywrightSpec(DISCOVERY_SPEC, downstreamEnv, "authenticated-discovery");
   summary.discovery = summarizeCommand(discoveryResult);
   const discoveryArtifact = readDiscoveryArtifact(creationArtifact.artifact.runId);
   if (discoveryArtifact) {
@@ -172,7 +191,7 @@ async function main() {
   }
 
   console.log(`\nPUBLIC SHARE: ${PUBLIC_SHARE_SPEC}`);
-  const publicShareResult = await runPlaywrightSpec(PUBLIC_SHARE_SPEC, downstreamEnv);
+  const publicShareResult = await runPlaywrightSpec(PUBLIC_SHARE_SPEC, downstreamEnv, "public-share");
   summary.publicShare = summarizeCommand(publicShareResult);
   const publicShareArtifact = readPublicShareArtifact(creationArtifact.artifact.runId);
   if (publicShareArtifact) {
@@ -197,6 +216,24 @@ async function main() {
   summary.status = summary.warnings.length > 0 ? "passed-with-warnings" : "passed";
   writeCampaignSummary(summary);
   printCampaignSummary(summary);
+}
+
+function resolveExistingRevealLaterArtifact(artifactPath) {
+  const resolvedPath = path.resolve(process.cwd(), artifactPath);
+  const relativePath = path.relative(process.cwd(), resolvedPath).split(path.sep).join("/");
+  if (!relativePath.startsWith("lifecycle-artifacts/") || relativePath.includes("..")) {
+    throw new Error("Reveal-later resume artifact must be inside lifecycle-artifacts/.");
+  }
+  const artifact = readJsonFile(resolvedPath);
+  if (
+    !artifact ||
+    artifact.environment !== "staging" ||
+    artifact.observedCreateSuccess !== true ||
+    artifact.revealTiming !== "reveal-later"
+  ) {
+    throw new Error(`Reveal-later resume artifact is not a successful staging reveal-later artifact: ${relativePath}`);
+  }
+  return { artifact, mtimeMs: statSync(resolvedPath).mtimeMs, path: resolvedPath };
 }
 
 function loadLiveStagingEnv() {
@@ -234,7 +271,7 @@ function assertLiveStagingEnvironment(campaign) {
   }
 }
 
-function runPlaywrightSpec(spec, env) {
+function runPlaywrightSpec(spec, env, phase) {
   const playwrightBin = path.join(
     process.cwd(),
     "node_modules",
@@ -249,7 +286,7 @@ function runPlaywrightSpec(spec, env) {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd: process.cwd(),
-      env,
+      env: scopeMutationRecordingOutput(env, phase),
       stdio: "inherit"
     });
     child.on("close", (code, signal) => {
@@ -261,7 +298,16 @@ function runPlaywrightSpec(spec, env) {
   });
 }
 
-function findNewestCampaignArtifact(campaign, startedAtMs) {
+function scopeMutationRecordingOutput(env, phase) {
+  if (env.INSSA_MUTATION_RECORDING !== "1") return env;
+  return {
+    ...env,
+    PLAYWRIGHT_HTML_OUTPUT_DIR: path.join(env.PLAYWRIGHT_HTML_OUTPUT_DIR, phase),
+    PLAYWRIGHT_OUTPUT_DIR: path.join(env.PLAYWRIGHT_OUTPUT_DIR, phase)
+  };
+}
+
+function findNewestCampaignArtifact(campaign, startedAtMs, options = { requireSuccess: true }) {
   if (!existsSync(ARTIFACT_DIR)) {
     return null;
   }
@@ -272,7 +318,11 @@ function findNewestCampaignArtifact(campaign, startedAtMs) {
       const artifactPath = path.join(ARTIFACT_DIR, fileName);
       const stat = statSync(artifactPath);
       const artifact = readJsonFile(artifactPath);
-      if (!artifact || !isValidCreationArtifact(artifact) || !matchesCampaignArtifact(artifact, campaign)) {
+      if (
+        !artifact ||
+        (options.requireSuccess ? !isValidCreationArtifact(artifact) : !isRecoverableCreationArtifact(artifact)) ||
+        !matchesCampaignArtifact(artifact, campaign)
+      ) {
         return null;
       }
 
@@ -287,6 +337,10 @@ function findNewestCampaignArtifact(campaign, startedAtMs) {
     .sort((left, right) => right.mtimeMs - left.mtimeMs);
 
   return candidates[0] ?? null;
+}
+
+function isRecoverableCreationArtifact(artifact) {
+  return artifact && artifact.environment === "staging" && nonEmptyString(artifact.runId) && nonEmptyString(artifact.subject);
 }
 
 function matchesCampaignArtifact(artifact, campaign) {
