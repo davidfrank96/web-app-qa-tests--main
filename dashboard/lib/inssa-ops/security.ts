@@ -58,7 +58,7 @@ export function hasInssaRole(actual: InssaOpsRole, required: InssaOpsRole) {
 export function canStartInssaCommand(role: InssaOpsRole, command: InssaCommandDefinition) {
   if (role === "admin") return true;
   if (role !== "operator") return false;
-  return command.key !== "platform_healthcheck";
+  return command.key !== "platform_healthcheck" && !command.adminOnly && !command.mutatesStaging;
 }
 
 export function getInssaCommandAuthorization(role: InssaOpsRole, campaignKey: string) {
@@ -67,8 +67,8 @@ export function getInssaCommandAuthorization(role: InssaOpsRole, campaignKey: st
     return { allowed: false, command: null, reason: `Unknown campaign key: ${campaignKey}` };
   }
 
-  if (!command.phase1Enabled || command.mutatesStaging) {
-    return { allowed: false, command, reason: `Campaign is not enabled for Phase 1 safe execution: ${campaignKey}` };
+  if (!command.phase1Enabled) {
+    return { allowed: false, command, reason: `Campaign is not enabled for dashboard execution: ${campaignKey}` };
   }
 
   if (!canStartInssaCommand(role, command)) {

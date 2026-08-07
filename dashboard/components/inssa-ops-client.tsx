@@ -7,15 +7,20 @@ type CampaignDefinition = {
   displayName: string;
   key: string;
   mutatesStaging: boolean;
+  adminOnly?: boolean;
+  approvalRequired?: boolean;
+  cleanupRequired?: boolean;
   npmScript: string;
   operatorDescription: string;
   phase1Enabled: boolean;
   producesFindings: boolean;
   producesReports: boolean;
   requiresLifecycleArtifact?: boolean;
+  requiresSecondaryAccount?: boolean;
   riskLevel: string;
   targetEnvironment?: "production" | "staging";
   timeoutMs: number;
+  supportsExecutionModes?: boolean;
 };
 
 type RunRecord = {
@@ -23,6 +28,16 @@ type RunRecord = {
   completedAt: string | null;
   createdAt: string;
   durationMs: number | null;
+  cleanup?: {
+    confirmedAt: string | null;
+    createdArtifactIds: string[];
+    createdCapsuleIds: string[];
+    createdMediaIds?: string[];
+    instructions: string[];
+    reasonCode?: string | null;
+    recordedAt?: string;
+    status: string;
+  } | null;
   exitCode: number | null;
   id: string;
   requestedBy: string;
@@ -117,6 +132,22 @@ type ArtifactRecord = {
   sensitive: boolean;
 };
 
+type CleanupLedgerRecord = {
+  campaignKey: string;
+  createdAt: string;
+  dedicatedQaAccount: boolean;
+  evidencePaths: string[];
+  id: string;
+  objectId: string;
+  objectPath: string;
+  originatingRunId: string;
+  reasonCode: string | null;
+  retentionUntil: string;
+  safelyAccounted: boolean;
+  status: "cleanup_unavailable" | "completed" | "deferred" | "failed" | "pending";
+  updatedAt: string;
+};
+
 type EvidenceBundleRecord = {
   bundleType: string;
   campaignKey: string;
@@ -177,6 +208,7 @@ type ManagedCampaign = {
   cleanupRequired: boolean;
   commandKey: string | null;
   description: string;
+  definition: CampaignDefinition | null;
   disabledReason: string | null;
   environment: string;
   estimatedDuration: string;
@@ -216,6 +248,7 @@ type ApiFailure = {
 };
 
 type LifecycleArtifactOption = {
+  artifactId: string | null;
   artifactType: string;
   createdAt: string | null;
   filePath: string;
@@ -223,10 +256,22 @@ type LifecycleArtifactOption = {
   artifactValidationReady: boolean;
   modifiedAt: string;
   observedCreateSuccess: boolean;
+  lifecycleState: string | null;
+  owner: string | null;
   runId: string | null;
+  scheduledAtIso: string | null;
   subject: string | null;
   timestamp: string;
 };
+
+type LiveApprovalPayload = {
+  acknowledgements: string[];
+  confirmationPhrase: string;
+  executionMode?: "create" | "resume";
+  resumeArtifactPath?: string;
+};
+
+type PreflightCheck = { detail: string; id: string; passed: boolean };
 
 type LifecycleArtifactSelection = {
   mode: "explicit" | "latest";
@@ -365,7 +410,18 @@ const PASSED_STATUSES = new Set(["passed", "passed_with_warnings"]);
 const FAILED_STATUSES = new Set(["failed", "failed_startup", "cancelled", "timed_out"]);
 const REPORT_ARCHIVE_ARTIFACT_TYPES = new Set(["Lifecycle Report", "Playwright Report", "Security Report", "SIEM Export"]);
 const SAFE_COMMAND_KEYS = ["test_inssa_safe"];
-const SECURITY_COMMAND_KEYS = ["test_inssa_campaign_security", "test_inssa_campaign_security_verify"];
+const SECURITY_COMMAND_KEYS = [
+  "test_inssa_campaign_security",
+  "test_inssa_campaign_security_verify",
+  "test_inssa_campaign_cross_user",
+  "test_inssa_campaign_reveal_later_security"
+];
+const LIFECYCLE_COMMAND_KEYS = [
+  "test_inssa_campaign_text",
+  "test_inssa_campaign_media",
+  "test_inssa_campaign_video",
+  "test_inssa_campaign_reveal_later"
+];
 const ARTIFACT_VALIDATION_COMMAND_KEYS = [
   "test_inssa_discovery",
   "test_inssa_public_share",
@@ -384,53 +440,8 @@ type DisabledCommandCard = {
   riskLevel: string;
 };
 
-const DISABLED_LIFECYCLE_COMMANDS: DisabledCommandCard[] = [
-  {
-    description: "Creates one live text capsule, then validates downstream discovery and public-share behavior.",
-    label: "Text Lifecycle",
-    npmScript: "test:inssa:campaign:text",
-    reason: "Disabled in the dashboard until the live-mutation approval and cleanup workflow is available.",
-    riskLevel: "live mutation"
-  },
-  {
-    description: "Creates one live image capsule and validates downstream lifecycle behavior.",
-    label: "Media Lifecycle",
-    npmScript: "test:inssa:campaign:media",
-    reason: "Disabled because it creates staging data and requires explicit media/live gates.",
-    riskLevel: "live mutation"
-  },
-  {
-    description: "Creates one live video capsule and validates retrieval behavior with the static video fixture.",
-    label: "Video Lifecycle",
-    npmScript: "test:inssa:campaign:video",
-    reason: "Disabled because it creates staging data and requires explicit video/live gates.",
-    riskLevel: "live mutation"
-  },
-  {
-    description: "Creates one scheduled reveal-later capsule and captures schedule/access behavior.",
-    label: "Reveal-Later Lifecycle",
-    npmScript: "test:inssa:campaign:reveal-later",
-    reason: "Disabled until reveal-later cleanup and post-reveal follow-up are represented in the dashboard workflow.",
-    riskLevel: "live mutation"
-  }
-];
-
-const DISABLED_SECURITY_COMMANDS: DisabledCommandCard[] = [
-  {
-    description: "Creates one targeted capsule with User A and verifies User B access-control behavior.",
-    label: "Cross-User Campaign",
-    npmScript: "test:inssa:campaign:cross-user",
-    reason: "Disabled because it creates staging data and requires secondary-account/cleanup confirmation.",
-    riskLevel: "live mutation"
-  },
-  {
-    description: "Creates or resumes reveal-later evidence and verifies pre/post-reveal access-control behavior.",
-    label: "Reveal-Later Security",
-    npmScript: "test:inssa:campaign:reveal-later-security",
-    reason: "Disabled until artifact resume vs creation is explicit in the dashboard.",
-    riskLevel: "live mutation"
-  }
-];
+const DISABLED_LIFECYCLE_COMMANDS: DisabledCommandCard[] = [];
+const DISABLED_SECURITY_COMMANDS: DisabledCommandCard[] = [];
 
 const DISABLED_SIEM_COMMANDS: DisabledCommandCard[] = [
   {
@@ -458,6 +469,7 @@ export function InssaOpsClient({
   const [selectedRun, setSelectedRun] = useState<RunRecord | null>(null);
   const [logs, setLogs] = useState<RunLogRecord[]>([]);
   const [artifacts, setArtifacts] = useState<ArtifactRecord[]>([]);
+  const [cleanupLedger, setCleanupLedger] = useState<CleanupLedgerRecord[]>([]);
   const [apiFailures, setApiFailures] = useState<ApiFailure[]>(
     initialLoadError
       ? [
@@ -478,7 +490,7 @@ export function InssaOpsClient({
   const [artifactSelectionMode, setArtifactSelectionMode] = useState<"explicit" | "latest">("latest");
   const [selectedLifecycleArtifactPath, setSelectedLifecycleArtifactPath] = useState("");
   const [selectedArtifactValidationActionKey, setSelectedArtifactValidationActionKey] = useState("");
-  const [selectedLifecycleActionKey, setSelectedLifecycleActionKey] = useState(DISABLED_LIFECYCLE_COMMANDS[0]?.npmScript ?? "");
+  const [selectedLifecycleActionKey, setSelectedLifecycleActionKey] = useState("");
   const [selectedReportCategory, setSelectedReportCategory] = useState<ReportCategory>("Security");
   const [selectedReportArtifactId, setSelectedReportArtifactId] = useState("");
   const [evidenceBundleSearch, setEvidenceBundleSearch] = useState("");
@@ -513,6 +525,14 @@ export function InssaOpsClient({
     if (typeof window === "undefined") return "dark";
     return window.localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
   });
+  const [approvalCampaignKey, setApprovalCampaignKey] = useState("");
+  const [approvalAcknowledgements, setApprovalAcknowledgements] = useState<string[]>([]);
+  const [approvalPhrase, setApprovalPhrase] = useState("");
+  const [approvalExecutionMode, setApprovalExecutionMode] = useState<"" | "create" | "resume">("");
+  const [approvalArtifactPath, setApprovalArtifactPath] = useState("");
+  const [approvalError, setApprovalError] = useState("");
+  const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
+  const [approvalSubmitting, setApprovalSubmitting] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -522,9 +542,11 @@ export function InssaOpsClient({
   useEffect(() => {
     void refreshCampaigns();
     void refreshLifecycleArtifacts();
+    void refreshCleanupLedger();
     void refreshRuns();
     const interval = window.setInterval(() => {
       void refreshRuns();
+      void refreshCleanupLedger();
       if (selectedRunId) {
         void refreshRunDetail(selectedRunId);
       }
@@ -635,6 +657,7 @@ export function InssaOpsClient({
   const reportRenderCommands = campaignDefinitions.filter((campaign) => campaign.commandType === "report_render");
   const safeCommands = selectCommands(campaignDefinitions, SAFE_COMMAND_KEYS);
   const securityCommands = selectCommands(campaignDefinitions, SECURITY_COMMAND_KEYS);
+  const lifecycleCommands = selectCommands(campaignDefinitions, LIFECYCLE_COMMAND_KEYS);
   const artifactValidationCommands = selectCommands(campaignDefinitions, ARTIFACT_VALIDATION_COMMAND_KEYS);
   const siemCommands = selectCommands(campaignDefinitions, SIEM_COMMAND_KEYS);
   const operationsCommands = selectCommands(campaignDefinitions, OPERATIONS_COMMAND_KEYS);
@@ -768,6 +791,8 @@ export function InssaOpsClient({
     ? selectedEvidenceArtifacts.find((artifact) => artifact.id === selectedEvidenceItem.artifactId) ?? null
     : null;
   const canStartRuns = currentUser.role === "operator" || currentUser.role === "admin";
+  const approvalCampaign = campaignDefinitions.find((campaign) => campaign.key === approvalCampaignKey) ?? null;
+  const revealLaterArtifacts = usableLifecycleArtifacts.filter((artifact) => artifact.artifactType === "reveal-later");
   const executionRun = selectedRun ?? runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
   const executionCampaign = executionRun
     ? campaignDefinitions.find((campaign) => campaign.key === executionRun.campaignKey) ?? null
@@ -955,6 +980,21 @@ export function InssaOpsClient({
     }
   }
 
+  async function refreshCleanupLedger() {
+    const endpoint = "/api/cleanup-ledger";
+    try {
+      const response = await fetch(endpoint, { cache: "no-store" });
+      const body = (await response.json().catch(() => ({}))) as { error?: string; records?: CleanupLedgerRecord[] };
+      if (!response.ok) {
+        recordApiFailure(endpoint, response.status, body.error ?? response.statusText);
+        return;
+      }
+      startTransition(() => setCleanupLedger(body.records ?? []));
+    } catch (error) {
+      recordApiFailure(endpoint, "network", error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function refreshRunDetail(runId: string) {
     let runResponse: Response;
     let logsResponse: Response;
@@ -1083,14 +1123,19 @@ export function InssaOpsClient({
     });
   }
 
-  async function runCampaign(campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) {
+  async function runCampaign(
+    campaignKey: string,
+    lifecycleArtifactSelection?: LifecycleArtifactSelection,
+    liveApproval?: LiveApprovalPayload
+  ) {
     setMessage(`Starting ${campaignKey}...`);
     const endpoint = "/api/runs";
     try {
       const response = await fetch(endpoint, {
         body: JSON.stringify({
           artifactSelection: lifecycleArtifactSelection,
-          campaignKey
+          campaignKey,
+          liveApproval
         }),
         headers: { "content-type": "application/json" },
         method: "POST"
@@ -1100,14 +1145,14 @@ export function InssaOpsClient({
         const failureMessage = body.error ?? "Run request failed.";
         setMessage(failureMessage);
         recordApiFailure(endpoint, response.status, failureMessage);
-        return;
+        return false;
       }
 
       if (!body.run?.id) {
         const failureMessage = "Run request succeeded but no run record was returned.";
         setMessage(failureMessage);
         recordApiFailure(endpoint, response.status, failureMessage);
-        return;
+        return false;
       }
 
       setMessage(`Run started: ${body.run.id}`);
@@ -1115,11 +1160,80 @@ export function InssaOpsClient({
       setActiveWorkspace("execution");
       await refreshRuns();
       await refreshRunDetail(body.run.id);
+      return true;
     } catch (error) {
       const failureMessage = error instanceof Error ? error.message : String(error);
       setMessage(failureMessage);
       recordApiFailure(endpoint, "network", failureMessage);
+      return false;
     }
+  }
+
+  async function openLiveCampaignApproval(campaign: CampaignDefinition) {
+    if (currentUser.role !== "admin") return;
+    setApprovalCampaignKey(campaign.key);
+    setApprovalAcknowledgements([]);
+    setApprovalPhrase("");
+    setApprovalExecutionMode("");
+    setApprovalArtifactPath("");
+    setApprovalError("");
+    setPreflightChecks([]);
+    const endpoint = "/api/campaign-approvals";
+    const response = await fetch(endpoint, {
+      body: JSON.stringify({ action: "opened", campaignKey: campaign.key }),
+      headers: { "content-type": "application/json" },
+      method: "POST"
+    }).catch(() => null);
+    if (!response?.ok) {
+      const status = response?.status ?? "network";
+      const body = response ? await readJsonResponse(response) : { error: "Approval audit request failed." };
+      recordApiFailure(endpoint, status, body.error ?? "Approval audit request failed.");
+    }
+  }
+
+  async function submitLiveCampaignApproval(campaign: CampaignDefinition) {
+    const liveApproval: LiveApprovalPayload = {
+      acknowledgements: approvalAcknowledgements,
+      confirmationPhrase: approvalPhrase,
+      ...(campaign.supportsExecutionModes && approvalExecutionMode ? { executionMode: approvalExecutionMode } : {}),
+      ...(approvalExecutionMode === "resume" ? { resumeArtifactPath: approvalArtifactPath } : {})
+    };
+    setApprovalSubmitting(true);
+    setApprovalError("");
+    const endpoint = "/api/campaign-approvals";
+    try {
+      const response = await fetch(endpoint, {
+        body: JSON.stringify({ action: "preflight", campaignKey: campaign.key, liveApproval }),
+        headers: { "content-type": "application/json" },
+        method: "POST"
+      });
+      const body = (await response.json().catch(() => ({}))) as { checks?: PreflightCheck[]; error?: string };
+      setPreflightChecks(body.checks ?? []);
+      if (!response.ok) {
+        setApprovalError(body.error ?? "Campaign preflight failed.");
+        return;
+      }
+      const started = await runCampaign(campaign.key, undefined, liveApproval);
+      if (started) setApprovalCampaignKey("");
+    } finally {
+      setApprovalSubmitting(false);
+    }
+  }
+
+  async function confirmRunCleanup(run: RunRecord) {
+    const endpoint = `/api/runs/${run.id}/cleanup`;
+    const response = await fetch(endpoint, {
+      body: JSON.stringify({ confirmed: true }),
+      headers: { "content-type": "application/json" },
+      method: "POST"
+    });
+    const body = await readJsonResponse(response);
+    if (!response.ok) {
+      recordApiFailure(endpoint, response.status, body.error ?? "Cleanup confirmation failed.");
+      return;
+    }
+    await refreshRuns();
+    await refreshRunDetail(run.id);
   }
 
   function recordApiFailure(endpoint: string, status: number | string, message: string) {
@@ -1282,6 +1396,7 @@ export function InssaOpsClient({
                   onProductChange={setCampaignLibraryProduct}
                   onSearchChange={setCampaignLibrarySearch}
                   onSelectCampaign={setSelectedManagedCampaignId}
+                  onReviewLiveCampaign={openLiveCampaignApproval}
                   runningCount={overview.running}
                   runCampaign={runCampaign}
                   runs={runs}
@@ -1317,38 +1432,62 @@ export function InssaOpsClient({
                 <section className="workspace-card">
                   <SectionHeader title="Security Actions" subtitle="Black-box security campaigns and read-only verification against existing evidence." />
                   <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
-                    Security campaigns execute tests and can generate findings. Cross-user and reveal-later security remain disabled because they can create staging data.
+                    Security campaigns execute tests and can generate findings. Live cross-user and reveal-later actions require staging-only admin approval.
                   </p>
+                  <DeferredCleanupBanner />
                   <ActionSelectorPanel
                     canStartRuns={canStartRuns}
                     currentUserRole={currentUser.role}
                     disabledCommands={DISABLED_SECURITY_COMMANDS}
                     enabledCommands={securityCommands}
                     onSelect={setSelectedSecurityActionKey}
+                    onReviewLiveCampaign={openLiveCampaignApproval}
                     runningCount={overview.running}
                     runs={runs}
                     runCampaign={runCampaign}
                     selectedKey={selectedSecurityActionKey}
+                  />
+                  <MutationCampaignReadiness
+                    artifacts={reportArtifacts}
+                    campaigns={securityCommands.filter((campaign) => campaign.mutatesStaging)}
+                    cleanupLedger={cleanupLedger}
+                    onOpenRun={(runId) => {
+                      setSelectedRunId(runId);
+                      setActiveWorkspace("runs");
+                    }}
+                    runs={runs}
                   />
                 </section>
               ) : null}
 
               {activeWorkspace === "lifecycle" ? (
                 <section className="workspace-card">
-                  <SectionHeader title="Lifecycle Campaigns" subtitle="Live capsule lifecycle campaigns are visible for orientation but disabled in the dashboard." />
+                  <SectionHeader title="Lifecycle Campaigns" subtitle="Governed live staging campaigns require explicit admin approval and cleanup ownership." />
                   <p className="mt-2 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
                     Lifecycle commands create staging data. They require live flags, one-run execution, no retry around final actions, and manual cleanup evidence.
                   </p>
+                  <DeferredCleanupBanner />
                   <ActionSelectorPanel
                     canStartRuns={canStartRuns}
                     currentUserRole={currentUser.role}
                     disabledCommands={DISABLED_LIFECYCLE_COMMANDS}
-                    enabledCommands={[]}
+                    enabledCommands={lifecycleCommands}
                     onSelect={setSelectedLifecycleActionKey}
+                    onReviewLiveCampaign={openLiveCampaignApproval}
                     runningCount={overview.running}
                     runs={runs}
                     runCampaign={runCampaign}
                     selectedKey={selectedLifecycleActionKey}
+                  />
+                  <MutationCampaignReadiness
+                    artifacts={reportArtifacts}
+                    campaigns={lifecycleCommands}
+                    cleanupLedger={cleanupLedger}
+                    onOpenRun={(runId) => {
+                      setSelectedRunId(runId);
+                      setActiveWorkspace("runs");
+                    }}
+                    runs={runs}
                   />
                 </section>
               ) : null}
@@ -2052,6 +2191,25 @@ export function InssaOpsClient({
                             <MetadataCard label="Artifacts" value={String(artifacts.length)} />
                           </div>
 
+                          {selectedRun.cleanup && selectedRun.cleanup.status !== "not_required" ? (
+                            <section className="rounded-2xl border border-amber-300/25 bg-amber-300/10 p-4">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <h3 className="font-semibold text-amber-100">Cleanup {selectedRun.cleanup.status.replaceAll("_", " ")}</h3>
+                                  <p className="mt-1 text-sm text-amber-100/80">
+                                    {selectedRun.cleanup.createdCapsuleIds.length} capsule target(s) · {selectedRun.cleanup.createdArtifactIds.length} artifact reference(s)
+                                  </p>
+                                </div>
+                                {currentUser.role === "admin" && selectedRun.cleanup.status === "pending" && !ACTIVE_STATUSES.has(selectedRun.status) ? (
+                                  <button className="rounded-xl border border-amber-200/40 px-4 py-2 text-sm font-semibold text-amber-100" onClick={() => void confirmRunCleanup(selectedRun)} type="button">
+                                    Confirm Manual Cleanup
+                                  </button>
+                                ) : null}
+                              </div>
+                              {selectedRun.cleanup.instructions.map((instruction) => <p className="mt-2 break-words text-sm text-amber-100/80" key={instruction}>{instruction}</p>)}
+                            </section>
+                          ) : null}
+
                           <div className="log-card">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                               <h3 className="font-semibold">Live Logs</h3>
@@ -2149,8 +2307,155 @@ export function InssaOpsClient({
           <span>Role: {currentUser.role}</span>
           <span>Last run: {runs[0] ? formatRelativeTime(runs[0].createdAt) : "none"}</span>
         </footer>
+        {approvalCampaign ? (
+          <LiveCampaignApprovalModal
+            acknowledgements={approvalAcknowledgements}
+            artifactPath={approvalArtifactPath}
+            campaign={approvalCampaign}
+            checks={preflightChecks}
+            error={approvalError}
+            executionMode={approvalExecutionMode}
+            onAcknowledgementsChange={setApprovalAcknowledgements}
+            onArtifactPathChange={setApprovalArtifactPath}
+            onClose={() => setApprovalCampaignKey("")}
+            onExecutionModeChange={setApprovalExecutionMode}
+            onPhraseChange={setApprovalPhrase}
+            onSubmit={() => void submitLiveCampaignApproval(approvalCampaign)}
+            phrase={approvalPhrase}
+            revealLaterArtifacts={revealLaterArtifacts}
+            runningCount={overview.running}
+            submitting={approvalSubmitting}
+          />
+        ) : null}
       </div>
     </main>
+  );
+}
+
+function LiveCampaignApprovalModal({
+  acknowledgements,
+  artifactPath,
+  campaign,
+  checks,
+  error,
+  executionMode,
+  onAcknowledgementsChange,
+  onArtifactPathChange,
+  onClose,
+  onExecutionModeChange,
+  onPhraseChange,
+  onSubmit,
+  phrase,
+  revealLaterArtifacts,
+  runningCount,
+  submitting
+}: {
+  acknowledgements: string[];
+  artifactPath: string;
+  campaign: CampaignDefinition;
+  checks: PreflightCheck[];
+  error: string;
+  executionMode: "" | "create" | "resume";
+  onAcknowledgementsChange: (value: string[]) => void;
+  onArtifactPathChange: (value: string) => void;
+  onClose: () => void;
+  onExecutionModeChange: (value: "" | "create" | "resume") => void;
+  onPhraseChange: (value: string) => void;
+  onSubmit: () => void;
+  phrase: string;
+  revealLaterArtifacts: LifecycleArtifactOption[];
+  runningCount: number;
+  submitting: boolean;
+}) {
+  const acknowledgementOptions = [
+    ["modifies_staging", "I understand this campaign modifies staging data."],
+    ["target_verified", "I have verified the target is staging."],
+    ["cleanup_understood", "I understand cleanup may be required."],
+    ["evidence_review_required", "I will review the evidence and cleanup result."],
+    ["no_automatic_final_action_retry", "I understand final lifecycle actions must not be automatically retried."]
+  ] as const;
+  const modeReady = !campaign.supportsExecutionModes || (executionMode === "create" || (executionMode === "resume" && Boolean(artifactPath)));
+  const approvalReady = acknowledgementOptions.every(([id]) => acknowledgements.includes(id)) && phrase === "RUN STAGING MUTATION" && modeReady;
+  const selectedRevealArtifact = revealLaterArtifacts.find((artifact) => artifact.filePath === artifactPath);
+
+  return (
+    <div aria-modal="true" className="live-approval-backdrop" role="dialog">
+      <section className="live-approval-panel">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-800 p-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-amber-300">Admin approval · staging only</p>
+            <h2 className="mt-2 text-xl font-semibold">Review and Run: {campaign.displayName}</h2>
+            <p className="mt-1 font-mono text-xs text-slate-500">npm run {campaign.npmScript}</p>
+          </div>
+          <button className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300" onClick={onClose} type="button">Close</button>
+        </div>
+        <div className="live-approval-scroll">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetadataCard label="Environment" value="STAGING" tone="warn" />
+            <MetadataCard label="Target" value="staging.inssa.us" />
+            <MetadataCard label="Risk" value="live mutation" tone="warn" />
+            <MetadataCard label="Active Runs" value={String(runningCount)} tone={runningCount ? "warn" : "pass"} />
+            <MetadataCard label="Estimated Duration" value={formatDuration(campaign.timeoutMs)} />
+            <MetadataCard label="Reports" value={campaign.producesReports ? "Generated" : "None"} />
+            <MetadataCard label="Credentials" value={campaign.requiresSecondaryAccount ? "Primary + secondary QA" : "Primary QA"} />
+            <MetadataCard label="Final Action Retry" value="Disabled" tone="warn" />
+          </div>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <CampaignDetailList title="Purpose" items={[campaign.operatorDescription]} />
+            <CampaignDetailList title="Expected Evidence" items={["Immutable Playwright evidence", "Campaign and lifecycle summaries", "Cleanup manifest", campaign.producesFindings ? "Security findings" : "Run diagnostics"]} />
+            <CampaignDetailList title="Data Changed" items={["One or more QA-tagged staging artifacts", "Staging account lifecycle/history surfaces", campaign.requiresSecondaryAccount ? "Primary and secondary QA account visibility" : "Primary QA account visibility"]} />
+            <CampaignDetailList title="Cleanup" items={["Manual cleanup ownership remains with the approving admin", "Evidence is retained and is never deleted by cleanup confirmation"]} />
+          </div>
+
+          {campaign.supportsExecutionModes ? (
+            <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+              <h3 className="text-sm font-semibold">Execution Mode</h3>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <label className="rounded-xl border border-slate-700 p-3 text-sm"><input checked={executionMode === "create"} name="execution-mode" onChange={() => onExecutionModeChange("create")} type="radio" /> <span className="ml-2">Create new test artifact</span></label>
+                <label className="rounded-xl border border-slate-700 p-3 text-sm"><input checked={executionMode === "resume"} name="execution-mode" onChange={() => onExecutionModeChange("resume")} type="radio" /> <span className="ml-2">Resume existing approved artifact</span></label>
+              </div>
+              {executionMode === "resume" ? (
+                <>
+                  <select className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm" onChange={(event) => onArtifactPathChange(event.target.value)} value={artifactPath}>
+                    <option value="">Select approved reveal-later artifact</option>
+                    {revealLaterArtifacts.map((artifact) => <option key={artifact.filePath} value={artifact.filePath}>{artifact.filePath} · {formatDate(artifact.timestamp)}</option>)}
+                  </select>
+                  {selectedRevealArtifact ? (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                      <Metadata label="Artifact ID" value={selectedRevealArtifact.artifactId ?? "unavailable"} mono />
+                      <Metadata label="Owner" value={selectedRevealArtifact.owner ?? "unavailable"} />
+                      <Metadata label="Reveal time" value={selectedRevealArtifact.scheduledAtIso ? formatDate(selectedRevealArtifact.scheduledAtIso) : "unavailable"} />
+                      <Metadata label="Lifecycle state" value={selectedRevealArtifact.lifecycleState ?? "unavailable"} />
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </section>
+          ) : null}
+
+          <section className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-300/10 p-4">
+            <h3 className="font-semibold text-amber-100">Required Acknowledgements</h3>
+            <div className="mt-3 space-y-3">
+              {acknowledgementOptions.map(([id, label]) => (
+                <label className="flex gap-3 text-sm text-amber-50" key={id}>
+                  <input checked={acknowledgements.includes(id)} onChange={(event) => onAcknowledgementsChange(event.target.checked ? [...acknowledgements, id] : acknowledgements.filter((item) => item !== id))} type="checkbox" />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+            <label className="mt-4 block text-xs uppercase tracking-[0.15em] text-amber-200" htmlFor="mutation-confirmation">Type RUN STAGING MUTATION</label>
+            <input className="mt-2 w-full rounded-xl border border-amber-200/30 bg-slate-950 px-3 py-2 font-mono text-sm" id="mutation-confirmation" onChange={(event) => onPhraseChange(event.target.value)} value={phrase} />
+          </section>
+
+          {checks.length ? <div className="mt-4 grid gap-2">{checks.map((check) => <p className={`rounded-xl border p-3 text-sm ${check.passed ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100" : "border-rose-300/20 bg-rose-300/10 text-rose-100"}`} key={check.id}>{check.passed ? "PASS" : "FAIL"}: {check.detail}</p>)}</div> : null}
+          {error ? <p className="mt-4 rounded-xl border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">{error}</p> : null}
+        </div>
+        <div className="flex items-center justify-between gap-4 border-t border-slate-800 p-5">
+          <p className="text-xs text-slate-500">The confirmation phrase is validated but never persisted.</p>
+          <button className="rounded-xl bg-amber-300 px-5 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400" disabled={!approvalReady || runningCount > 0 || submitting} onClick={onSubmit} type="button">{submitting ? "Running Preflight..." : "Run Staging Mutation"}</button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -2234,7 +2539,7 @@ function CommandCard({
   canStartRuns: boolean;
   currentUserRole: InssaOpsClientProps["currentUser"]["role"];
   runningCount: number;
-  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) => Promise<void>;
+  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection, liveApproval?: LiveApprovalPayload) => Promise<boolean>;
 }) {
   const disabled =
     !canStartRuns ||
@@ -2301,6 +2606,7 @@ function CampaignLibraryWorkspace({
   managedCampaigns,
   onCategoryChange,
   onProductChange,
+  onReviewLiveCampaign,
   onSearchChange,
   onSelectCampaign,
   runningCount,
@@ -2318,10 +2624,11 @@ function CampaignLibraryWorkspace({
   managedCampaigns: ManagedCampaign[];
   onCategoryChange: (category: CampaignCategory | "All") => void;
   onProductChange: (product: ProductKey) => void;
+  onReviewLiveCampaign: (campaign: CampaignDefinition) => Promise<void>;
   onSearchChange: (value: string) => void;
   onSelectCampaign: (campaignId: string) => void;
   runningCount: number;
-  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) => Promise<void>;
+  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection, liveApproval?: LiveApprovalPayload) => Promise<boolean>;
   runs: RunRecord[];
   search: string;
   selectedCampaign: ManagedCampaign | null;
@@ -2342,7 +2649,7 @@ function CampaignLibraryWorkspace({
             subtitle="Managed campaign definitions for current and future products. Execution still uses approved registry commands only."
           />
           <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-400">
-            Campaigns execute tests. Reports review evidence. Lifecycle commands create staging data and remain disabled until approval and cleanup workflows are implemented.
+            Campaigns execute tests. Reports review evidence. Governed lifecycle commands are staging-only and require admin approval plus cleanup ownership.
           </p>
         </div>
         <div className="campaign-library-metrics">
@@ -2440,6 +2747,7 @@ function CampaignLibraryWorkspace({
           canStartRuns={canStartRuns}
           currentUserRole={currentUserRole}
           latestRun={selectedCampaign?.commandKey ? findLatestRunForCommand(runs, selectedCampaign.commandKey) : null}
+          onReviewLiveCampaign={onReviewLiveCampaign}
           runningCount={runningCount}
           runCampaign={runCampaign}
         />
@@ -2453,6 +2761,7 @@ function CampaignDetailPanel({
   canStartRuns,
   currentUserRole,
   latestRun,
+  onReviewLiveCampaign,
   runningCount,
   runCampaign
 }: {
@@ -2460,8 +2769,9 @@ function CampaignDetailPanel({
   canStartRuns: boolean;
   currentUserRole: InssaOpsClientProps["currentUser"]["role"];
   latestRun: RunRecord | null;
+  onReviewLiveCampaign: (campaign: CampaignDefinition) => Promise<void>;
   runningCount: number;
-  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) => Promise<void>;
+  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection, liveApproval?: LiveApprovalPayload) => Promise<boolean>;
 }) {
   if (!campaign) {
     return (
@@ -2478,7 +2788,8 @@ function CampaignDetailPanel({
     !campaign.commandKey ||
     !canStartRuns ||
     runningCount > 0 ||
-    (currentUserRole !== "admin" && campaign.commandKey === "platform_healthcheck");
+    (currentUserRole !== "admin" && (campaign.commandKey === "platform_healthcheck" || campaign.mutatesStaging));
+  const registryCommand = campaign.definition;
 
   return (
     <article className="campaign-detail-panel">
@@ -2500,7 +2811,7 @@ function CampaignDetailPanel({
         <MetadataCard label="Environment" value={campaign.environment} />
         <MetadataCard label="Status" value={campaign.status} tone={campaign.executionEnabled ? "pass" : "warn"} />
         <MetadataCard label="Estimated Duration" value={campaign.estimatedDuration} />
-        <MetadataCard label="Last Run" value={latestRun ? latestRun.status : "none"} />
+        <MetadataCard label="Last Run" value={latestRun ? formatCampaignExecutionState(latestRun) : "none"} />
         <MetadataCard label="Mutates Staging" value={campaign.mutatesStaging ? "yes" : "no"} tone={campaign.mutatesStaging ? "warn" : "pass"} />
         <MetadataCard label="Cleanup Required" value={campaign.cleanupRequired ? "yes" : "no"} tone={campaign.cleanupRequired ? "warn" : "pass"} />
         <MetadataCard label="Approval Required" value={campaign.approvalRequired ? "yes" : "no"} tone={campaign.approvalRequired ? "warn" : "pass"} />
@@ -2528,17 +2839,27 @@ function CampaignDetailPanel({
           <p className="text-sm font-semibold">Execution Readiness</p>
           <p className="mt-1 text-sm text-slate-400">
             {campaign.executionEnabled
-              ? "This command is already enabled in the approved registry."
+              ? campaign.mutatesStaging
+                ? "Admin review, explicit acknowledgements, and server-side preflight are required before the durable job is created."
+                : "This command is already enabled in the approved registry."
               : "This campaign is managed for visibility only and cannot be executed in the current phase."}
           </p>
         </div>
         <button
           className="rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
           disabled={executionDisabled}
-          onClick={() => campaign.commandKey && void runCampaign(campaign.commandKey)}
+          onClick={() => {
+            if (!campaign.commandKey) return;
+            if (campaign.mutatesStaging && registryCommand) void onReviewLiveCampaign(registryCommand);
+            else void runCampaign(campaign.commandKey);
+          }}
           type="button"
         >
-          {campaign.executionEnabled ? (canStartRuns ? "Run Campaign" : "Viewer role cannot run") : "Disabled"}
+          {campaign.executionEnabled
+            ? campaign.mutatesStaging
+              ? currentUserRole === "admin" ? "Review and Run" : "Admin approval required"
+              : canStartRuns ? "Run Campaign" : "Viewer role cannot run"
+            : "Disabled"}
         </button>
       </div>
     </article>
@@ -2566,6 +2887,7 @@ function ActionSelectorPanel({
   disabledCommands,
   enabledCommands,
   onSelect,
+  onReviewLiveCampaign,
   runningCount,
   runs,
   runCampaign,
@@ -2576,9 +2898,10 @@ function ActionSelectorPanel({
   disabledCommands: DisabledCommandCard[];
   enabledCommands: CampaignDefinition[];
   onSelect: (key: string) => void;
+  onReviewLiveCampaign?: (campaign: CampaignDefinition) => Promise<void>;
   runningCount: number;
   runs: RunRecord[];
-  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) => Promise<void>;
+  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection, liveApproval?: LiveApprovalPayload) => Promise<boolean>;
   selectedKey: string;
 }) {
   const options = buildActionOptions(enabledCommands, disabledCommands);
@@ -2593,6 +2916,7 @@ function ActionSelectorPanel({
           canStartRuns={canStartRuns}
           currentUserRole={currentUserRole}
           latestRun={latestRun}
+          onReviewLiveCampaign={onReviewLiveCampaign}
           option={selected}
           runningCount={runningCount}
           runCampaign={runCampaign}
@@ -2643,6 +2967,7 @@ function ActionDetail({
   canStartRuns,
   currentUserRole,
   latestRun,
+  onReviewLiveCampaign,
   option,
   runningCount,
   runCampaign
@@ -2650,9 +2975,10 @@ function ActionDetail({
   canStartRuns: boolean;
   currentUserRole: InssaOpsClientProps["currentUser"]["role"];
   latestRun: RunRecord | null;
+  onReviewLiveCampaign?: (campaign: CampaignDefinition) => Promise<void>;
   option: ActionOption;
   runningCount: number;
-  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) => Promise<void>;
+  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection, liveApproval?: LiveApprovalPayload) => Promise<boolean>;
 }) {
   const campaign = option.disabled ? null : option.campaign;
   const disabled =
@@ -2660,9 +2986,8 @@ function ActionDetail({
     !campaign ||
     !canStartRuns ||
     !campaign.phase1Enabled ||
-    campaign.mutatesStaging ||
     runningCount > 0 ||
-    (currentUserRole !== "admin" && campaign.key === "platform_healthcheck");
+    (currentUserRole !== "admin" && (campaign.key === "platform_healthcheck" || campaign.mutatesStaging));
 
   return (
     <article className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -2681,7 +3006,7 @@ function ActionDetail({
         <Metadata label="Mutates staging" value={campaign?.mutatesStaging ? "yes" : option.disabled && option.riskLevel.includes("mutation") ? "yes" : "no"} />
         <Metadata label="Cleanup required" value={cleanupRequiredForAction(option) ? "yes" : "no"} />
         <Metadata label="Estimated duration" value={campaign ? formatDuration(campaign.timeoutMs) : "not available"} />
-        <Metadata label="Execution status" value={latestRun ? latestRun.status : option.disabled ? "disabled in current phase" : "not run yet"} />
+        <Metadata label="Execution status" value={latestRun ? formatCampaignExecutionState(latestRun) : option.disabled ? "disabled in current phase" : "not run yet"} />
         <Metadata label="Last run" value={latestRun ? latestRun.id : "none"} mono />
         <Metadata label="Disabled reason" value={option.disabled ? disabledReasonSummary(option.command) : "not disabled"} />
       </dl>
@@ -2693,13 +3018,147 @@ function ActionDetail({
       <button
         className="mt-5 rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
         disabled={disabled}
-        onClick={() => campaign && void runCampaign(campaign.key)}
+        onClick={() => campaign && (campaign.mutatesStaging ? void onReviewLiveCampaign?.(campaign) : void runCampaign(campaign.key))}
         type="button"
       >
-        {option.disabled || !campaign ? "Disabled" : canStartRuns ? actionLabelForCommand(campaign) : "Viewer role cannot run"}
+        {option.disabled || !campaign
+          ? "Disabled"
+          : campaign.mutatesStaging
+            ? currentUserRole === "admin" ? "Review and Run" : "Admin approval required"
+            : canStartRuns ? actionLabelForCommand(campaign) : "Viewer role cannot run"}
       </button>
     </article>
   );
+}
+
+function DeferredCleanupBanner() {
+  return (
+    <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
+      <p className="font-semibold">INSSA staging cleanup is deferred because direct database access is unavailable.</p>
+      <p className="mt-1 text-amber-100/75">
+        Deferred objects remain unresolved INSSA staging data. The ledger records ownership, age, evidence, and retention; it does not delete product data.
+      </p>
+    </div>
+  );
+}
+
+function MutationCampaignReadiness({
+  artifacts,
+  campaigns,
+  cleanupLedger,
+  onOpenRun,
+  runs
+}: {
+  artifacts: ArtifactRecord[];
+  campaigns: CampaignDefinition[];
+  cleanupLedger: CleanupLedgerRecord[];
+  onOpenRun: (runId: string) => void;
+  runs: RunRecord[];
+}) {
+  if (campaigns.length === 0) return null;
+  return (
+    <section className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/45 p-4">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h3 className="font-semibold text-slate-100">Mutation deployment readiness</h3>
+          <p className="text-sm text-slate-400">Run outcome and unresolved-object accounting from immutable campaign evidence.</p>
+        </div>
+        <span className="text-xs uppercase tracking-[0.16em] text-slate-500">read only</span>
+      </div>
+      <div className="mt-4 grid gap-3 xl:grid-cols-2">
+        {campaigns.map((campaign) => {
+          const latestRun = findLatestRunForCommand(runs, campaign.key);
+          const campaignRecords = cleanupLedger
+            .filter((record) => record.campaignKey === campaign.key)
+            .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+          const runRecords = latestRun
+            ? campaignRecords.filter((record) => record.originatingRunId === latestRun.id)
+            : campaignRecords.slice(0, 1);
+          const unresolvedRecords = runRecords.filter((record) => record.status !== "completed");
+          const playwrightReport = latestRun
+            ? artifacts.find((artifact) => artifact.runId === latestRun.id && artifact.artifactType === "Playwright Report") ?? null
+            : null;
+          const video = latestRun
+            ? artifacts.find(
+                (artifact) =>
+                  artifact.runId === latestRun.id &&
+                  artifact.artifactType === "Video" &&
+                  artifact.filePath.includes("/playwright-report/")
+              ) ?? null
+            : null;
+          const videoHref = playwrightReport && video ? playwrightBundleAssetHref(playwrightReport, video.filePath) : null;
+          const cleanupStatus = runRecords[0]?.status ?? latestRun?.cleanup?.status ?? "not recorded";
+          const reason = runRecords.find((record) => record.reasonCode)?.reasonCode ?? latestRun?.cleanup?.reasonCode ?? null;
+          return (
+            <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4" key={campaign.key}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-slate-100">{campaign.displayName}</p>
+                  <p className="mt-1 font-mono text-xs text-slate-500">{campaign.npmScript}</p>
+                </div>
+                <StatusBadge status={mutationReadiness(latestRun, runRecords)} />
+              </div>
+              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                <Metadata label="Last result" value={latestRun ? humanizePolicy(latestRun.status) : "not run"} />
+                <Metadata label="Cleanup status" value={humanizePolicy(cleanupStatus)} />
+                <Metadata
+                  label="Created objects"
+                  value={runRecords.length ? runRecords.map((record) => record.objectPath).join(", ") : "none recorded"}
+                  mono
+                />
+                <Metadata label="Unresolved age" value={unresolvedAge(unresolvedRecords)} />
+                <Metadata label="Known issue" value={reason ?? (latestRun && FAILED_STATUSES.has(latestRun.status) ? "Review failed run evidence" : "none recorded")} />
+                <Metadata label="Current readiness" value={humanizePolicy(mutationReadiness(latestRun, runRecords))} />
+              </dl>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {videoHref ? (
+                  <a className="secondary-action" href={videoHref} rel="noreferrer" target="_blank">Open Video</a>
+                ) : (
+                  <span className="secondary-action cursor-not-allowed opacity-50">Video unavailable</span>
+                )}
+                {playwrightReport ? (
+                  <a className="secondary-action" href={`/api/artifacts/${playwrightReport.id}/bundle/index.html`} rel="noreferrer" target="_blank">
+                    Open Evidence
+                  </a>
+                ) : null}
+                {latestRun ? (
+                  <button className="secondary-action" onClick={() => onOpenRun(latestRun.id)} type="button">Open Run</button>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function mutationReadiness(run: RunRecord | null, records: CleanupLedgerRecord[]) {
+  if (!run) return "blocked";
+  if (ACTIVE_STATUSES.has(run.status)) return "unstable";
+  if (records.some((record) => !record.safelyAccounted || record.status === "pending" || record.status === "failed")) return "blocked";
+  if (FAILED_STATUSES.has(run.status)) return "unstable";
+  if (records.some((record) => record.status === "deferred" || record.status === "cleanup_unavailable")) {
+    return "ready_with_known_issues";
+  }
+  return PASSED_STATUSES.has(run.status) ? "ready" : "blocked";
+}
+
+function unresolvedAge(records: CleanupLedgerRecord[]) {
+  if (records.length === 0) return "none";
+  const oldest = Math.min(...records.map((record) => new Date(record.createdAt).getTime()));
+  const ageMs = Date.now() - oldest;
+  if (!Number.isFinite(ageMs) || ageMs < 0) return "unknown";
+  const hours = Math.floor(ageMs / 3_600_000);
+  return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
+
+function playwrightBundleAssetHref(report: ArtifactRecord, filePath: string) {
+  const marker = "/playwright-report/";
+  const markerIndex = filePath.indexOf(marker);
+  if (markerIndex < 0) return null;
+  const relativePath = filePath.slice(markerIndex + marker.length).split("/").map(encodeURIComponent).join("/");
+  return `/api/artifacts/${report.id}/bundle/${relativePath}`;
 }
 
 function ArtifactValidationActionPanel({
@@ -2721,7 +3180,7 @@ function ArtifactValidationActionPanel({
   onSelect: (key: string) => void;
   runningCount: number;
   runs: RunRecord[];
-  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) => Promise<void>;
+  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection, liveApproval?: LiveApprovalPayload) => Promise<boolean>;
   selectedArtifact: LifecycleArtifactOption | null;
   selectedKey: string;
 }) {
@@ -2801,7 +3260,7 @@ function ArtifactValidationCommandCard({
   canStartRuns: boolean;
   currentUserRole: InssaOpsClientProps["currentUser"]["role"];
   runningCount: number;
-  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) => Promise<void>;
+  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection, liveApproval?: LiveApprovalPayload) => Promise<boolean>;
   selectedArtifact: LifecycleArtifactOption | null;
 }) {
   const disabled =
@@ -2961,7 +3420,7 @@ function EvidenceWorkspace({
   reportCategoryCounts: Record<ReportCategory, number>;
   reportRenderCommands: CampaignDefinition[];
   reports: ArtifactRecord[];
-  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection) => Promise<void>;
+  runCampaign: (campaignKey: string, lifecycleArtifactSelection?: LifecycleArtifactSelection, liveApproval?: LiveApprovalPayload) => Promise<boolean>;
   runs: RunRecord[];
   selectedArtifact: ArtifactRecord | null;
   selectedBundle: EvidenceBundleRecord | null;
@@ -3921,16 +4380,17 @@ function managedCampaignFromRegistry(campaign: CampaignDefinition): ManagedCampa
   const produces = producesForCommand(campaign);
 
   return {
-    approvalRequired: false,
+    approvalRequired: campaign.approvalRequired ?? false,
     category,
     cleanupRequired: campaign.mutatesStaging,
     commandKey: campaign.key,
     description: campaign.operatorDescription,
+    definition: campaign,
     disabledReason: null,
     environment: campaign.targetEnvironment === "production" ? "Production" : "Staging",
     estimatedDuration: formatDuration(campaign.timeoutMs),
     evidenceProduced,
-    executionEnabled: campaign.phase1Enabled && !campaign.mutatesStaging,
+    executionEnabled: campaign.phase1Enabled,
     id: `registry:${campaign.key}`,
     mutatesStaging: campaign.mutatesStaging,
     name: campaign.displayName,
@@ -3942,7 +4402,7 @@ function managedCampaignFromRegistry(campaign: CampaignDefinition): ManagedCampa
     relatedValidation: relatedValidationForCommand(campaign),
     risk: campaign.riskLevel,
     source: "registry",
-    status: campaign.phase1Enabled && !campaign.mutatesStaging ? "Executable" : "Disabled"
+    status: campaign.phase1Enabled ? "Executable" : "Disabled"
   };
 }
 
@@ -3956,6 +4416,7 @@ function managedCampaignFromDisabled(command: DisabledCommandCard, category: Cam
     cleanupRequired,
     commandKey: null,
     description: command.description,
+    definition: null,
     disabledReason: command.reason,
     environment: "Staging",
     estimatedDuration: "not enabled",
@@ -3985,6 +4446,7 @@ function categoryForCommand(campaign: CampaignDefinition): CampaignCategory {
   if (SAFE_COMMAND_KEYS.includes(campaign.key)) return "Safe Tests";
   if (SECURITY_COMMAND_KEYS.includes(campaign.key)) return "Security";
   if (ARTIFACT_VALIDATION_COMMAND_KEYS.includes(campaign.key)) return "Artifact Validation";
+  if (LIFECYCLE_COMMAND_KEYS.includes(campaign.key)) return "Lifecycle";
   if (SIEM_COMMAND_KEYS.includes(campaign.key)) return "SIEM";
   return "Operations";
 }
@@ -4103,6 +4565,17 @@ function buildActionOptions(enabledCommands: CampaignDefinition[], disabledComma
 function cleanupRequiredForAction(option: ActionOption) {
   if (!option.disabled) return option.campaign.mutatesStaging;
   return option.riskLevel.includes("mutation") || /cleanup|capsule|creates/i.test(option.description);
+}
+
+function formatCampaignExecutionState(run: RunRecord) {
+  if (run.cleanup?.status === "pending") return "Cleanup Pending";
+  if (run.cleanup?.status === "failed") return "Cleanup Failed";
+  if (run.status === "passed" || run.status === "passed_with_warnings") return "Completed";
+  if (run.status === "queued") return "Run Queued";
+  if (run.status === "starting" || run.status === "running" || run.status === "indexing_artifacts") return "Running";
+  if (run.status === "timed_out") return "Timed Out";
+  if (run.status === "failed" || run.status === "failed_startup") return "Failed";
+  return run.status.replaceAll("_", " ");
 }
 
 function disabledReasonSummary(command: DisabledCommandCard) {

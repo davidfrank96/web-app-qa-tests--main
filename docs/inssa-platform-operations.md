@@ -1,6 +1,6 @@
 # QA Operations Platform Operations
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-08-02
 
 ## Daily Startup
 
@@ -45,7 +45,15 @@ npm run test:inssa:public-share
 npm run test:inssa:cleanup-audit
 ```
 
-Live lifecycle and advanced security commands remain dashboard-disabled. Run them from CLI only with approved mutation/cleanup gates.
+Governed lifecycle and advanced security wrappers are available only to admins through `Review and Run`. Confirm the exact staging target, complete all acknowledgements, pass preflight, run one campaign at a time, and inspect immutable evidence. The next run may proceed with unavailable cleanup only when Deferred Cleanup Mode verifies an object ID, originating run, dedicated QA ownership, sanitization, safe accounting, age and configured thresholds. Unknown objects, non-QA impact, unexpected data, and `pending`/`failed` cleanup remain blocking. Viewer/operator API requests remain denied.
+
+Recommended live validation order:
+
+```text
+Text -> Media -> Video -> Cross-User -> Reveal-Later Lifecycle -> Reveal-Later Security
+```
+
+Reveal-later campaigns require an explicit Create or Resume choice. Resume accepts only successful staging reveal-later artifacts with owner, schedule, and lifecycle-state evidence. Never use raw mutation scripts from the dashboard.
 
 ## Execution Review
 

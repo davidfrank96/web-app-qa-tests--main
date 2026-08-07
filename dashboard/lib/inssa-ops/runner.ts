@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { indexArtifactsForRun } from "./artifact-indexer";
 import { recordInssaAuditEvent } from "./audit";
+import { persistCleanupLedgerForRun } from "./cleanup-ledger";
+import { writeCleanupManifest } from "./cleanup-manifest";
 import { getInssaPhase1Command } from "./command-registry";
 import { ActiveExecutionJobError, getInssaExecutionJobStore } from "./execution-job-store";
 import { buildEvidenceMetadataForRun } from "./evidence";
@@ -21,6 +23,7 @@ import { getInssaRunStore } from "./run-store";
 import { buildRunOutputEnvironment, finalizeRunOutput, prepareRunOutput } from "./run-output";
 import type {
   InssaExecutionJobRecord,
+  InssaLiveExecutionContext,
   InssaRunLogRecord,
   InssaRunRecord,
   ResolvedInssaLifecycleArtifactSelection
@@ -30,16 +33,20 @@ export type StartRunInput = {
   campaignKey: string;
   idempotencyKey?: string;
   lifecycleArtifact?: ResolvedInssaLifecycleArtifactSelection;
+  executionContext?: InssaLiveExecutionContext;
   requestedBy?: string;
 };
 
 export async function startInssaPhase1Run(input: StartRunInput) {
   const command = getInssaPhase1Command(input.campaignKey);
-  if (!command || !command.phase1Enabled || command.mutatesStaging) {
+  if (!command || !command.phase1Enabled) {
     return {
       error: `Campaign is not enabled for Phase 1 safe execution: ${input.campaignKey}`,
       status: 400 as const
     };
+  }
+  if (command.mutatesStaging && !input.executionContext) {
+    return { error: `Admin approval and successful preflight are required for live campaign: ${input.campaignKey}`, status: 400 as const };
   }
 
   const environment = validateInssaStagingEnvironment();
@@ -60,6 +67,7 @@ export async function startInssaPhase1Run(input: StartRunInput) {
   const run = await store.createRun({
     campaignKey: command.key,
     commandSnapshot: command,
+    executionContext: input.executionContext,
     requestedBy: input.requestedBy?.trim() || "phase1-placeholder-user"
   });
 
@@ -67,7 +75,9 @@ export async function startInssaPhase1Run(input: StartRunInput) {
     const enqueued = await jobStore.enqueue({
       campaignKey: command.key,
       idempotencyKey,
+      executionContext: input.executionContext,
       lifecycleArtifact: input.lifecycleArtifact,
+      maxAttempts: command.mutatesStaging ? 1 : 2,
       runId: run.id
     });
     if (enqueued.created) await recordRunQueuedNotification(run);
@@ -108,6 +118,13 @@ export async function executeClaimedInssaJob(job: InssaExecutionJobRecord, worke
 
   await jobStore.markRunning(job.id, workerId, leaseMs);
   await recordRunStartedNotification(run, job.attempt, workerId);
+  await recordInssaAuditEvent({
+    campaignKey: run.campaignKey,
+    eventType: "run_started",
+    metadata: { attempt: job.attempt, workerId },
+    runId: run.id,
+    status: "running"
+  });
   const leaseAbort = new AbortController();
   const heartbeat = setInterval(() => {
     void jobStore.heartbeat(job.id, workerId, leaseMs).catch((error) => {
@@ -118,7 +135,7 @@ export async function executeClaimedInssaJob(job: InssaExecutionJobRecord, worke
   heartbeat.unref();
 
   try {
-    const finalStatus = await executeRun(run, job.lifecycleArtifact ?? undefined, leaseAbort.signal);
+    const finalStatus = await executeRun(run, job.lifecycleArtifact ?? undefined, job.executionContext ?? undefined, leaseAbort.signal);
     await jobStore.complete(
       job.id,
       workerId,
@@ -148,6 +165,7 @@ export async function executeClaimedInssaJob(job: InssaExecutionJobRecord, worke
 async function executeRun(
   run: InssaRunRecord,
   lifecycleArtifact?: ResolvedInssaLifecycleArtifactSelection,
+  executionContext?: InssaLiveExecutionContext,
   leaseSignal?: AbortSignal
 ) {
   const store = getInssaRunStore();
@@ -175,7 +193,7 @@ async function executeRun(
     );
   }
 
-  const command = buildRunCommand(repoRoot, run, lifecycleArtifact);
+  const command = buildRunCommand(repoRoot, run, lifecycleArtifact, executionContext);
   const child = spawn(command.commandName, command.args, {
     cwd: repoRoot,
     env: command.env,
@@ -220,7 +238,40 @@ async function executeRun(
   const completedAt = new Date();
   const durationMs = completedAt.getTime() - startedAt.getTime();
   await store.updateRun(run.id, { status: "indexing_artifacts" });
-  const output = await finalizeRunOutput({ campaignKey: run.campaignKey, completedAt, runId: run.id, startedAt });
+  let output = await finalizeRunOutput({ campaignKey: run.campaignKey, completedAt, runId: run.id, startedAt });
+  if (run.commandSnapshot.cleanupRequired) {
+    const cleanup = await writeCleanupManifest(run, output.outputRoot);
+    if (cleanup) {
+      await store.updateRun(run.id, { cleanup });
+      const cleanupRecords = await persistCleanupLedgerForRun(run, cleanup, store);
+      if (cleanupRecords.length > 0) {
+        await recordInssaAuditEvent({
+          campaignKey: run.campaignKey,
+          eventType: "cleanup_deferred",
+          metadata: {
+            objectCount: cleanupRecords.length,
+            objectPaths: cleanupRecords.map((record) => record.objectPath),
+            reasonCode: cleanup.reasonCode
+          },
+          runId: run.id,
+          status: cleanup.status
+        });
+      }
+      if (cleanup.createdCapsuleIds.length === 0) {
+        await recordInssaAuditEvent({
+          campaignKey: run.campaignKey,
+          eventType: "cleanup_investigation_required",
+          metadata: {
+            finalActionPerformed: cleanup.finalActionPerformed,
+            reason: "Mutation campaign completed without a captured capsule ID."
+          },
+          runId: run.id,
+          status: "failed_cleanup_identity"
+        });
+      }
+    }
+    output = await finalizeRunOutput({ campaignKey: run.campaignKey, completedAt, runId: run.id, startedAt });
+  }
   assertExecutionLease(leaseSignal);
   const artifacts = await indexArtifactsForRun({
     completedAtMs: completedAt.getTime(),
@@ -302,9 +353,17 @@ async function executeRun(
 function buildRunCommand(
   repoRoot: string,
   run: InssaRunRecord,
-  lifecycleArtifact?: ResolvedInssaLifecycleArtifactSelection
+  lifecycleArtifact?: ResolvedInssaLifecycleArtifactSelection,
+  executionContext?: InssaLiveExecutionContext
 ) {
   const runEnvironment = buildRunOutputEnvironment(run.id);
+  const liveEnvironment = run.commandSnapshot.mutatesStaging ? readLiveStagingEnv(repoRoot) : {};
+  const mutationEnvironment = run.commandSnapshot.mutatesStaging
+    ? {
+        INSSA_MUTATION_RECORDING: "1",
+        INSSA_MUTATION_RUN_ID: run.id
+      }
+    : {};
   if (run.commandSnapshot.requiresLifecycleArtifact && run.commandSnapshot.playwrightSpec && lifecycleArtifact) {
     const playwrightBin = path.join(repoRoot, "node_modules", ".bin", process.platform === "win32" ? "playwright.cmd" : "playwright");
     const commandName = existsSync(playwrightBin) ? playwrightBin : process.platform === "win32" ? "npx.cmd" : "npx";
@@ -316,8 +375,9 @@ function buildRunCommand(
       commandName,
       env: {
         ...process.env,
-        ...readLiveStagingEnv(repoRoot),
+        ...liveEnvironment,
         ...runEnvironment,
+        ...mutationEnvironment,
         INSSA_LIVE_CAPSULE_ARTIFACT_PATH: lifecycleArtifact.filePath,
         INSSA_USE_LATEST_LIVE_CAPSULE_ARTIFACT: "0"
       }
@@ -327,7 +387,18 @@ function buildRunCommand(
   return {
     args: ["run", run.commandSnapshot.npmScript],
     commandName: process.platform === "win32" ? "npm.cmd" : "npm",
-    env: { ...process.env, ...runEnvironment }
+    env: {
+      ...process.env,
+      ...liveEnvironment,
+      ...runEnvironment,
+      ...mutationEnvironment,
+      ...(executionContext?.executionMode === "resume" && executionContext.resumeArtifact
+        ? {
+            INSSA_REVEAL_LATER_LIFECYCLE_ARTIFACT_PATH: executionContext.resumeArtifact.filePath,
+            INSSA_REVEAL_LATER_SECURITY_ARTIFACT_PATH: executionContext.resumeArtifact.filePath
+          }
+        : {})
+    }
   };
 }
 

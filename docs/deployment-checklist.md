@@ -27,9 +27,9 @@ Every required item must have captured evidence for the target environment.
 
 ## Supabase
 
-- [ ] All six migrations are applied in canonical order.
+- [ ] All eight migrations are applied in canonical order, including `20260802_admin_live_campaigns.sql` and `20260802_deferred_cleanup_ledger.sql`.
 - [ ] Migration history and linked schema diff are clean.
-- [ ] All 11 platform tables exist with RLS enabled.
+- [ ] All 12 platform tables exist with RLS enabled.
 - [ ] Anonymous/authenticated roles have no direct platform table access.
 - [ ] Service-role execution RPCs and grants are correct.
 - [ ] Supabase security/performance advisors have no unresolved blocker.
@@ -42,6 +42,8 @@ Every required item must have captured evidence for the target environment.
 - [ ] Viewer cannot enqueue runs.
 - [ ] Operator can run enabled safe/read-only commands but not healthcheck.
 - [ ] Admin can run healthcheck.
+- [ ] Viewer/operator receive `403` for governed live mutation commands.
+- [ ] Admin approval and server preflight are required before any live mutation job is created.
 - [ ] Unauthorized and role-violation audit events persist.
 
 ## Worker And Scheduler
@@ -84,7 +86,9 @@ Every required item must have captured evidence for the target environment.
 ## Product Safety
 
 - [ ] Standard INSSA environment is `https://staging.inssa.us`.
-- [ ] Lifecycle mutation remains dashboard-disabled.
+- [ ] Lifecycle mutation is admin-only, staging-only, approval-gated, and limited to governed wrappers.
+- [ ] Production/arbitrary/localhost mutation targets fail before job creation.
+- [ ] Mutation runs use one attempt and produce a run-owned cleanup manifest.
 - [ ] Production authentication monitoring guard is validated separately.
 - [ ] Cleanup targets and ownership are recorded for any approved mutation test.
 

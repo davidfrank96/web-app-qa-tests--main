@@ -39,6 +39,8 @@ git status --short
 
 Live staging campaigns are not required for an infrastructure-only release unless campaign code changed. Production monitoring must not be used as a release smoke test.
 
+When live campaign controls change, certify admin-only RBAC, exact staging-host enforcement, approval/preflight rejection paths, one-attempt mutation jobs, immutable evidence, and cleanup manifests before deployment. Live product execution remains sequential and requires manual cleanup confirmation between campaigns.
+
 ## Release Decision
 
 - `PASS`: every mandatory gate passes and no credential exposure is found.

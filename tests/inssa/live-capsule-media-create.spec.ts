@@ -4,6 +4,7 @@ import { expect, test } from "./fixtures";
 import {
   InssaFinalLiveCreateStepError,
   type InssaComposeStepSnapshot,
+  type InssaExactContactSelection,
   type InssaLiveCapsuleShareEvidence,
   type InssaMediaAttachmentEvidence,
   type InssaMediaSelectionSnapshot,
@@ -48,6 +49,12 @@ import {
   INSSA_US_MARKET_LOCATION_ENV_FLAG
 } from "../../utils/inssa-mutation";
 import { withInssaStabilityMonitor } from "../../utils/monitor";
+import {
+  assertInssaContactSelectionTransition,
+  assertInssaCleanupOwnership,
+  classifyInssaCleanupIdentity,
+  type InssaCleanupIdentityStatus
+} from "../../utils/inssa-text-lifecycle-state";
 
 const DEFAULT_TIMEOUT = 25_000;
 const LIVE_TEST_ENABLED = process.env[INSSA_LIVE_CAPSULE_ENV_FLAG] === "1";
@@ -58,6 +65,7 @@ const REMOTE_IMAGE_URL = process.env[INSSA_REMOTE_IMAGE_URL_ENV]?.trim() ?? "";
 const SELECTED_LOCATION_KEY = process.env[INSSA_US_MARKET_LOCATION_ENV_FLAG]?.trim().toLowerCase() ?? "";
 const STAGING_HOSTNAME = "staging.inssa.us";
 const MAX_REMOTE_IMAGE_BYTES = 2 * 1024 * 1024;
+const APPROVED_CONTACT_EMAIL = "test2@gmail.com";
 
 type MediaMode = "downloaded-remote-image" | "existing-local-fixture" | "generated-local-fixture" | "remote-url-input";
 
@@ -72,6 +80,8 @@ type PreparedMediaAttachment = {
 type LiveMediaCapsuleArtifact = {
   artifactStateNote: string | null;
   buryClicked: boolean;
+  cleanupIdentityStatus: InssaCleanupIdentityStatus;
+  cleanupInvestigationRequired: boolean;
   mediaAttachmentEvidence: InssaMediaAttachmentEvidence | null;
   cleanupInstruction: string;
   createdAt: string;
@@ -79,17 +89,30 @@ type LiveMediaCapsuleArtifact = {
   environment: "staging";
   fatalNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[];
   finalActionClicked: boolean;
+  finalActionContext: {
+    campaign: "media";
+    currentStep: string;
+    currentUrl: string;
+    fixtureType: "image";
+    selectedCount: number;
+    selectedRecipient: string;
+  } | null;
   finalActionLabel: string | null;
+  finalShareActionClicked: boolean;
+  finalizationPersistenceResponseStatuses: number[];
   finalUrl: string;
   maskedTestEmail: string;
   mediaCapabilities: InssaMediaStepCapabilities;
   mediaMode: MediaMode;
+  mediaType: "image";
   message: string;
   observedCreateSuccess: boolean;
   possibleDocumentIds: string[];
   possibleFinalCapsuleId: string | null;
   possibleShareToken: string | null;
   postContinueScreenshotPath: string | null;
+  preContactSelectionScreenshotPath: string | null;
+  selectedContactScreenshotPath: string | null;
   postFinalizationScreenshotPath: string | null;
   postCreateVisibleControls: {
     archiveCapsule: boolean;
@@ -110,10 +133,16 @@ type LiveMediaCapsuleArtifact = {
   revealSettingsSnapshots: InssaRevealSettingsModalSnapshot[];
   revealTiming: "reveal-later" | "reveal-now" | null;
   requestFailureSummary: InssaLifecycleRequestFailureSummary;
+  resultingObjectState: "shared-contact-finalized" | null;
   remoteImageUrl: string | null;
   runId: string;
   screenshotPath: string | null;
   sendToContactsClicked: boolean;
+  selectedContactCountAfter: number | null;
+  selectedContactCountBefore: number | null;
+  selectedContactIdentityVerified: boolean;
+  selectedContactSelection: InssaExactContactSelection | null;
+  selectedContactTarget: string | null;
   selectedMedia: InssaMediaSelectionSnapshot;
   selectedUsLocation: {
     address: string;
@@ -197,10 +226,14 @@ test.describe("INSSA live media capsule create", () => {
     const composeTemplateDefaults = getInssaComposeTemplateDefaults(composeRoute);
     const screenshotFileName = `${runContext.runId}.png`;
     const postContinueScreenshotFileName = `${runContext.runId}-post-continue.png`;
+    const preContactSelectionScreenshotFileName = `${runContext.runId}-contact-before-selection.png`;
+    const selectedContactScreenshotFileName = `${runContext.runId}-contact-selected.png`;
     const postFinalizationScreenshotFileName = `${runContext.runId}-post-finalization.png`;
     const artifactFileName = `${runContext.runId}.json`;
     const screenshotPath = getInssaLifecycleArtifactPath(screenshotFileName);
     const postContinueScreenshotPath = getInssaLifecycleArtifactPath(postContinueScreenshotFileName);
+    const preContactSelectionScreenshotPath = getInssaLifecycleArtifactPath(preContactSelectionScreenshotFileName);
+    const selectedContactScreenshotPath = getInssaLifecycleArtifactPath(selectedContactScreenshotFileName);
     const postFinalizationScreenshotPath = getInssaLifecycleArtifactPath(postFinalizationScreenshotFileName);
     const possibleDocumentIds = new Set<string>();
     const stepButtonSnapshots: InssaComposeStepSnapshot[] = [];
@@ -208,6 +241,7 @@ test.describe("INSSA live media capsule create", () => {
     let phase: InssaLifecycleNetworkPhase = "pre-create";
     let draftIdBeforeCreate: string | null = null;
     let finalActionLabel: string | null = null;
+    let finalActionContext: LiveMediaCapsuleArtifact["finalActionContext"] = null;
     let finalUrl = "";
     let finalShareEvidence: InssaLiveCapsuleShareEvidence | null = null;
     let finalShareLink: string | null = null;
@@ -216,6 +250,8 @@ test.describe("INSSA live media capsule create", () => {
     let observedCreateSuccess = false;
     let visibleSuccessText: string | null = null;
     let finalActionClicked = false;
+    let finalShareActionClicked = false;
+    let finalizationPersistenceResponseStatuses: number[] = [];
     let buryClicked = false;
     let revealSettingsOpened = false;
     let revealAudience: "personal-memory" | "shared-capsule" | null = null;
@@ -223,6 +259,11 @@ test.describe("INSSA live media capsule create", () => {
     let revealSettingsContinueClicked = false;
     let revealSettingsFollowupClickedLabel: string | null = null;
     let sendToContactsClicked = false;
+    let selectedContactCountAfter: number | null = null;
+    let selectedContactCountBefore: number | null = null;
+    let selectedContactIdentityVerified = false;
+    let selectedContactSelection: InssaExactContactSelection | null = null;
+    let selectedContactTarget: string | null = null;
     let shareDecisionStepReached = false;
     let skipContactsClicked = false;
     const revealSettingsSnapshots: InssaRevealSettingsModalSnapshot[] = [];
@@ -241,6 +282,7 @@ test.describe("INSSA live media capsule create", () => {
     let warningNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[] = [];
     let requestFailureSummary: InssaLifecycleRequestFailureSummary = summarizeInssaLifecycleNetworkIssues([]);
     let lifecycleSucceededDespiteWarnings = false;
+    let resultingObjectState: "shared-contact-finalized" | null = null;
     let postCreateVisibleControls = {
       archiveCapsule: false,
       deleteCapsule: false,
@@ -363,50 +405,89 @@ test.describe("INSSA live media capsule create", () => {
           await captureInssaLifecycleArtifactScreenshot(page, postContinueScreenshotFileName).catch(() => {});
         }, { phase: "interaction" });
 
-        await monitor.step("wait for final media share-link evidence", async () => {
-          phase = "post-create";
-          const outcome = await compose.waitForLiveCapsuleShareLinkEvidence();
-          revealSettingsSnapshots.push(...outcome.revealSettingsSnapshots);
-          revealSettingsFollowupClickedLabel = outcome.followupClickedLabel;
-          sendToContactsClicked = outcome.sendToContactsClicked;
-          shareDecisionStepReached = outcome.shareDecisionStepReached;
-          skipContactsClicked = outcome.skipContactsClicked;
-          finalShareEvidence = outcome.shareEvidence;
-          if (revealSettingsFollowupClickedLabel) {
-            successSignals.add(`reveal-followup=${revealSettingsFollowupClickedLabel}`);
-          }
-          if (shareDecisionStepReached) {
-            successSignals.add("share-decision-step-reached");
-          }
-          if (skipContactsClicked) {
-            successSignals.add("skip-contacts-share-link-clicked");
-          }
-          if (sendToContactsClicked) {
-            successSignals.add("send-to-contacts-clicked");
-          }
+        await monitor.step("select the exact approved media recipient", async () => {
+          const contactStep = await compose.waitForContactShareDecisionStep();
+          revealSettingsSnapshots.push(contactStep);
+          expect(contactStep.stepTitle, "Expected current Step 2 title to be Send or save.").toMatch(/send or save/i);
+          expect(contactStep.selectedContactsCount, "Expected contact selection to start at 0 selected.").toBe(0);
+          shareDecisionStepReached = true;
+          await captureInssaLifecycleArtifactScreenshot(page, preContactSelectionScreenshotFileName).catch(() => {});
 
+          selectedContactSelection = await compose.selectExactContactForLifecycle(APPROVED_CONTACT_EMAIL);
+          revealSettingsSnapshots.push(selectedContactSelection.beforeSnapshot, selectedContactSelection.afterSnapshot);
+          selectedContactCountBefore = selectedContactSelection.beforeSnapshot.selectedContactsCount;
+          selectedContactCountAfter = selectedContactSelection.afterSnapshot.selectedContactsCount;
+          selectedContactIdentityVerified = selectedContactSelection.targetIdentityVerified;
+          selectedContactTarget = selectedContactSelection.selectedContactLabel;
+          assertInssaContactSelectionTransition({
+            afterCount: selectedContactCountAfter,
+            beforeCount: selectedContactCountBefore,
+            targetIdentityVerified: selectedContactIdentityVerified
+          });
+          expect(selectedContactSelection.selectedRowCount, "Expected no other contact to be selected.").toBe(1);
+          await captureInssaLifecycleArtifactScreenshot(page, selectedContactScreenshotFileName).catch(() => {});
+        }, { phase: "interaction" });
+
+        await monitor.step("finalize media contact share exactly once and capture identity", async () => {
+          const selectedSnapshot = await compose.snapshotRevealSettingsModal();
+          finalActionContext = {
+            campaign: "media",
+            currentStep: selectedSnapshot.selectedContactsStepLabel ?? selectedSnapshot.stepLabel ?? "Step 2 of 2",
+            currentUrl: page.url(),
+            fixtureType: "image",
+            selectedCount: selectedSnapshot.selectedContactsCount ?? -1,
+            selectedRecipient: selectedContactTarget ?? maskEmail(APPROVED_CONTACT_EMAIL)
+          };
+          expect(finalActionContext.selectedCount, "Final media action requires exactly one selected contact.").toBe(1);
+
+          phase = "post-create";
+          revealSettingsFollowupClickedLabel = await compose.clickBuryThenChooseWhoToShareWithOnce();
+          finalShareActionClicked = true;
+          finalActionClicked = true;
+          finalActionLabel = revealSettingsFollowupClickedLabel;
+          sendToContactsClicked = true;
+          successSignals.add(`reveal-followup=${revealSettingsFollowupClickedLabel}`);
+          successSignals.add("share-decision-step-reached");
+          successSignals.add("send-to-contacts-clicked");
+          successSignals.add(`selected-contact=${selectedContactTarget}`);
+          successSignals.add(`selected-count=${selectedContactCountAfter}`);
+
+          finalShareEvidence = await compose.waitForPostContactFinalizationEvidence();
           finalUrl = page.url();
-          finalShareLink = outcome.shareEvidence.finalShareLink;
-          possibleFinalCapsuleId = outcome.shareEvidence.possibleFinalCapsuleId;
-          possibleShareToken = outcome.shareEvidence.possibleShareToken;
-          visibleSuccessText = outcome.shareEvidence.visibleSuccessText;
-          outcome.shareEvidence.successSignals.forEach((signal) => successSignals.add(signal));
-          if (possibleFinalCapsuleId) {
-            possibleDocumentIds.add(possibleFinalCapsuleId);
-          }
-          if (possibleShareToken) {
-            successSignals.add(`share-token=${possibleShareToken}`);
-          }
-          observedCreateSuccess =
-            Boolean(finalShareLink) ||
-            Boolean(possibleFinalCapsuleId) ||
-            Boolean(possibleShareToken) ||
-            Boolean(visibleSuccessText) ||
-            outcome.shareEvidence.copyShareLinkVisible ||
-            outcome.shareEvidence.shareLinkButtonVisible ||
-            outcome.shareEvidence.homeVisible;
+          finalShareLink = finalShareEvidence.finalShareLink;
+          possibleFinalCapsuleId = finalShareEvidence.possibleFinalCapsuleId;
+          possibleShareToken = finalShareEvidence.possibleShareToken;
+          visibleSuccessText = finalShareEvidence.visibleSuccessText;
+          finalShareEvidence.successSignals.forEach((signal) => successSignals.add(signal));
           await captureInssaLifecycleArtifactScreenshot(page, postFinalizationScreenshotFileName).catch(() => {});
-        }, { phase: "assertion" });
+
+          await networkMonitor.flush();
+          const postFinalizationNetwork = networkMonitor.summarize();
+          finalizationPersistenceResponseStatuses = networkMonitor.observations
+            .filter(
+              (observation) =>
+                observation.event === "response" &&
+                observation.phase === "post-create" &&
+                /^(POST|PUT|PATCH|DELETE)$/i.test(observation.method) &&
+                typeof observation.responseStatus === "number" &&
+                observation.responseStatus < 400
+            )
+            .map((observation) => observation.responseStatus as number);
+          expect(
+            finalizationPersistenceResponseStatuses.length,
+            "Expected the single final media contact-share action to receive a successful persistence response."
+          ).toBeGreaterThan(0);
+          possibleFinalCapsuleId = possibleFinalCapsuleId ?? postFinalizationNetwork.possibleCapsuleIds[0] ?? null;
+          if (!possibleFinalCapsuleId) {
+            throw new Error(
+              "failed_cleanup_identity: media persistence/finalization succeeded but no capsule ID was captured. Cleanup Investigation Required; automatic retry is forbidden."
+            );
+          }
+          possibleDocumentIds.add(possibleFinalCapsuleId);
+          resultingObjectState = "shared-contact-finalized";
+          expect(hasMediaUploadEvidence(mediaAttachmentEvidence), "Expected image media association evidence after finalization.").toBe(true);
+          expect(preparedMedia.fileName, "Expected the approved image fixture filename to remain associated with the run.").toBeTruthy();
+        }, { phase: "interaction" });
 
         await monitor.step("capture post-create control snapshot", async () => {
           finalUrl = finalUrl || page.url();
@@ -470,7 +551,7 @@ test.describe("INSSA live media capsule create", () => {
       possibleFinalCapsuleId = possibleFinalCapsuleId ?? lifecycleNetworkSummary.possibleCapsuleIds[0] ?? null;
       possibleShareToken = possibleShareToken ?? lifecycleNetworkSummary.possibleShareTokens[0] ?? null;
       await captureInssaLifecycleArtifactScreenshot(page, screenshotFileName).catch(() => {});
-      if (skipContactsClicked) {
+      if (finalShareActionClicked) {
         await captureInssaLifecycleArtifactScreenshot(page, postFinalizationScreenshotFileName).catch(() => {});
       }
       if (revealSettingsContinueClicked && !finalShareEvidence) {
@@ -507,6 +588,12 @@ test.describe("INSSA live media capsule create", () => {
         revealSettingsFollowupClickedLabel,
         revealTiming
       });
+      const cleanupIdentityStatus = classifyInssaCleanupIdentity({
+        capsuleId: possibleFinalCapsuleId,
+        finalShareActionClicked,
+        persistenceSucceeded: observedCreateSuccess || lifecycleNetworkSummary.successfulPostContinueWriteCount > 0
+      });
+      const cleanupInvestigationRequired = cleanupIdentityStatus === "failed_cleanup_identity";
       const lifecycleRequestContext = buildLifecycleRequestFailureContext({
         finalShareEvidence,
         finalShareLink,
@@ -534,21 +621,40 @@ test.describe("INSSA live media capsule create", () => {
         artifactStateNote =
           "Bury was clicked and Reveal settings opened, but finalization was not continued. A live media capsule may or may not exist on staging.";
       } else if (revealSettingsContinueClicked) {
-        artifactStateNote = observedCreateSuccess
+        artifactStateNote = cleanupInvestigationRequired
+          ? "Cleanup Investigation Required: media persistence was observed but the capsule ID was not captured. Do not retry the final action."
+          : observedCreateSuccess
           ? "Live media capsule finalization was attempted; verify staging before rerun. Share-link evidence was observed and manual cleanup is required."
           : "Live media capsule finalization was attempted; verify staging before rerun.";
+      }
+
+      if (possibleFinalCapsuleId && resultingObjectState) {
+        assertInssaCleanupOwnership({
+          capsuleId: possibleFinalCapsuleId,
+          cleanupInstruction: `Delete the QA staging media capsule ${possibleFinalCapsuleId} and associated image after verification.`,
+          objectType: "timeCapsule",
+          owner: maskedTestEmail,
+          resultingState: resultingObjectState
+        });
       }
 
       const artifact: LiveMediaCapsuleArtifact = {
         artifactStateNote,
         buryClicked,
-        cleanupInstruction: "Development team should delete this QA live media capsule from staging after verification.",
+        cleanupIdentityStatus,
+        cleanupInvestigationRequired,
+        cleanupInstruction: cleanupInvestigationRequired
+          ? "Cleanup Investigation Required. Identify the exact staging media capsule before another mutation run; do not retry the final action."
+          : `Delete the QA staging media capsule ${possibleFinalCapsuleId ?? "identified by this run's evidence"} and associated image after verification.`,
         createdAt: seed.createdAtIso,
         draftIdBeforeCreate,
         environment: "staging",
         fatalNetworkIssues,
         finalActionClicked,
+        finalActionContext,
         finalActionLabel,
+        finalShareActionClicked,
+        finalizationPersistenceResponseStatuses,
         finalUrl: finalUrl || page.url(),
         maskedTestEmail,
         mediaCapabilities: mediaCapabilities ?? {
@@ -564,13 +670,16 @@ test.describe("INSSA live media capsule create", () => {
         },
         mediaAttachmentEvidence,
         mediaMode: preparedMedia.mediaMode,
+        mediaType: "image",
         message: seed.message,
         observedCreateSuccess,
         possibleDocumentIds: [...possibleDocumentIds],
         possibleFinalCapsuleId,
         possibleShareToken,
         postContinueScreenshotPath: revealSettingsContinueClicked ? postContinueScreenshotPath : null,
-        postFinalizationScreenshotPath: skipContactsClicked ? postFinalizationScreenshotPath : null,
+        preContactSelectionScreenshotPath: revealSettingsContinueClicked ? preContactSelectionScreenshotPath : null,
+        selectedContactScreenshotPath: selectedContactSelection ? selectedContactScreenshotPath : null,
+        postFinalizationScreenshotPath: finalShareActionClicked ? postFinalizationScreenshotPath : null,
         postCreateVisibleControls,
         finalShareEvidence,
         finalShareLink,
@@ -585,10 +694,16 @@ test.describe("INSSA live media capsule create", () => {
         revealSettingsSnapshots,
         revealTiming,
         requestFailureSummary,
+        resultingObjectState,
         remoteImageUrl: preparedMedia.remoteImageUrl,
         runId: runContext.runId,
         screenshotPath,
         sendToContactsClicked,
+        selectedContactCountAfter,
+        selectedContactCountBefore,
+        selectedContactIdentityVerified,
+        selectedContactSelection,
+        selectedContactTarget,
         selectedMedia,
         selectedUsLocation: {
           address: location.address,

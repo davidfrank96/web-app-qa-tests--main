@@ -1,6 +1,6 @@
 # INSSA QA Platform Current State
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-08-02
 Platform version: `1.0.0`
 
 This document describes implemented repository behavior. It is not an aspirational roadmap.
@@ -47,6 +47,12 @@ The dashboard supports dark/light themes, responsive workspaces, API-failure dia
 | Registry key | npm script | Minimum role | Notes |
 | --- | --- | --- | --- |
 | `test_inssa_safe` | `test:inssa:safe` | operator | Non-mutating safe suite. |
+| `test_inssa_campaign_text` | `test:inssa:campaign:text` | admin | Governed staging mutation; approval and cleanup required. |
+| `test_inssa_campaign_media` | `test:inssa:campaign:media` | admin | Governed staging mutation; media preflight required. |
+| `test_inssa_campaign_video` | `test:inssa:campaign:video` | admin | Governed staging mutation; video preflight required. |
+| `test_inssa_campaign_reveal_later` | `test:inssa:campaign:reveal-later` | admin | Explicit create/resume mode; cleanup required. |
+| `test_inssa_campaign_cross_user` | `test:inssa:campaign:cross-user` | admin | Distinct primary/secondary accounts required. |
+| `test_inssa_campaign_reveal_later_security` | `test:inssa:campaign:reveal-later-security` | admin | Explicit create/resume mode and distinct accounts required. |
 | `test_inssa_campaign_security` | `test:inssa:campaign:security` | operator | Read-only OWASP campaign. |
 | `test_inssa_campaign_security_verify` | `test:inssa:campaign:security:verify` | operator | Existing-evidence verification. |
 | `test_inssa_discovery` | `test:inssa:discovery` | operator | Requires lifecycle artifact. |
@@ -63,9 +69,6 @@ The dashboard supports dark/light themes, responsive workspaces, API-failure dia
 
 Visible but disabled:
 
-- text, media, video, and reveal-later lifecycle campaigns
-- cross-user campaign
-- reveal-later security campaign
 - SIEM send
 
 Hidden:
@@ -74,6 +77,8 @@ Hidden:
 - raw lifecycle and mutation specs
 - campaign-plus-SIEM wrappers
 - arbitrary commands
+
+Governed live commands use an admin-only approval modal and repeat preflight server-side before job creation. They are fixed to `https://staging.inssa.us`, use one durable attempt, record sanitized execution context, and create a run-owned cleanup manifest. Cleanup remains manual and must be confirmed by an admin.
 
 ## Artifact Validation
 

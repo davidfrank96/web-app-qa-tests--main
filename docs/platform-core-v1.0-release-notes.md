@@ -49,7 +49,7 @@ The full gate is [Deployment Checklist](deployment-checklist.md). Required categ
 ## Known Limitations
 
 - One active run globally.
-- Lifecycle mutation remains dashboard-disabled.
+- Governed lifecycle/security mutation is admin-only, staging-only, approval-gated, and requires manual cleanup confirmation.
 - No external Notification Outbox dispatcher.
 - No retention/archive/deletion engine.
 - No automatic local/Supabase history migration.
@@ -67,7 +67,7 @@ Production release is blocked because commit `3506a72a018f` contains historical 
 
 ## Persistence Status
 
-The ordered six-migration chain and local persistence are certified. A target managed Supabase project must still apply the migrations, verify RLS/advisors, provision the private bucket, and execute an approved safe run before deployment certification.
+The ordered seven-migration chain and local persistence are certified. A target managed Supabase project must still apply the migrations, verify RLS/advisors, provision the private bucket, and execute an approved safe run before deployment certification.
 
 ## Upgrade Notes
 

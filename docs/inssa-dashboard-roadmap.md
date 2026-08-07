@@ -1,6 +1,6 @@
 # QA Operations Platform Roadmap
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-08-02
 
 ## Completed: Platform Core v1.0
 
@@ -29,13 +29,13 @@ Before production certification:
 4. Deploy a unique Wazuh ingestion credential and validate live ingestion.
 5. Complete the deployment checklist and capture environment-specific evidence.
 
-## Phase B: Controlled Lifecycle Execution
+## Completed: Phase B Controlled Lifecycle Execution
 
-Not implemented. Requires an approved workflow for staging mutation, explicit operator approval, cleanup ownership, and durable cleanup evidence before enabling text/media/video/reveal-later commands.
+Governed text, media, video, and reveal-later wrappers are admin-executable in staging after explicit approval and server preflight. Runs are durable, one-attempt, immutable, and produce cleanup manifests. Cleanup remains manual.
 
-## Phase C: Advanced Security Execution
+## Completed: Phase C Advanced Security Enablement
 
-Not implemented in dashboard execution. Cross-user and reveal-later security remain visible but disabled until Phase B controls exist.
+Cross-user and reveal-later security wrappers use the same admin-only controls. Distinct secondary-account validation is mandatory, and reveal-later execution requires explicit create/resume selection.
 
 ## Phase D: External Delivery
 

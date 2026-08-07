@@ -520,6 +520,7 @@ function checkRunnerPrerequisites() {
     "dashboard/supabase/migrations/20260723_monitoring_framework.sql",
     "dashboard/supabase/migrations/20260724_scheduler_trigger.sql",
     "dashboard/supabase/migrations/20260725_authentication_monitoring.sql",
+    "dashboard/supabase/migrations/20260802_admin_live_campaigns.sql",
     "dashboard/node_modules/tsx/package.json"
   ];
   const missingWorkerFiles = requiredWorkerFiles.filter((file) => !fs.existsSync(path.join(repoRoot, file)));

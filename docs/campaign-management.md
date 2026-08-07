@@ -33,10 +33,14 @@ The Campaign Library also exposes product filters for INSSA, Localman, KBean, an
 
 - Viewer: cannot execute.
 - Operator: enabled safe/read-only commands except healthcheck.
-- Admin: all enabled commands, including healthcheck.
+- Admin: all enabled commands, including healthcheck and governed live staging campaigns after approval/preflight.
 - Lifecycle artifact validators require an explicit or latest validation-ready artifact.
-- Live lifecycle, cross-user, reveal-later security, and SIEM send remain disabled.
+- Governed live lifecycle, cross-user, and reveal-later security wrappers are admin-only, staging-only, one-active-run actions with explicit approval and cleanup ownership.
+- Reveal-later wrappers require an explicit create-new or resume-approved-artifact mode.
+- SIEM send remains disabled because it performs external delivery.
 - No user-provided npm script, path, environment, argument, or shell command is accepted.
+
+Live mutation runs use `Review and Run`, five acknowledgements, the exact confirmation phrase `RUN STAGING MUTATION`, server-side preflight, one durable job, and a run-owned cleanup manifest. Viewer/operator requests are rejected server-side with `403`.
 
 ## Relationship To Monitoring
 
