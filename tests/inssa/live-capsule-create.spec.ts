@@ -38,6 +38,12 @@ import {
   INSSA_LIVE_CAPSULE_MANUAL_CLEANUP_APPROVED_ENV_FLAG
 } from "../../utils/inssa-mutation";
 import { withInssaStabilityMonitor } from "../../utils/monitor";
+import {
+  assertInssaContactSelectionTransition,
+  assertInssaCleanupOwnership,
+  classifyInssaCleanupIdentity,
+  type InssaCleanupIdentityStatus
+} from "../../utils/inssa-text-lifecycle-state";
 
 const DEFAULT_TIMEOUT = 20_000;
 const LIVE_TEST_ENABLED = process.env[INSSA_LIVE_CAPSULE_ENV_FLAG] === "1";
@@ -47,12 +53,18 @@ const STAGING_HOSTNAME = "staging.inssa.us";
 type LiveCapsuleArtifact = {
   artifactStateNote: string | null;
   buryClicked: boolean;
+  cleanupIdentityStatus: InssaCleanupIdentityStatus;
+  cleanupInvestigationRequired: boolean;
   cleanupInstruction: string;
+  cleanupObjectType: "timeCapsule" | null;
+  cleanupOwner: string | null;
   createdAt: string;
   draftIdBeforeCreate: string | null;
   environment: "staging";
   finalActionClicked: boolean;
   finalActionLabel: string | null;
+  finalShareActionClicked: boolean;
+  finalizationPersistenceResponseStatuses: number[];
   fatalNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[];
   finalUrl: string;
   maskedTestEmail: string;
@@ -82,9 +94,14 @@ type LiveCapsuleArtifact = {
   revealSettingsSnapshots: InssaRevealSettingsModalSnapshot[];
   revealTiming: "reveal-later" | "reveal-now" | null;
   requestFailureSummary: InssaLifecycleRequestFailureSummary;
+  resultingObjectState: "shared-contact-finalized" | null;
   runId: string;
   screenshotPath: string | null;
   sendToContactsClicked: boolean;
+  selectedContactCountAfter: number | null;
+  selectedContactCountBefore: number | null;
+  selectedContactIdentityVerified: boolean;
+  selectedContactTarget: string | null;
   shareDecisionStepReached: boolean;
   skipContactsClicked: boolean;
   stepButtonSnapshots: InssaComposeStepSnapshot[];
@@ -110,6 +127,9 @@ test.describe("INSSA live capsule create", () => {
     const configuredUrl = assertValidInssaUrl();
     const hostname = new URL(configuredUrl).hostname.toLowerCase();
     getInssaTestCredentials();
+    if (!process.env.INSSA_SECONDARY_TEST_EMAIL?.trim()) {
+      throw new Error("INSSA_SECONDARY_TEST_EMAIL is required to select the approved Text lifecycle contact.");
+    }
 
     if (hostname !== STAGING_HOSTNAME) {
       throw new Error(
@@ -130,6 +150,8 @@ test.describe("INSSA live capsule create", () => {
 
     const configuredUrl = assertValidInssaUrl();
     const { email } = getInssaTestCredentials();
+    const secondaryEmail = process.env.INSSA_SECONDARY_TEST_EMAIL!.trim();
+    const targetContactPattern = new RegExp(escapeRegExp(secondaryEmail), "i");
     const maskedTestEmail = maskEmail(email);
     const errorMonitor = createInssaErrorMonitor(page);
     const compose = new TimeCapsulePage(page);
@@ -163,19 +185,28 @@ test.describe("INSSA live capsule create", () => {
     let possibleFinalCapsuleId: string | null = null;
     let possibleShareToken: string | null = null;
     let finalActionClicked = false;
+    let finalShareActionClicked = false;
+    let finalizationPersistenceResponseStatuses: number[] = [];
     let buryClicked = false;
     let artifactStateNote: string | null = null;
+    let cleanupObjectType: "timeCapsule" | null = null;
+    let cleanupOwner: string | null = null;
     let revealSettingsOpened = false;
     let revealAudience: "personal-memory" | "shared-capsule" | null = null;
     let revealTiming: "reveal-later" | "reveal-now" | null = null;
     let revealSettingsContinueClicked = false;
     let revealSettingsFollowupClickedLabel: string | null = null;
     let sendToContactsClicked = false;
+    let selectedContactCountAfter: number | null = null;
+    let selectedContactCountBefore: number | null = null;
+    let selectedContactIdentityVerified = false;
+    let selectedContactTarget: string | null = null;
     let shareDecisionStepReached = false;
     let skipContactsClicked = false;
     let fatalNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[] = [];
     let warningNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[] = [];
     let requestFailureSummary: InssaLifecycleRequestFailureSummary = summarizeInssaLifecycleNetworkIssues([]);
+    let resultingObjectState: "shared-contact-finalized" | null = null;
     let lifecycleSucceededDespiteWarnings = false;
     let observedDeleteArchiveControls = {
       archiveCapsule: false,
@@ -243,7 +274,6 @@ test.describe("INSSA live capsule create", () => {
         await monitor.step('click Bury once to open Reveal settings', async () => {
           phase = "bury-click";
           await compose.clickBuryOnceToOpenRevealSettings();
-          finalActionClicked = true;
           buryClicked = true;
           revealSettingsOpened = true;
           revealSettingsSnapshots.push(await compose.snapshotRevealSettingsModal());
@@ -267,34 +297,47 @@ test.describe("INSSA live capsule create", () => {
           await captureInssaLifecycleArtifactScreenshot(page, postContinueScreenshotFileName).catch(() => {});
         }, { phase: "interaction" });
 
-        await monitor.step("wait for final share-link evidence", async () => {
+        await monitor.step("select the approved contact and finalize once", async () => {
+          const contactStep = await compose.waitForContactShareDecisionStep();
+          revealSettingsSnapshots.push(contactStep);
+          expect(contactStep.stepTitle, "Expected current Step 2 title to be Send or save.").toMatch(/send or save/i);
+          expect(contactStep.selectedContactsCount, "Expected contact selection to start at 0 selected.").toBe(0);
+          shareDecisionStepReached = true;
+
+          const contactSelection = await compose.selectFirstVisibleContactForDiagnostic({
+            targetLabelPattern: targetContactPattern
+          });
+          revealSettingsSnapshots.push(contactSelection.beforeSnapshot, contactSelection.afterSnapshot);
+          selectedContactCountBefore = contactSelection.beforeSnapshot.selectedContactsCount;
+          selectedContactCountAfter = contactSelection.afterSnapshot.selectedContactsCount;
+          selectedContactIdentityVerified = contactSelection.targetIdentityVerified;
+          selectedContactTarget = contactSelection.selectedContactLabel;
+          assertInssaContactSelectionTransition({
+            afterCount: selectedContactCountAfter,
+            beforeCount: selectedContactCountBefore,
+            targetIdentityVerified: selectedContactIdentityVerified
+          });
+
           phase = "post-create";
-          const outcome = await compose.waitForLiveCapsuleShareLinkEvidence();
-          revealSettingsSnapshots.push(...outcome.revealSettingsSnapshots);
-          revealSettingsFollowupClickedLabel = outcome.followupClickedLabel;
-          sendToContactsClicked = outcome.sendToContactsClicked;
-          shareDecisionStepReached = outcome.shareDecisionStepReached;
-          skipContactsClicked = outcome.skipContactsClicked;
-          finalShareEvidence = outcome.shareEvidence;
-          if (revealSettingsFollowupClickedLabel) {
-            successSignals.add(`reveal-followup=${revealSettingsFollowupClickedLabel}`);
-          }
-          if (shareDecisionStepReached) {
-            successSignals.add("share-decision-step-reached");
-          }
-          if (skipContactsClicked) {
-            successSignals.add("skip-contacts-share-link-clicked");
-          }
-          if (sendToContactsClicked) {
-            successSignals.add("send-to-contacts-clicked");
-          }
+          finalShareActionClicked = true;
+          finalActionClicked = true;
+          revealSettingsFollowupClickedLabel = await compose.clickBuryThenChooseWhoToShareWithOnce();
+          finalActionLabel = revealSettingsFollowupClickedLabel;
+          sendToContactsClicked = true;
+          successSignals.add(`reveal-followup=${revealSettingsFollowupClickedLabel}`);
+          successSignals.add("share-decision-step-reached");
+          successSignals.add("send-to-contacts-clicked");
+          successSignals.add(`selected-contact=${selectedContactTarget}`);
+          successSignals.add(`selected-count=${selectedContactCountAfter}`);
+
+          finalShareEvidence = await compose.waitForPostContactFinalizationEvidence();
 
           finalUrl = page.url();
-          finalShareLink = outcome.shareEvidence.finalShareLink;
-          possibleFinalCapsuleId = outcome.shareEvidence.possibleFinalCapsuleId;
-          possibleShareToken = outcome.shareEvidence.possibleShareToken;
-          visibleSuccessText = outcome.shareEvidence.visibleSuccessText;
-          outcome.shareEvidence.successSignals.forEach((signal) => successSignals.add(signal));
+          finalShareLink = finalShareEvidence.finalShareLink;
+          possibleFinalCapsuleId = finalShareEvidence.possibleFinalCapsuleId;
+          possibleShareToken = finalShareEvidence.possibleShareToken;
+          visibleSuccessText = finalShareEvidence.visibleSuccessText;
+          finalShareEvidence.successSignals.forEach((signal) => successSignals.add(signal));
           if (possibleFinalCapsuleId) {
             possibleDocumentIds.add(possibleFinalCapsuleId);
           }
@@ -302,6 +345,30 @@ test.describe("INSSA live capsule create", () => {
             successSignals.add(`share-token=${possibleShareToken}`);
           }
           await captureInssaLifecycleArtifactScreenshot(page, postFinalizationScreenshotFileName).catch(() => {});
+
+          await networkMonitor.flush();
+          const postFinalizationNetwork = networkMonitor.summarize();
+          finalizationPersistenceResponseStatuses = networkMonitor.observations
+            .filter(
+              (observation) =>
+                observation.event === "response" &&
+                observation.phase === "post-create" &&
+                /^(POST|PUT|PATCH|DELETE)$/i.test(observation.method) &&
+                typeof observation.responseStatus === "number" &&
+                observation.responseStatus < 400
+            )
+            .map((observation) => observation.responseStatus as number);
+          expect(
+            finalizationPersistenceResponseStatuses.length,
+            "Expected the single final contact-share action to receive a successful persistence response."
+          ).toBeGreaterThan(0);
+          possibleFinalCapsuleId = possibleFinalCapsuleId ?? postFinalizationNetwork.possibleCapsuleIds[0] ?? null;
+          if (!possibleFinalCapsuleId) {
+            throw new Error(
+              "failed_cleanup_identity: persistence/finalization succeeded but no capsule ID was captured. Cleanup Investigation Required; automatic retry is forbidden."
+            );
+          }
+          possibleDocumentIds.add(possibleFinalCapsuleId);
         }, { phase: "interaction" });
 
         await monitor.step("capture post-create evidence", async () => {
@@ -332,6 +399,20 @@ test.describe("INSSA live capsule create", () => {
                 signal
               )
             );
+
+          cleanupObjectType = "timeCapsule";
+          cleanupOwner = maskedTestEmail;
+          resultingObjectState = "shared-contact-finalized";
+          expect(cleanupOwner, "Expected the resulting object owner to remain the authenticated primary QA account.").toBe(
+            maskedTestEmail
+          );
+          assertInssaCleanupOwnership({
+            capsuleId: possibleFinalCapsuleId,
+            cleanupInstruction: `Delete the QA staging time capsule ${possibleFinalCapsuleId ?? ""} after verification.`,
+            objectType: cleanupObjectType,
+            owner: cleanupOwner,
+            resultingState: resultingObjectState
+          });
 
           expect(
             observedCreateSuccess,
@@ -375,7 +456,7 @@ test.describe("INSSA live capsule create", () => {
       possibleFinalCapsuleId = possibleFinalCapsuleId ?? lifecycleNetworkSummary.possibleCapsuleIds[0] ?? null;
       possibleShareToken = possibleShareToken ?? lifecycleNetworkSummary.possibleShareTokens[0] ?? null;
       await captureInssaLifecycleArtifactScreenshot(page, screenshotFileName).catch(() => {});
-      if (skipContactsClicked) {
+      if (finalShareActionClicked) {
         await captureInssaLifecycleArtifactScreenshot(page, postFinalizationScreenshotFileName).catch(() => {});
       }
       if (revealSettingsContinueClicked && !finalShareEvidence) {
@@ -393,13 +474,14 @@ test.describe("INSSA live capsule create", () => {
       finalUrl = finalUrl || page.url();
       observedCreateSuccess =
         observedCreateSuccess ||
-        Boolean(finalShareLink) ||
-        Boolean(possibleFinalCapsuleId) ||
-        Boolean(possibleShareToken) ||
-        Boolean(visibleSuccessText) ||
-        Boolean(finalShareEvidence?.copyShareLinkVisible) ||
-        Boolean(finalShareEvidence?.shareLinkButtonVisible) ||
-        Boolean(finalShareEvidence?.homeVisible);
+        (finalShareActionClicked &&
+          (Boolean(finalShareLink) ||
+            Boolean(possibleFinalCapsuleId) ||
+            Boolean(possibleShareToken) ||
+            Boolean(visibleSuccessText) ||
+            Boolean(finalShareEvidence?.copyShareLinkVisible) ||
+            Boolean(finalShareEvidence?.shareLinkButtonVisible) ||
+            Boolean(finalShareEvidence?.homeVisible)));
       const lifecycleClassification = classifyInssaLifecyclePersistence({
         finalShareEvidence,
         finalShareLink,
@@ -413,6 +495,12 @@ test.describe("INSSA live capsule create", () => {
         revealSettingsFollowupClickedLabel,
         revealTiming
       });
+      const cleanupIdentityStatus = classifyInssaCleanupIdentity({
+        capsuleId: possibleFinalCapsuleId,
+        finalShareActionClicked,
+        persistenceSucceeded: observedCreateSuccess || lifecycleNetworkSummary.successfulPostContinueWriteCount > 0
+      });
+      const cleanupInvestigationRequired = cleanupIdentityStatus === "failed_cleanup_identity";
       const lifecycleRequestContext = buildLifecycleRequestFailureContext({
         finalShareEvidence,
         finalShareLink,
@@ -439,19 +527,29 @@ test.describe("INSSA live capsule create", () => {
         artifactStateNote =
           "Bury was clicked and Reveal settings opened, but finalization was not continued. A live capsule may or may not exist on staging.";
       } else if (revealSettingsContinueClicked) {
-        artifactStateNote = observedCreateSuccess
+        artifactStateNote = cleanupInvestigationRequired
+          ? "Cleanup Investigation Required: persistence was observed but the capsule ID was not captured. Do not retry the final action or start another mutation campaign."
+          : observedCreateSuccess
           ? "Live capsule finalization was attempted; verify staging before rerun. Share-link evidence was observed and manual cleanup is required."
           : "Live capsule finalization was attempted; verify staging before rerun.";
       }
       const artifact: LiveCapsuleArtifact = {
         artifactStateNote,
         buryClicked,
-        cleanupInstruction: "Development team should delete this QA live capsule from staging after verification.",
+        cleanupIdentityStatus,
+        cleanupInvestigationRequired,
+        cleanupInstruction: cleanupInvestigationRequired
+          ? "Cleanup Investigation Required. Identify the exact staging capsule before any further mutation run; do not retry the final action."
+          : `Delete the QA staging time capsule ${possibleFinalCapsuleId ?? "identified by this run's evidence"} after verification.`,
+        cleanupObjectType,
+        cleanupOwner,
         createdAt: seed.createdAtIso,
         draftIdBeforeCreate,
         environment: "staging",
         finalActionClicked,
         finalActionLabel,
+        finalShareActionClicked,
+        finalizationPersistenceResponseStatuses,
         fatalNetworkIssues,
         finalUrl,
         maskedTestEmail,
@@ -467,7 +565,7 @@ test.describe("INSSA live capsule create", () => {
         possibleFinalCapsuleId,
         possibleShareToken,
         postContinueScreenshotPath: revealSettingsContinueClicked ? postContinueScreenshotPath : null,
-        postFinalizationScreenshotPath: skipContactsClicked ? postFinalizationScreenshotPath : null,
+        postFinalizationScreenshotPath: finalShareActionClicked ? postFinalizationScreenshotPath : null,
         finalShareEvidence,
         revealAudience,
         revealSettingsContinueClicked,
@@ -476,9 +574,14 @@ test.describe("INSSA live capsule create", () => {
         revealSettingsSnapshots,
         revealTiming,
         requestFailureSummary,
+        resultingObjectState,
         runId: runContext.runId,
         screenshotPath,
         sendToContactsClicked,
+        selectedContactCountAfter,
+        selectedContactCountBefore,
+        selectedContactIdentityVerified,
+        selectedContactTarget,
         shareDecisionStepReached,
         skipContactsClicked,
         stepButtonSnapshots,
@@ -507,6 +610,10 @@ function maskEmail(email: string): string {
   }
 
   return `${localPart[0]}***@${domain}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function buildLifecycleRequestFailureContext(input: {

@@ -28,6 +28,10 @@ Templates are `.env.example`, `.env.inssa.live-staging.example`, `dashboard/.env
 
 Live lifecycle gates and diagnostic variables are documented in `.env.inssa.live-staging.example`. They must remain explicit opt-ins.
 
+The admin approval flow reads live campaign prerequisites from `.env.inssa.live-staging` plus the centralized dashboard process environment. The server always enforces `INSSA_URL=https://staging.inssa.us`; browser-supplied target overrides are ignored. Reveal resume paths are selected in the dashboard and injected by the runner through `INSSA_REVEAL_LATER_LIFECYCLE_ARTIFACT_PATH` or `INSSA_REVEAL_LATER_SECURITY_ARTIFACT_PATH`.
+
+Every non-comment line in `.env.inssa.live-staging` must be a `NAME=value` assignment. Governed live preflight fails closed and reports only invalid line numbers when bare values or shell content are present.
+
 ## Dashboard Authentication And Roles
 
 | Variable | Purpose |
@@ -56,7 +60,19 @@ Live lifecycle gates and diagnostic variables are documented in `.env.inssa.live
 | `INSSA_SCHEDULER_INTERVAL_MS` | `60000` | Scheduler evaluation interval. |
 | `INSSA_QA_REPO_ROOT` | auto-detected | Explicit repository root for separated services/tests. |
 
-`INSSA_DASHBOARD_MODE`, `INSSA_DASHBOARD_LOCK_TOKEN`, `HOSTNAME`, `INSSA_RUN_OUTPUT_DIR`, `PLAYWRIGHT_OUTPUT_DIR`, `PLAYWRIGHT_HTML_OUTPUT_DIR`, `AUTH_MONITOR_ENVIRONMENT`, `AUTH_MONITOR_OUTPUT_DIR`, and `AUTH_MONITOR_RUN_ID` are supervisor/runner-managed internals. Do not set them for normal operation.
+Governed staging mutations also require the deferred-cleanup policy in `.env.inssa.live-staging`:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `INSSA_DEFERRED_CLEANUP_MODE` | disabled | Allows another Admin mutation only when every unresolved object is identified, QA-owned, sanitized, and marked `deferred` or `cleanup_unavailable`. |
+| `INSSA_TEST_ACCOUNT_IS_DEDICATED_QA` | disabled | Confirms the primary account is dedicated QA. |
+| `INSSA_SECONDARY_TEST_ACCOUNT_IS_DEDICATED_QA` | disabled | Confirms the secondary account is dedicated QA for cross-user/security runs. |
+| `INSSA_MAX_UNRESOLVED_OBJECTS` | `10` | Fail-closed unresolved-object threshold. |
+| `INSSA_MAX_UNRESOLVED_AGE_DAYS` | `90` | Maximum permitted unresolved age. |
+| `INSSA_MAX_MUTATION_RUNS_PER_DAY` | `10` | UTC daily mutation-run limit. |
+| `INSSA_UNRESOLVED_RETENTION_DAYS` | `90` | Default cleanup-ledger evidence retention target. |
+
+`INSSA_DASHBOARD_MODE`, `INSSA_DASHBOARD_LOCK_TOKEN`, `HOSTNAME`, `INSSA_RUN_OUTPUT_DIR`, `PLAYWRIGHT_OUTPUT_DIR`, `PLAYWRIGHT_HTML_OUTPUT_DIR`, `INSSA_MUTATION_RECORDING`, `INSSA_MUTATION_RUN_ID`, `AUTH_MONITOR_ENVIRONMENT`, `AUTH_MONITOR_OUTPUT_DIR`, and `AUTH_MONITOR_RUN_ID` are supervisor/runner-managed internals. Do not set them for normal operation.
 
 ## Authentication Monitoring
 

@@ -1,4 +1,4 @@
-export type InssaCommandRiskLevel = "safe" | "read_only";
+export type InssaCommandRiskLevel = "live_mutation" | "safe" | "read_only";
 
 export type InssaCommandType = "artifact_validation" | "campaign" | "export" | "healthcheck" | "report_render";
 
@@ -15,6 +15,9 @@ export type InssaRunStatus =
   | "timed_out";
 
 export type InssaCommandDefinition = {
+  adminOnly?: boolean;
+  approvalRequired?: boolean;
+  cleanupRequired?: boolean;
   commandType: InssaCommandType;
   displayName: string;
   key: string;
@@ -26,9 +29,111 @@ export type InssaCommandDefinition = {
   producesFindings: boolean;
   producesReports: boolean;
   requiresLifecycleArtifact?: boolean;
+  requiresSecondaryAccount?: boolean;
   riskLevel: InssaCommandRiskLevel;
+  supportsExecutionModes?: boolean;
   targetEnvironment?: "production" | "staging";
   timeoutMs: number;
+};
+
+export type InssaLiveExecutionMode = "create" | "resume";
+
+export type InssaLiveExecutionContext = {
+  approvalAcknowledgements: string[];
+  approvalConfirmedAt: string;
+  approvedBy: string;
+  executionMode: InssaLiveExecutionMode | null;
+  irreversibleFinalAction: boolean;
+  cleanupPolicy?: InssaCleanupPolicySnapshot;
+  resumeArtifact: ResolvedInssaLifecycleArtifactSelection | null;
+  schemaVersion: 1;
+  targetHost: "staging.inssa.us";
+};
+
+export type InssaCleanupStatus =
+  | "cleanup_unavailable"
+  | "completed"
+  | "deferred"
+  | "failed"
+  | "manually_confirmed"
+  | "not_required"
+  | "pending";
+
+export type InssaCleanupPolicySnapshot = {
+  dedicatedQaAccountsConfirmed: boolean;
+  deferredModeEnabled: boolean;
+  maxMutationRunsPerDay: number;
+  maxUnresolvedAgeDays: number;
+  maxUnresolvedObjects: number;
+  retentionDays: number;
+};
+
+export type InssaCleanupManifest = {
+  affectedUsers: string[];
+  automaticCleanupAvailable: boolean;
+  cleanupMethod?: string | null;
+  cleanupResult?: string | null;
+  cleanupTimestamp?: string | null;
+  confirmedAt: string | null;
+  confirmedBy: string | null;
+  createdArtifactIds: string[];
+  createdCapsuleIds: string[];
+  createdMediaIds: string[];
+  dedicatedQaAccount?: boolean;
+  evidencePaths?: string[];
+  finalActionPerformed: boolean;
+  instructions: string[];
+  lifecycleState: string | null;
+  mediaType?: "image" | "video" | null;
+  ownerAccount?: string | null;
+  reasonCode?: string | null;
+  recordedAt?: string;
+  relatedDefectId?: string | null;
+  retentionUntil?: string | null;
+  runId: string;
+  safelyAccounted?: boolean;
+  schemaVersion: 1 | 2;
+  sensitiveValuesExcluded?: boolean;
+  selectedRecipient?: string | null;
+  status: InssaCleanupStatus;
+  unexpectedData?: boolean;
+  verificationMethods?: string[];
+  verifiedAt?: string | null;
+  verifier?: string | null;
+};
+
+export type InssaCleanupLedgerStatus = "cleanup_unavailable" | "completed" | "deferred" | "failed" | "pending";
+
+export type InssaCleanupLedgerRecord = {
+  affectedUsers: string[];
+  campaignKey: string;
+  createdAt: string;
+  dedicatedQaAccount: boolean;
+  deferredAt: string | null;
+  environment: "staging";
+  evidencePaths: string[];
+  id: string;
+  mediaType: "image" | "video" | null;
+  notes: string | null;
+  objectId: string;
+  objectPath: string;
+  objectType: "media" | "time_capsule";
+  originatingRunId: string;
+  ownerAccount: string | null;
+  product: "INSSA";
+  reasonCode: string | null;
+  resultingState: string | null;
+  resolvedAt: string | null;
+  retentionUntil: string;
+  safelyAccounted: boolean;
+  schemaVersion: 1;
+  securitySensitive: boolean;
+  sensitiveValuesExcluded: boolean;
+  selectedRecipient: string | null;
+  status: InssaCleanupLedgerStatus;
+  unexpectedData: boolean;
+  updatedAt: string;
+  verificationMethods: string[];
 };
 
 export type InssaLifecycleArtifactSelection = {
@@ -37,8 +142,12 @@ export type InssaLifecycleArtifactSelection = {
 };
 
 export type ResolvedInssaLifecycleArtifactSelection = {
+  artifactId?: string | null;
   artifactType: string;
   filePath: string;
+  lifecycleState?: string | null;
+  owner?: string | null;
+  scheduledAtIso?: string | null;
   timestamp: string;
 };
 
@@ -48,6 +157,8 @@ export type InssaRunRecord = {
   completedAt: string | null;
   createdAt: string;
   durationMs: number | null;
+  cleanup?: InssaCleanupManifest | null;
+  executionContext?: InssaLiveExecutionContext | null;
   exitCode: number | null;
   id: string;
   requestedBy: string;
@@ -74,6 +185,7 @@ export type InssaExecutionJobRecord = {
   heartbeatAt: string | null;
   id: string;
   idempotencyKey: string;
+  executionContext?: InssaLiveExecutionContext | null;
   lastError: string | null;
   leaseExpiresAt: string | null;
   lifecycleArtifact: ResolvedInssaLifecycleArtifactSelection | null;
@@ -254,10 +366,19 @@ export type InssaAuditEventType =
   | "login"
   | "logout"
   | "run_requested"
+  | "run_queued"
+  | "run_started"
   | "run_completed"
   | "run_failed"
   | "run_denied"
   | "role_violation_attempt"
+  | "approval_opened"
+  | "approval_confirmed"
+  | "preflight_failed"
+  | "cleanup_acknowledged"
+  | "cleanup_deferred"
+  | "cleanup_investigation_required"
+  | "cleanup_verified"
   | "unauthorized_access_attempt";
 
 export type InssaAuditEventRecord = {
@@ -276,9 +397,10 @@ export type InssaAuditEventRecord = {
 export type CreateRunInput = {
   campaignKey: string;
   commandSnapshot: InssaCommandDefinition;
+  executionContext?: InssaLiveExecutionContext;
   requestedBy: string;
 };
 
 export type RunPatch = Partial<
-  Pick<InssaRunRecord, "completedAt" | "durationMs" | "exitCode" | "startedAt" | "status">
+  Pick<InssaRunRecord, "cleanup" | "completedAt" | "durationMs" | "exitCode" | "startedAt" | "status">
 >;

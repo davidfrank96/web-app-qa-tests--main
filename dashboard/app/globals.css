@@ -633,6 +633,18 @@ body {
   @apply sticky bottom-0 z-20 mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-slate-800/80 bg-slate-950/90 px-4 py-3 text-xs text-slate-400 shadow-2xl shadow-black/20 backdrop-blur-xl;
 }
 
+.live-approval-backdrop {
+  @apply fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm;
+}
+
+.live-approval-panel {
+  @apply flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/50;
+}
+
+.live-approval-scroll {
+  @apply min-h-0 flex-1 overflow-y-auto overscroll-contain p-5;
+}
+
 @media (min-width: 1280px) {
   .execution-summary {
     grid-template-columns: minmax(0, 1fr) minmax(38rem, 46rem);

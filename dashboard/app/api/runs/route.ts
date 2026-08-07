@@ -3,6 +3,12 @@ import { requireInssaApiUser } from "../../../lib/inssa-ops/api-guard";
 import { recordInssaAuditEvent } from "../../../lib/inssa-ops/audit";
 import { validateInssaStagingEnvironment } from "../../../lib/inssa-ops/environment-guard";
 import { resolveInssaLifecycleArtifactSelection } from "../../../lib/inssa-ops/lifecycle-artifact-catalog";
+import {
+  dashboardWorkerIsHealthy,
+  isGovernedLiveCampaign,
+  validateLiveCampaignPreflight
+} from "../../../lib/inssa-ops/live-campaigns";
+import { getInssaExecutionJobStore } from "../../../lib/inssa-ops/execution-job-store";
 import { getInssaRunStore, getInssaRunStoreSummary } from "../../../lib/inssa-ops/run-store";
 import { startInssaPhase1Run } from "../../../lib/inssa-ops/runner";
 import { getInssaCommandAuthorization } from "../../../lib/inssa-ops/security";
@@ -59,6 +65,7 @@ export async function POST(request: NextRequest) {
   }
 
   let lifecycleArtifact = undefined;
+  let executionContext = undefined;
   if (authorization.command?.requiresLifecycleArtifact) {
     const resolved = await resolveInssaLifecycleArtifactSelection(artifactSelection);
     if ("error" in resolved) {
@@ -76,6 +83,38 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Artifact selection is only allowed for artifact-validation commands." }, { status: 400 });
   }
 
+  if (authorization.command && isGovernedLiveCampaign(authorization.command)) {
+    const activeJob = await getInssaExecutionJobStore().getActive();
+    const preflight = await validateLiveCampaignPreflight(authorization.command, body?.liveApproval, auth.user, {
+      activeRunId: activeJob?.runId ?? null,
+      workerHealthy: await dashboardWorkerIsHealthy()
+    });
+    if (!preflight.ok) {
+      await recordInssaAuditEvent({
+        campaignKey,
+        eventType: "preflight_failed",
+        metadata: { checks: preflight.checks, reason: preflight.error },
+        status: "failed_preflight",
+        user: auth.user
+      });
+      return NextResponse.json({ checks: preflight.checks, error: preflight.error }, { status: preflight.status });
+    }
+    executionContext = preflight.context;
+    lifecycleArtifact = preflight.context.resumeArtifact ?? lifecycleArtifact;
+    await recordInssaAuditEvent({
+      campaignKey,
+      eventType: "approval_confirmed",
+      metadata: {
+        acknowledgements: preflight.context.approvalAcknowledgements,
+        executionMode: preflight.context.executionMode,
+        resumeArtifact: preflight.context.resumeArtifact?.filePath ?? null,
+        targetHost: preflight.context.targetHost
+      },
+      status: "accepted",
+      user: auth.user
+    });
+  }
+
   const environment = validateInssaStagingEnvironment();
   if (!environment.ok) {
     await recordInssaAuditEvent({
@@ -91,7 +130,7 @@ export async function POST(request: NextRequest) {
   await recordInssaAuditEvent({
     campaignKey,
     eventType: "run_requested",
-    metadata: { environment: environment.environment, lifecycleArtifact },
+    metadata: { environment: environment.environment, executionMode: executionContext?.executionMode ?? null, lifecycleArtifact },
     status: "accepted",
     user: auth.user
   });
@@ -99,6 +138,7 @@ export async function POST(request: NextRequest) {
   const result = await startInssaPhase1Run({
     campaignKey,
     idempotencyKey: request.headers.get("idempotency-key") ?? undefined,
+    executionContext,
     lifecycleArtifact,
     requestedBy: auth.user.email || auth.user.id
   });
@@ -112,6 +152,15 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(result, { status: result.status });
   }
+
+  await recordInssaAuditEvent({
+    campaignKey,
+    eventType: "run_queued",
+    metadata: { executionMode: executionContext?.executionMode ?? null, targetHost: executionContext?.targetHost ?? "staging.inssa.us" },
+    runId: result.run.id,
+    status: "queued",
+    user: auth.user
+  });
 
   return NextResponse.json({ run: result.run }, { status: result.status });
 }

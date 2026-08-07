@@ -27,7 +27,7 @@ test("local run metadata upgrades legacy snapshots and rejects unknown future sc
       requestedBy: "persistence-test@example.invalid"
     });
     const upgraded = JSON.parse(await fs.readFile(storePath, "utf8")) as { schemaVersion: number };
-    assert.equal(upgraded.schemaVersion, 2);
+    assert.equal(upgraded.schemaVersion, 4);
 
     await fs.writeFile(storePath, JSON.stringify({ artifacts: [], logs: [], runs: [], schemaVersion: 99 }));
     await assert.rejects(getInssaRunStore().listRuns(), /Unsupported run store schema version: 99/);
@@ -132,7 +132,7 @@ test("persistence verification accepts a complete schema and private Storage buc
     });
     assert.equal(result.code, 0, result.stderr);
     assert.match(result.stdout, /persistence:verify PASS/);
-    assert.match(result.stdout, /Tables: 11\/11/);
+    assert.match(result.stdout, /Tables: 12\/12/);
     assert.match(result.stdout, /Evidence bucket: inssa-evidence \(private\)/);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

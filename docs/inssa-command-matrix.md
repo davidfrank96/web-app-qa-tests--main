@@ -1,6 +1,6 @@
 # INSSA Command Matrix
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-08-02
 
 Dashboard exposure is derived from `dashboard/lib/inssa-ops/command-registry.ts` and disabled presentation definitions. CLI status is derived from root `package.json`.
 
@@ -11,6 +11,12 @@ Dashboard exposure is derived from `dashboard/lib/inssa-ops/command-registry.ts`
 | `monitor_inssa_auth_staging` | `test:inssa:monitor:auth:staging` | Three-method authentication monitor for staging. | read-only | No | Executable | operator/admin |
 | `monitor_inssa_auth_production` | `test:inssa:monitor:auth:production` | Explicitly confirmed production authentication monitor. | read-only, production guarded | No | Executable when confirmed | operator/admin |
 | `test_inssa_safe` | `test:inssa:safe` | Safe compose/media regression baseline. | safe | No | Executable | operator/admin |
+| `test_inssa_campaign_text` | `test:inssa:campaign:text` | Create/validate one text lifecycle. | live mutation | Yes | Governed approval | admin |
+| `test_inssa_campaign_media` | `test:inssa:campaign:media` | Create/validate one media lifecycle. | live mutation | Yes | Governed approval | admin |
+| `test_inssa_campaign_video` | `test:inssa:campaign:video` | Create/validate one video lifecycle. | live mutation | Yes | Governed approval | admin |
+| `test_inssa_campaign_reveal_later` | `test:inssa:campaign:reveal-later` | Create or resume reveal-later lifecycle. | live mutation | Yes | Governed create/resume approval | admin |
+| `test_inssa_campaign_cross_user` | `test:inssa:campaign:cross-user` | Primary-to-secondary access validation. | live mutation | Yes | Governed approval | admin |
+| `test_inssa_campaign_reveal_later_security` | `test:inssa:campaign:reveal-later-security` | Reveal-time access-control validation. | live mutation | Yes | Governed create/resume approval | admin |
 | `report_security` | `report:security` | Re-render existing security findings. | read-only | No | Executable | operator/admin |
 | `test_inssa_campaign_security` | `test:inssa:campaign:security` | OWASP security campaign. | read-only | No by default | Executable | operator/admin |
 | `test_inssa_campaign_security_verify` | `test:inssa:campaign:security:verify` | Verify existing security evidence. | read-only | No | Executable | operator/admin |
@@ -25,12 +31,12 @@ Dashboard exposure is derived from `dashboard/lib/inssa-ops/command-registry.ts`
 
 | Command | Purpose | Risk | Dashboard status | Outputs |
 | --- | --- | --- | --- | --- |
-| `test:inssa:campaign:text` | Create/validate text lifecycle. | live mutation | Visible disabled | Lifecycle summary, evidence, report |
-| `test:inssa:campaign:media` | Create/validate media lifecycle. | live mutation | Visible disabled | Lifecycle summary, media evidence, report |
-| `test:inssa:campaign:video` | Create/validate video lifecycle. | live mutation | Visible disabled | Lifecycle summary, video evidence, report |
-| `test:inssa:campaign:reveal-later` | Create scheduled lifecycle. | live mutation | Visible disabled | Schedule evidence, report |
-| `test:inssa:campaign:cross-user` | Create and share to secondary user. | high-risk live mutation | Visible disabled | Cross-user findings/report |
-| `test:inssa:campaign:reveal-later-security` | Reveal-time access control campaign. | conditional mutation | Visible disabled | Reveal-later findings/report |
+| `test:inssa:campaign:text` | Create/validate text lifecycle. | live mutation | Admin governed | Lifecycle summary, evidence, report, cleanup manifest |
+| `test:inssa:campaign:media` | Create/validate media lifecycle. | live mutation | Admin governed | Lifecycle summary, media evidence, report, cleanup manifest |
+| `test:inssa:campaign:video` | Create/validate video lifecycle. | live mutation | Admin governed | Lifecycle summary, video evidence, report, cleanup manifest |
+| `test:inssa:campaign:reveal-later` | Create/resume scheduled lifecycle. | live mutation | Admin governed; explicit mode | Schedule evidence, report, cleanup manifest |
+| `test:inssa:campaign:cross-user` | Create and share to secondary user. | high-risk live mutation | Admin governed | Cross-user findings/report, cleanup manifest |
+| `test:inssa:campaign:reveal-later-security` | Reveal-time access control campaign. | conditional mutation | Admin governed; explicit mode | Reveal-later findings/report, cleanup manifest |
 
 ## Raw INSSA CLI Workflows
 

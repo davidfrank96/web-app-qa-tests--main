@@ -6,6 +6,9 @@ import type {
   CreateRunInput,
   InssaArtifactRecord,
   InssaAuditEventRecord,
+  InssaCleanupLedgerRecord,
+  InssaCleanupManifest,
+  InssaCommandDefinition,
   InssaEvidenceBundleRecord,
   InssaEvidenceItemRecord,
   InssaRunLogRecord,
@@ -16,11 +19,12 @@ import type {
 type StoreSnapshot = {
   artifacts: InssaArtifactRecord[];
   auditEvents: InssaAuditEventRecord[];
+  cleanupLedger: InssaCleanupLedgerRecord[];
   evidenceBundles: InssaEvidenceBundleRecord[];
   evidenceItems: InssaEvidenceItemRecord[];
   logs: InssaRunLogRecord[];
   runs: InssaRunRecord[];
-  schemaVersion: 2;
+  schemaVersion: 4;
 };
 
 export type InssaRunStoreSummary = {
@@ -41,6 +45,7 @@ export type InssaRunStore = {
   createRun(input: CreateRunInput): Promise<InssaRunRecord>;
   getArtifact(id: string): Promise<InssaArtifactRecord | null>;
   getArtifacts(runId: string): Promise<InssaArtifactRecord[]>;
+  getCleanupLedgerRecord(id: string): Promise<InssaCleanupLedgerRecord | null>;
   getEvidence(runId: string): Promise<{
     bundles: InssaEvidenceBundleRecord[];
     items: InssaEvidenceItemRecord[];
@@ -48,6 +53,8 @@ export type InssaRunStore = {
   getLogs(runId: string): Promise<InssaRunLogRecord[]>;
   getRun(id: string): Promise<InssaRunRecord | null>;
   listRuns(): Promise<InssaRunRecord[]>;
+  listCleanupLedger(): Promise<InssaCleanupLedgerRecord[]>;
+  replaceRunCleanupLedger(runId: string, records: InssaCleanupLedgerRecord[]): Promise<InssaCleanupLedgerRecord[]>;
   replaceRunArtifacts(runId: string, artifacts: InssaArtifactRecord[]): Promise<InssaArtifactRecord[]>;
   replaceRunEvidence(
     runId: string,
@@ -58,6 +65,7 @@ export type InssaRunStore = {
     items: InssaEvidenceItemRecord[];
   }>;
   updateRun(id: string, patch: RunPatch): Promise<InssaRunRecord>;
+  upsertCleanupLedger(record: InssaCleanupLedgerRecord): Promise<InssaCleanupLedgerRecord>;
 };
 
 let storeSingleton: InssaRunStore | null = null;
@@ -176,14 +184,19 @@ class LocalJsonRunStore implements InssaRunStore {
   async createRun(input: CreateRunInput) {
     return this.withWrite(async (snapshot) => {
       const now = new Date().toISOString();
+      const id = crypto.randomUUID();
       const record: InssaRunRecord = {
         campaignKey: input.campaignKey,
+        cleanup: input.commandSnapshot.cleanupRequired
+          ? createPendingCleanup(input.commandSnapshot, id)
+          : createNotRequiredCleanup(id),
         commandSnapshot: input.commandSnapshot,
         completedAt: null,
         createdAt: now,
         durationMs: null,
         exitCode: null,
-        id: crypto.randomUUID(),
+        executionContext: input.executionContext ?? null,
+        id,
         requestedBy: input.requestedBy,
         startedAt: null,
         status: "queued",
@@ -204,6 +217,11 @@ class LocalJsonRunStore implements InssaRunStore {
     return snapshot.artifacts
       .filter((artifact) => artifact.runId === runId)
       .sort((left, right) => left.filePath.localeCompare(right.filePath));
+  }
+
+  async getCleanupLedgerRecord(id: string) {
+    const snapshot = await this.readSnapshot();
+    return snapshot.cleanupLedger.find((record) => record.id === id) ?? null;
   }
 
   async getEvidence(runId: string) {
@@ -233,6 +251,11 @@ class LocalJsonRunStore implements InssaRunStore {
   async listRuns() {
     const snapshot = await this.readSnapshot();
     return [...snapshot.runs].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async listCleanupLedger() {
+    const snapshot = await this.readSnapshot();
+    return [...snapshot.cleanupLedger].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
   async replaceRunArtifacts(runId: string, artifacts: InssaArtifactRecord[]) {
@@ -270,6 +293,30 @@ class LocalJsonRunStore implements InssaRunStore {
     });
   }
 
+  async upsertCleanupLedger(record: InssaCleanupLedgerRecord) {
+    return this.withWrite(async (snapshot) => {
+      const index = snapshot.cleanupLedger.findIndex(
+        (item) =>
+          item.originatingRunId === record.originatingRunId &&
+          item.objectType === record.objectType &&
+          item.objectId === record.objectId
+      );
+      if (index >= 0) snapshot.cleanupLedger[index] = record;
+      else snapshot.cleanupLedger.push(record);
+      return record;
+    });
+  }
+
+  async replaceRunCleanupLedger(runId: string, records: InssaCleanupLedgerRecord[]) {
+    return this.withWrite(async (snapshot) => {
+      snapshot.cleanupLedger = [
+        ...snapshot.cleanupLedger.filter((record) => record.originatingRunId !== runId),
+        ...records
+      ];
+      return records;
+    });
+  }
+
   private async readSnapshot(): Promise<StoreSnapshot> {
     const storePath = getLocalRunStorePath();
     return readLocalSnapshot(storePath);
@@ -303,23 +350,33 @@ class LocalJsonRunStore implements InssaRunStore {
 async function readLocalSnapshot(storePath: string): Promise<StoreSnapshot> {
   try {
     const raw = await fs.readFile(storePath, "utf8");
-    const parsed = JSON.parse(raw) as Partial<StoreSnapshot>;
+    const parsed = JSON.parse(raw) as Omit<Partial<StoreSnapshot>, "schemaVersion"> & { schemaVersion?: number };
     const schemaVersion = parsed.schemaVersion ?? 1;
-    if (schemaVersion !== 1 && schemaVersion !== 2) {
+    if (schemaVersion !== 1 && schemaVersion !== 2 && schemaVersion !== 3 && schemaVersion !== 4) {
       throw new Error(`Unsupported run store schema version: ${String(schemaVersion)}`);
     }
     return {
       artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
       auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
+      cleanupLedger: Array.isArray(parsed.cleanupLedger) ? parsed.cleanupLedger.map(normalizeCleanupLedgerRecord) : [],
       evidenceBundles: Array.isArray(parsed.evidenceBundles) ? parsed.evidenceBundles : [],
       evidenceItems: Array.isArray(parsed.evidenceItems) ? parsed.evidenceItems : [],
       logs: Array.isArray(parsed.logs) ? parsed.logs : [],
-      runs: Array.isArray(parsed.runs) ? parsed.runs : [],
-      schemaVersion: 2
+      runs: Array.isArray(parsed.runs) ? parsed.runs.map(normalizeRunRecord) : [],
+      schemaVersion: 4
     };
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
-      return { artifacts: [], auditEvents: [], evidenceBundles: [], evidenceItems: [], logs: [], runs: [], schemaVersion: 2 };
+      return {
+        artifacts: [],
+        auditEvents: [],
+        cleanupLedger: [],
+        evidenceBundles: [],
+        evidenceItems: [],
+        logs: [],
+        runs: [],
+        schemaVersion: 4
+      };
     }
     throw error;
   }
@@ -434,14 +491,19 @@ class SupabaseRunStore implements InssaRunStore {
 
   async createRun(input: CreateRunInput) {
     const now = new Date().toISOString();
+    const id = crypto.randomUUID();
     const record: InssaRunRecord = {
       campaignKey: input.campaignKey,
+      cleanup: input.commandSnapshot.cleanupRequired
+        ? createPendingCleanup(input.commandSnapshot, id)
+        : createNotRequiredCleanup(id),
       commandSnapshot: input.commandSnapshot,
       completedAt: null,
       createdAt: now,
       durationMs: null,
       exitCode: null,
-      id: crypto.randomUUID(),
+      executionContext: input.executionContext ?? null,
+      id,
       requestedBy: input.requestedBy,
       startedAt: null,
       status: "queued",
@@ -462,6 +524,11 @@ class SupabaseRunStore implements InssaRunStore {
   async getArtifacts(runId: string) {
     const rows = await this.request(`artifacts?run_id=eq.${encodeURIComponent(runId)}&order=file_path.asc`);
     return rows.map(fromSupabaseArtifact);
+  }
+
+  async getCleanupLedgerRecord(id: string) {
+    const rows = await this.request(`cleanup_ledger?id=eq.${encodeURIComponent(id)}&limit=1`);
+    return rows[0] ? fromSupabaseCleanupLedger(rows[0]) : null;
   }
 
   async getEvidence(runId: string) {
@@ -490,6 +557,11 @@ class SupabaseRunStore implements InssaRunStore {
     return rows.map(fromSupabaseRun);
   }
 
+  async listCleanupLedger() {
+    const rows = await this.request("cleanup_ledger?order=created_at.desc");
+    return rows.map(fromSupabaseCleanupLedger);
+  }
+
   async replaceRunArtifacts(runId: string, artifacts: InssaArtifactRecord[]) {
     await this.request(`artifacts?run_id=eq.${encodeURIComponent(runId)}`, {
       method: "DELETE"
@@ -503,6 +575,19 @@ class SupabaseRunStore implements InssaRunStore {
     }
 
     return artifacts;
+  }
+
+  async replaceRunCleanupLedger(runId: string, records: InssaCleanupLedgerRecord[]) {
+    await this.request(`cleanup_ledger?originating_run_id=eq.${encodeURIComponent(runId)}`, {
+      method: "DELETE"
+    });
+    if (records.length > 0) {
+      await this.request("cleanup_ledger", {
+        body: JSON.stringify(records.map(toSupabaseCleanupLedger)),
+        method: "POST"
+      });
+    }
+    return records;
   }
 
   async replaceRunEvidence(runId: string, bundle: InssaEvidenceBundleRecord | null, items: InssaEvidenceItemRecord[]) {
@@ -548,6 +633,15 @@ class SupabaseRunStore implements InssaRunStore {
     return updated;
   }
 
+  async upsertCleanupLedger(record: InssaCleanupLedgerRecord) {
+    await this.request("cleanup_ledger?on_conflict=originating_run_id,object_type,object_id", {
+      body: JSON.stringify(toSupabaseCleanupLedger(record)),
+      headers: { prefer: "resolution=merge-duplicates,return=minimal" },
+      method: "POST"
+    });
+    return record;
+  }
+
   private async request(resource: string, init: RequestInit = {}) {
     const response = await fetch(`${this.baseUrl}/${resource}`, {
       ...init,
@@ -576,11 +670,13 @@ class SupabaseRunStore implements InssaRunStore {
 function toSupabaseRun(run: InssaRunRecord) {
   return {
     campaign_key: run.campaignKey,
+    cleanup: withRunId(run.cleanup, run.id),
     command_snapshot: run.commandSnapshot,
     completed_at: run.completedAt,
     created_at: run.createdAt,
     duration_ms: run.durationMs,
     exit_code: run.exitCode,
+    execution_context: run.executionContext,
     id: run.id,
     requested_by: run.requestedBy,
     started_at: run.startedAt,
@@ -592,11 +688,13 @@ function toSupabaseRun(run: InssaRunRecord) {
 function fromSupabaseRun(row: Record<string, unknown>): InssaRunRecord {
   return {
     campaignKey: String(row.campaign_key),
+    cleanup: normalizeCleanup(row.cleanup, String(row.id)),
     commandSnapshot: row.command_snapshot as InssaRunRecord["commandSnapshot"],
     completedAt: nullableString(row.completed_at),
     createdAt: String(row.created_at),
     durationMs: nullableNumber(row.duration_ms),
     exitCode: nullableNumber(row.exit_code),
+    executionContext: (row.execution_context as InssaRunRecord["executionContext"]) ?? null,
     id: String(row.id),
     requestedBy: String(row.requested_by),
     startedAt: nullableString(row.started_at),
@@ -763,6 +861,74 @@ function fromSupabaseArtifact(row: Record<string, unknown>): InssaArtifactRecord
   };
 }
 
+function toSupabaseCleanupLedger(record: InssaCleanupLedgerRecord) {
+  return {
+    affected_users: record.affectedUsers,
+    campaign_key: record.campaignKey,
+    created_at: record.createdAt,
+    dedicated_qa_account: record.dedicatedQaAccount,
+    deferred_at: record.deferredAt,
+    environment: record.environment,
+    evidence_paths: record.evidencePaths,
+    id: record.id,
+    media_type: record.mediaType,
+    notes: record.notes,
+    object_id: record.objectId,
+    object_path: record.objectPath,
+    object_type: record.objectType,
+    originating_run_id: record.originatingRunId,
+    owner_account: record.ownerAccount,
+    product: record.product,
+    reason_code: record.reasonCode,
+    resulting_state: record.resultingState,
+    resolved_at: record.resolvedAt,
+    retention_until: record.retentionUntil,
+    safely_accounted: record.safelyAccounted,
+    schema_version: record.schemaVersion,
+    security_sensitive: record.securitySensitive,
+    sensitive_values_excluded: record.sensitiveValuesExcluded,
+    selected_recipient: record.selectedRecipient,
+    status: record.status,
+    unexpected_data: record.unexpectedData,
+    updated_at: record.updatedAt,
+    verification_methods: record.verificationMethods
+  };
+}
+
+function fromSupabaseCleanupLedger(row: Record<string, unknown>): InssaCleanupLedgerRecord {
+  return normalizeCleanupLedgerRecord({
+    affectedUsers: row.affected_users,
+    campaignKey: row.campaign_key,
+    createdAt: row.created_at,
+    dedicatedQaAccount: row.dedicated_qa_account,
+    deferredAt: row.deferred_at,
+    environment: row.environment,
+    evidencePaths: row.evidence_paths,
+    id: row.id,
+    mediaType: row.media_type,
+    notes: row.notes,
+    objectId: row.object_id,
+    objectPath: row.object_path,
+    objectType: row.object_type,
+    originatingRunId: row.originating_run_id,
+    ownerAccount: row.owner_account,
+    product: row.product,
+    reasonCode: row.reason_code,
+    resultingState: row.resulting_state,
+    resolvedAt: row.resolved_at,
+    retentionUntil: row.retention_until,
+    safelyAccounted: row.safely_accounted,
+    schemaVersion: row.schema_version,
+    securitySensitive: row.security_sensitive,
+    sensitiveValuesExcluded: row.sensitive_values_excluded,
+    selectedRecipient: row.selected_recipient,
+    status: row.status,
+    unexpectedData: row.unexpected_data,
+    updatedAt: row.updated_at,
+    verificationMethods: row.verification_methods
+  });
+}
+
 function toSupabaseAuditEvent(event: InssaAuditEventRecord) {
   return {
     actor_email: event.actorEmail,
@@ -788,6 +954,148 @@ function nullableNumber(value: unknown) {
 
 function recordValue(value: unknown): Record<string, string> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, string>) : {};
+}
+
+function normalizeRunRecord(run: InssaRunRecord): InssaRunRecord {
+  return {
+    ...run,
+    cleanup: normalizeCleanup(run.cleanup, run.id),
+    executionContext: run.executionContext ?? null
+  };
+}
+
+function normalizeCleanup(value: unknown, runId: string): InssaCleanupManifest {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const cleanup = value as Partial<InssaCleanupManifest>;
+    return {
+      affectedUsers: Array.isArray(cleanup.affectedUsers) ? cleanup.affectedUsers.filter((item): item is string => typeof item === "string") : [],
+      automaticCleanupAvailable: cleanup.automaticCleanupAvailable === true,
+      cleanupMethod: nullableString(cleanup.cleanupMethod),
+      cleanupResult: nullableString(cleanup.cleanupResult),
+      cleanupTimestamp: nullableString(cleanup.cleanupTimestamp),
+      confirmedAt: nullableString(cleanup.confirmedAt),
+      confirmedBy: nullableString(cleanup.confirmedBy),
+      createdArtifactIds: stringArray(cleanup.createdArtifactIds),
+      createdCapsuleIds: stringArray(cleanup.createdCapsuleIds),
+      createdMediaIds: stringArray(cleanup.createdMediaIds),
+      dedicatedQaAccount: cleanup.dedicatedQaAccount === true,
+      evidencePaths: stringArray(cleanup.evidencePaths),
+      finalActionPerformed: cleanup.finalActionPerformed === true,
+      instructions: stringArray(cleanup.instructions),
+      lifecycleState: nullableString(cleanup.lifecycleState),
+      mediaType: cleanup.mediaType === "image" || cleanup.mediaType === "video" ? cleanup.mediaType : null,
+      ownerAccount: nullableString(cleanup.ownerAccount),
+      reasonCode: nullableString(cleanup.reasonCode),
+      recordedAt: nullableString(cleanup.recordedAt) ?? undefined,
+      relatedDefectId: nullableString(cleanup.relatedDefectId),
+      retentionUntil: nullableString(cleanup.retentionUntil),
+      runId,
+      safelyAccounted: cleanup.safelyAccounted === true,
+      schemaVersion: cleanup.schemaVersion === 2 ? 2 : 1,
+      sensitiveValuesExcluded: cleanup.sensitiveValuesExcluded === true,
+      selectedRecipient: nullableString(cleanup.selectedRecipient),
+      status: ["cleanup_unavailable", "completed", "deferred", "failed", "manually_confirmed", "not_required", "pending"].includes(String(cleanup.status))
+        ? (cleanup.status as InssaCleanupManifest["status"])
+        : "not_required",
+      unexpectedData: cleanup.unexpectedData === true,
+      verificationMethods: stringArray(cleanup.verificationMethods),
+      verifiedAt: nullableString(cleanup.verifiedAt),
+      verifier: nullableString(cleanup.verifier)
+    };
+  }
+  return createNotRequiredCleanup(runId);
+}
+
+function normalizeCleanupLedgerRecord(value: unknown): InssaCleanupLedgerRecord {
+  const record = value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Partial<InssaCleanupLedgerRecord>)
+    : {};
+  const objectType = record.objectType === "media" ? "media" : "time_capsule";
+  const objectId = typeof record.objectId === "string" ? record.objectId : "";
+  const originatingRunId = typeof record.originatingRunId === "string" ? record.originatingRunId : "";
+  const status = ["cleanup_unavailable", "completed", "deferred", "failed", "pending"].includes(String(record.status))
+    ? (record.status as InssaCleanupLedgerRecord["status"])
+    : "pending";
+  const createdAt = nullableString(record.createdAt) ?? new Date(0).toISOString();
+  return {
+    affectedUsers: stringArray(record.affectedUsers),
+    campaignKey: nullableString(record.campaignKey) ?? "unknown",
+    createdAt,
+    dedicatedQaAccount: record.dedicatedQaAccount === true,
+    deferredAt: nullableString(record.deferredAt),
+    environment: "staging",
+    evidencePaths: stringArray(record.evidencePaths),
+    id: nullableString(record.id) ?? cleanupLedgerId(originatingRunId, objectType, objectId),
+    mediaType: record.mediaType === "image" || record.mediaType === "video" ? record.mediaType : null,
+    notes: nullableString(record.notes),
+    objectId,
+    objectPath: nullableString(record.objectPath) ?? `${objectType === "media" ? "media" : "timeCapsules"}/${objectId}`,
+    objectType,
+    originatingRunId,
+    ownerAccount: nullableString(record.ownerAccount),
+    product: "INSSA",
+    reasonCode: nullableString(record.reasonCode),
+    resultingState: nullableString(record.resultingState),
+    resolvedAt: nullableString(record.resolvedAt),
+    retentionUntil: nullableString(record.retentionUntil) ?? createdAt,
+    safelyAccounted: record.safelyAccounted === true,
+    schemaVersion: 1,
+    securitySensitive: record.securitySensitive === true,
+    sensitiveValuesExcluded: record.sensitiveValuesExcluded === true,
+    selectedRecipient: nullableString(record.selectedRecipient),
+    status,
+    unexpectedData: record.unexpectedData === true,
+    updatedAt: nullableString(record.updatedAt) ?? createdAt,
+    verificationMethods: stringArray(record.verificationMethods)
+  };
+}
+
+function cleanupLedgerId(runId: string, objectType: string, objectId: string) {
+  return `${runId}:${objectType}:${objectId}`;
+}
+
+function createPendingCleanup(command: InssaCommandDefinition, runId: string): InssaCleanupManifest {
+  return {
+    affectedUsers: [],
+    automaticCleanupAvailable: false,
+    confirmedAt: null,
+    confirmedBy: null,
+    createdArtifactIds: [],
+    createdCapsuleIds: [],
+    createdMediaIds: [],
+    finalActionPerformed: false,
+    instructions: [`Review ${command.displayName} evidence and remove all QA-tagged staging data created by this run.`],
+    lifecycleState: "queued",
+    runId,
+    schemaVersion: 1,
+    status: "pending"
+  };
+}
+
+function createNotRequiredCleanup(runId: string): InssaCleanupManifest {
+  return {
+    affectedUsers: [],
+    automaticCleanupAvailable: false,
+    confirmedAt: null,
+    confirmedBy: null,
+    createdArtifactIds: [],
+    createdCapsuleIds: [],
+    createdMediaIds: [],
+    finalActionPerformed: false,
+    instructions: [],
+    lifecycleState: null,
+    runId,
+    schemaVersion: 1,
+    status: "not_required"
+  };
+}
+
+function withRunId(value: InssaCleanupManifest | null | undefined, runId: string) {
+  return value ? { ...value, runId } : null;
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
