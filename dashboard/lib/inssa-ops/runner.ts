@@ -6,7 +6,12 @@ import { recordInssaAuditEvent } from "./audit";
 import { persistCleanupLedgerForRun } from "./cleanup-ledger";
 import { writeCleanupManifest } from "./cleanup-manifest";
 import { getInssaPhase1Command } from "./command-registry";
-import { ActiveExecutionJobError, getInssaExecutionJobStore } from "./execution-job-store";
+import {
+  ActiveExecutionJobError,
+  ExecutionLeaseOwnershipError,
+  getInssaExecutionJobStore
+} from "./execution-job-store";
+import { startExecutionLeaseHeartbeat } from "./execution-lease";
 import { buildEvidenceMetadataForRun } from "./evidence";
 import { persistEvidenceBundleToDurableStorage } from "./evidence-storage";
 import { validateInssaStagingEnvironment } from "./environment-guard";
@@ -18,6 +23,7 @@ import {
   recordRunStartedNotification
 } from "./notification-events";
 import { getRepoRoot } from "./paths";
+import { isOwnedProcessTreeAlive, ownedProcessGroupId, terminateOwnedProcessTree } from "./process-tree";
 import { redactInssaLogLine } from "./redaction";
 import { getInssaRunStore } from "./run-store";
 import { buildRunOutputEnvironment, finalizeRunOutput, prepareRunOutput } from "./run-output";
@@ -35,6 +41,13 @@ export type StartRunInput = {
   lifecycleArtifact?: ResolvedInssaLifecycleArtifactSelection;
   executionContext?: InssaLiveExecutionContext;
   requestedBy?: string;
+};
+
+export type WorkerExecutionConfig = {
+  heartbeatFailureLimit: number;
+  heartbeatMs: number;
+  leaseMs: number;
+  terminationGraceMs: number;
 };
 
 export async function startInssaPhase1Run(input: StartRunInput) {
@@ -101,7 +114,11 @@ export async function startInssaPhase1Run(input: StartRunInput) {
   return { run, status: 202 as const };
 }
 
-export async function executeClaimedInssaJob(job: InssaExecutionJobRecord, workerId: string, leaseMs: number) {
+export async function executeClaimedInssaJob(
+  job: InssaExecutionJobRecord,
+  workerId: string,
+  config: WorkerExecutionConfig
+) {
   const store = getInssaRunStore();
   const jobStore = getInssaExecutionJobStore();
   const run = await store.getRun(job.runId);
@@ -116,7 +133,7 @@ export async function executeClaimedInssaJob(job: InssaExecutionJobRecord, worke
     return;
   }
 
-  await jobStore.markRunning(job.id, workerId, leaseMs);
+  await jobStore.markRunning(job.id, workerId, config.leaseMs);
   await recordRunStartedNotification(run, job.attempt, workerId);
   await recordInssaAuditEvent({
     campaignKey: run.campaignKey,
@@ -126,27 +143,54 @@ export async function executeClaimedInssaJob(job: InssaExecutionJobRecord, worke
     status: "running"
   });
   const leaseAbort = new AbortController();
-  const heartbeat = setInterval(() => {
-    void jobStore.heartbeat(job.id, workerId, leaseMs).catch((error) => {
-      leaseAbort.abort(error instanceof Error ? error : new Error(String(error)));
-      process.stderr.write(`Worker lease lost for ${job.id}: ${String(error)}\n`);
-    });
-  }, Math.max(1_000, Math.floor(leaseMs / 3)));
-  heartbeat.unref();
+  let healthyHeartbeatLogged = false;
+  const heartbeat = startExecutionLeaseHeartbeat({
+    failureLimit: config.heartbeatFailureLimit,
+    heartbeat: () => jobStore.heartbeat(job.id, workerId, config.leaseMs),
+    heartbeatMs: config.heartbeatMs,
+    leaseMs: config.leaseMs,
+    onFailure: (error, consecutiveFailures, fatal) => {
+      const message = redactInssaLogLine(error.message);
+      if (fatal && !leaseAbort.signal.aborted) leaseAbort.abort(error);
+      process.stderr.write(`Worker heartbeat failure for ${job.id}: ${message}\n`);
+      void store.appendLog(
+        run.id,
+        "system",
+        `Worker heartbeat failure ${consecutiveFailures}/${config.heartbeatFailureLimit}, fatal=${String(fatal)}: ${message}`
+      ).catch((logError) => {
+        process.stderr.write(`Unable to persist worker heartbeat failure diagnostic: ${redactInssaLogLine(String(logError))}\n`);
+      });
+    },
+    onHealthy: (leaseExpiresAt) => {
+      if (healthyHeartbeatLogged) return;
+      healthyHeartbeatLogged = true;
+      void store.appendLog(run.id, "system", `Worker heartbeat healthy; lease renewed through ${leaseExpiresAt}.`).catch(() => {});
+    },
+    onTimingDrift: (driftMs) => {
+      void store.appendLog(run.id, "system", `Worker heartbeat timing drift detected: ${driftMs}ms.`).catch(() => {});
+    },
+    ownershipError: (error) => error instanceof ExecutionLeaseOwnershipError
+  });
 
   try {
-    const finalStatus = await executeRun(run, job.lifecycleArtifact ?? undefined, job.executionContext ?? undefined, leaseAbort.signal);
-    await jobStore.complete(
-      job.id,
-      workerId,
-      finalStatus === "passed" || finalStatus === "passed_with_warnings" ? "completed" : "failed"
+    const finalStatus = await executeRun(
+      run,
+      job.lifecycleArtifact ?? undefined,
+      job.executionContext ?? undefined,
+      leaseAbort.signal,
+      config.terminationGraceMs
     );
-  } catch (error) {
-    if (leaseAbort.signal.aborted) {
-      const reason = leaseAbort.signal.reason instanceof Error ? leaseAbort.signal.reason.message : String(leaseAbort.signal.reason);
-      process.stderr.write(`Execution stopped after lease loss for ${job.id}: ${reason}\n`);
-      return;
+    try {
+      await jobStore.complete(
+        job.id,
+        workerId,
+        finalStatus === "passed" || finalStatus === "passed_with_warnings" ? "completed" : "failed"
+      );
+    } catch (error) {
+      if (!(error instanceof ExecutionLeaseOwnershipError)) throw error;
+      await store.appendLog(run.id, "system", `Execution job completion was already reconciled after lease loss: ${error.message}`);
     }
+  } catch (error) {
     const message = redactInssaLogLine(error instanceof Error ? error.message : String(error));
     await store.appendLog(run.id, "system", `Worker execution failure: ${message}`);
     await store.updateRun(run.id, {
@@ -155,10 +199,19 @@ export async function executeClaimedInssaJob(job: InssaExecutionJobRecord, worke
     });
     await recordExecutionFailureNotification(run, message);
     await recordRunOutcomeNotification(run, "failed_startup", 0, null);
-    await jobStore.complete(job.id, workerId, "failed", message);
+    try {
+      await jobStore.complete(job.id, workerId, "failed", message);
+    } catch (completionError) {
+      if (!(completionError instanceof ExecutionLeaseOwnershipError)) throw completionError;
+      await store.appendLog(
+        run.id,
+        "system",
+        `Execution job failure was already reconciled after lease loss: ${completionError.message}`
+      );
+    }
     throw error;
   } finally {
-    clearInterval(heartbeat);
+    await heartbeat.stop();
   }
 }
 
@@ -166,7 +219,8 @@ async function executeRun(
   run: InssaRunRecord,
   lifecycleArtifact?: ResolvedInssaLifecycleArtifactSelection,
   executionContext?: InssaLiveExecutionContext,
-  leaseSignal?: AbortSignal
+  leaseSignal?: AbortSignal,
+  terminationGraceMs = 10_000
 ) {
   const store = getInssaRunStore();
   const repoRoot = getRepoRoot();
@@ -175,6 +229,7 @@ async function executeRun(
   let stderrSeen = false;
   let warningSeen = false;
   let timedOut = false;
+  let leaseLost = false;
   let startupError: Error | null = null;
   let logChain = Promise.resolve();
 
@@ -196,18 +251,37 @@ async function executeRun(
   const command = buildRunCommand(repoRoot, run, lifecycleArtifact, executionContext);
   const child = spawn(command.commandName, command.args, {
     cwd: repoRoot,
+    detached: process.platform !== "win32",
     env: command.env,
     shell: false,
     stdio: ["ignore", "pipe", "pipe"]
   });
+  const processGroupId = ownedProcessGroupId(child);
+  const resourceStart = process.resourceUsage();
+  await appendLog(
+    "system",
+    `Campaign process ownership established: pid=${String(child.pid)}, processGroup=${String(processGroupId)}, timeoutMs=${run.commandSnapshot.timeoutMs}, terminationGraceMs=${terminationGraceMs}.`
+  );
 
   await store.updateRun(run.id, { status: "running" });
+  const terminationState: { promise: ReturnType<typeof terminateOwnedProcessTree> | null } = { promise: null };
+  const terminate = (reason: "lease_loss" | "parent_exit_descendants" | "timeout") => {
+    if (terminationState.promise) return terminationState.promise;
+    void appendLog("system", `Campaign process-tree termination requested: reason=${reason}.`);
+    terminationState.promise = terminateOwnedProcessTree(child, processGroupId, { graceMs: terminationGraceMs });
+    return terminationState.promise;
+  };
   const timeout = setTimeout(() => {
     timedOut = true;
-    child.kill("SIGTERM");
+    void terminate("timeout");
   }, run.commandSnapshot.timeoutMs);
-  const stopForLeaseLoss = () => child.kill("SIGTERM");
+  timeout.unref();
+  const stopForLeaseLoss = () => {
+    leaseLost = true;
+    void terminate("lease_loss");
+  };
   leaseSignal?.addEventListener("abort", stopForLeaseLoss, { once: true });
+  if (leaseSignal?.aborted) stopForLeaseLoss();
 
   child.stdout.on("data", (chunk: Buffer) => {
     for (const line of splitLines(chunk)) {
@@ -231,9 +305,26 @@ async function executeRun(
     child.on("close", (code, signal) => resolve({ code, signal }));
   });
   clearTimeout(timeout);
-  leaseSignal?.removeEventListener("abort", stopForLeaseLoss);
+  if (!terminationState.promise && isOwnedProcessTreeAlive(child, processGroupId)) {
+    await appendLog(
+      "system",
+      "Campaign launcher exited while owned descendants remained; terminating the residual process tree."
+    );
+    void terminate("parent_exit_descendants");
+  }
+  const termination = terminationState.promise ? await terminationState.promise : null;
   await logChain;
-  assertExecutionLease(leaseSignal);
+  if (termination) {
+    await appendLog(
+      "system",
+      `Campaign process tree stopped: processGroup=${String(termination.processGroupId)}, sigterm=${String(termination.sigtermSent)}, sigkill=${String(termination.sigkillSent)}, elapsedMs=${termination.elapsedMs}.`
+    );
+  }
+  const resourceEnd = process.resourceUsage();
+  await appendLog(
+    "system",
+    `Worker resource delta: userCpuMs=${Math.round((resourceEnd.userCPUTime - resourceStart.userCPUTime) / 1000)}, systemCpuMs=${Math.round((resourceEnd.systemCPUTime - resourceStart.systemCPUTime) / 1000)}, rssMb=${Math.round(process.memoryUsage().rss / 1024 / 1024)}.`
+  );
 
   const completedAt = new Date();
   const durationMs = completedAt.getTime() - startedAt.getTime();
@@ -272,7 +363,6 @@ async function executeRun(
     }
     output = await finalizeRunOutput({ campaignKey: run.campaignKey, completedAt, runId: run.id, startedAt });
   }
-  assertExecutionLease(leaseSignal);
   const artifacts = await indexArtifactsForRun({
     completedAtMs: completedAt.getTime(),
     outputRoot: output.outputRoot,
@@ -280,7 +370,6 @@ async function executeRun(
     startedAtMs: startedAt.getTime()
   });
   await store.replaceRunArtifacts(run.id, artifacts);
-  assertExecutionLease(leaseSignal);
   await appendLog("system", `Indexed ${artifacts.length} immutable artifact metadata records.`);
   await appendLog("system", `Run manifest: ${output.manifestPath}`);
 
@@ -293,10 +382,9 @@ async function executeRun(
         ? `Indexed evidence bundle ${evidence.bundle.id} with ${evidence.items.length} evidence item metadata records.`
         : "No evidence bundle was created because this run did not produce artifacts."
     );
-    if (evidence.bundle && exit.code === 0 && !timedOut) {
+    if (evidence.bundle && exit.code === 0 && !timedOut && !leaseLost) {
       try {
         const storageResult = await persistEvidenceBundleToDurableStorage(evidence.bundle, evidence.items);
-        assertExecutionLease(leaseSignal);
         await store.replaceRunEvidence(run.id, storageResult.bundle, storageResult.items);
         await appendLog("system", `Evidence durable storage ${storageResult.status}: ${storageResult.message}`);
         if (storageResult.status === "failed") {
@@ -320,15 +408,16 @@ async function executeRun(
 
   const finalStatus = timedOut
     ? "timed_out"
-    : exit.code === 0
-      ? stderrSeen || warningSeen
-        ? "passed_with_warnings"
-        : "passed"
-      : startupError || (exit.code === null && exit.signal)
-        ? "failed_startup"
-        : "failed";
+    : leaseLost
+      ? "failed"
+      : exit.code === 0
+        ? stderrSeen || warningSeen
+          ? "passed_with_warnings"
+          : "passed"
+        : startupError || (exit.code === null && exit.signal)
+          ? "failed_startup"
+          : "failed";
 
-  assertExecutionLease(leaseSignal);
   await store.updateRun(run.id, {
     completedAt: completedAt.toISOString(),
     durationMs,
@@ -347,6 +436,7 @@ async function executeRun(
     status: finalStatus
   });
   await recordRunOutcomeNotification(run, finalStatus, durationMs, exit.code);
+  leaseSignal?.removeEventListener("abort", stopForLeaseLoss);
   return finalStatus;
 }
 
@@ -429,9 +519,4 @@ function splitLines(chunk: Buffer) {
 
 function isTerminalRun(run: InssaRunRecord) {
   return ["cancelled", "failed", "failed_startup", "passed", "passed_with_warnings", "timed_out"].includes(run.status);
-}
-
-function assertExecutionLease(signal?: AbortSignal) {
-  if (!signal?.aborted) return;
-  throw signal.reason instanceof Error ? signal.reason : new Error("Execution lease was lost.");
 }

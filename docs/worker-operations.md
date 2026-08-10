@@ -25,15 +25,19 @@ npm --prefix dashboard run worker -- --once
 Configuration:
 
 - `INSSA_WORKER_POLL_MS`, default `1000`.
-- `INSSA_WORKER_LEASE_MS`, default `30000`.
+- `INSSA_WORKER_HEARTBEAT_MS`, default `15000`.
+- `INSSA_WORKER_HEARTBEAT_FAILURE_LIMIT`, default `3`.
+- `INSSA_WORKER_LEASE_MS`, default `120000`.
+- `INSSA_WORKER_TERMINATION_GRACE_MS`, default `10000`.
 - `INSSA_QA_REPO_ROOT`, optional explicit repository root for separated deployments.
 
 ## Ownership And Recovery
 
 - A claim records worker identity, lease expiry, heartbeat, and attempt.
-- Heartbeats renew the lease while execution is active.
+- Sequential heartbeats renew the lease for the complete execution. Repeated transport failure or immediate ownership loss terminates the campaign process group.
+- Expired pre-execution claims may retry. Expired running jobs are abandoned and reconciled to failed runs; they are never automatically overlapped by another Playwright attempt.
 - Lease loss terminates the child command and prevents stale completion writes.
-- Startup recovery requeues expired jobs with remaining attempts or marks them abandoned.
+- Startup recovery requeues only expired pre-execution claims with remaining attempts; expired running jobs are marked abandoned.
 - Recovery and worker-start events are persisted to the Notification Outbox.
 - Idempotency keys prevent the same logical request from creating a second run.
 

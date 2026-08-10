@@ -112,10 +112,12 @@ export async function recordJobRecoveryNotifications(job: InssaExecutionJobRecor
     ...context,
     deduplicationKey: `job:${job.id}:job_recovery:${job.attempt}`,
     eventType: "job_recovery",
-    message: `Execution job recovery set the job status to ${job.status}.`,
-    payload: { attempt: job.attempt, jobId: job.id, recoveredStatus: job.status },
+    message: job.status === "abandoned"
+      ? "Automatic execution retry was blocked because the expired attempt had already entered campaign execution."
+      : `Execution job recovery set the job status to ${job.status}.`,
+    payload: { attempt: job.attempt, jobId: job.id, reason: job.lastError, recoveredStatus: job.status },
     severity: job.status === "abandoned" ? "critical" : "medium",
-    title: "Job recovery triggered"
+    title: job.status === "abandoned" ? "Execution recovery blocked" : "Job recovery triggered"
   });
 }
 

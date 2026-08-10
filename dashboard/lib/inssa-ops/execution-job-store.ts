@@ -30,6 +30,7 @@ export interface InssaExecutionJobStore {
   getByIdempotencyKey(idempotencyKey: string): Promise<InssaExecutionJobRecord | null>;
   getByRunId(runId: string): Promise<InssaExecutionJobRecord | null>;
   getActive(): Promise<InssaExecutionJobRecord | null>;
+  listTerminal(): Promise<InssaExecutionJobRecord[]>;
   heartbeat(jobId: string, workerId: string, leaseMs: number): Promise<void>;
   markRunning(jobId: string, workerId: string, leaseMs: number): Promise<void>;
   recoverAbandoned(): Promise<InssaExecutionJobRecord[]>;
@@ -143,6 +144,11 @@ class LocalExecutionJobStore implements InssaExecutionJobStore {
     return snapshot.jobs.find((job) => ["claimed", "queued", "running"].includes(job.status)) ?? null;
   }
 
+  async listTerminal() {
+    const snapshot = await readSnapshot(getLocalExecutionJobStorePath());
+    return snapshot.jobs.filter((job) => ["completed", "failed", "abandoned"].includes(job.status));
+  }
+
   async recoverAbandoned() {
     return this.write(async (snapshot) => recoverExpiredJobs(snapshot));
   }
@@ -155,7 +161,7 @@ class LocalExecutionJobStore implements InssaExecutionJobStore {
     return this.write(async (snapshot) => {
       const job = snapshot.jobs.find((candidate) => candidate.id === jobId);
       if (!job) throw new Error(`Execution job not found: ${jobId}`);
-      if (job.claimedBy !== workerId) throw new Error(`Execution job ${jobId} is not owned by worker ${workerId}.`);
+      if (job.claimedBy !== workerId) throw new ExecutionLeaseOwnershipError(jobId, workerId);
       operation(job);
       job.updatedAt = new Date().toISOString();
     });
@@ -211,10 +217,27 @@ class SupabaseExecutionJobStore implements InssaExecutionJobStore {
   }
 
   async claimNext(input: ClaimExecutionJobInput) {
-    const rows = await this.request("rpc/claim_inssa_execution_job", {
-      body: JSON.stringify({ lease_ms: input.leaseMs, worker_id: input.workerId }),
-      method: "POST"
-    });
+    const candidates = await this.request("execution_jobs?status=eq.queued&order=created_at.asc&limit=1");
+    if (!candidates[0]) return null;
+    const candidate = fromRow(candidates[0]);
+    if (candidate.attempt >= candidate.maxAttempts) return null;
+
+    const now = new Date();
+    const rows = await this.request(
+      `execution_jobs?id=eq.${encodeURIComponent(candidate.id)}&status=eq.queued&attempt=eq.${candidate.attempt}`,
+      {
+        body: JSON.stringify({
+          attempt: candidate.attempt + 1,
+          claimed_at: now.toISOString(),
+          claimed_by: input.workerId,
+          heartbeat_at: now.toISOString(),
+          lease_expires_at: new Date(now.getTime() + input.leaseMs).toISOString(),
+          status: "claimed",
+          updated_at: now.toISOString()
+        }),
+        method: "PATCH"
+      }
+    );
     return rows[0] ? fromRow(rows[0]) : null;
   }
 
@@ -232,7 +255,7 @@ class SupabaseExecutionJobStore implements InssaExecutionJobStore {
       body: JSON.stringify({ completed_at: now, heartbeat_at: now, last_error: error ?? null, lease_expires_at: null, status, updated_at: now }),
       method: "PATCH"
     });
-    if (rows.length !== 1) throw new Error(`Execution job ${jobId} is no longer owned by worker ${workerId}.`);
+    if (rows.length !== 1) throw new ExecutionLeaseOwnershipError(jobId, workerId);
   }
 
   async getByIdempotencyKey(idempotencyKey: string) {
@@ -250,9 +273,43 @@ class SupabaseExecutionJobStore implements InssaExecutionJobStore {
     return rows[0] ? fromRow(rows[0]) : null;
   }
 
-  async recoverAbandoned() {
-    const rows = await this.request("rpc/recover_inssa_execution_job_records", { body: "{}", method: "POST" });
+  async listTerminal() {
+    const rows = await this.request(
+      "execution_jobs?status=in.(completed,failed,abandoned)&order=updated_at.desc"
+    );
     return rows.map(fromRow);
+  }
+
+  async recoverAbandoned() {
+    const now = new Date();
+    const expiredRows = await this.request(
+      `execution_jobs?status=in.(claimed,running)&lease_expires_at=lt.${encodeURIComponent(now.toISOString())}`
+    );
+    const recovered: InssaExecutionJobRecord[] = [];
+    for (const row of expiredRows) {
+      const job = fromRow(row);
+      const preExecutionRetry = job.status === "claimed" && job.attempt < job.maxAttempts;
+      const status = preExecutionRetry ? "queued" : "abandoned";
+      const reason = preExecutionRetry
+        ? "Pre-execution worker lease expired; the claim may be retried without overlapping a campaign process."
+        : "Execution recovery blocked: a running campaign lease expired and automatic retry is unsafe.";
+      const rows = await this.request(
+        `execution_jobs?id=eq.${encodeURIComponent(job.id)}&status=eq.${job.status}&claimed_by=eq.${encodeURIComponent(job.claimedBy ?? "")}&lease_expires_at=eq.${encodeURIComponent(job.leaseExpiresAt ?? "")}`,
+        {
+          body: JSON.stringify({
+            claimed_by: null,
+            completed_at: status === "abandoned" ? now.toISOString() : null,
+            last_error: reason,
+            lease_expires_at: null,
+            status,
+            updated_at: now.toISOString()
+          }),
+          method: "PATCH"
+        }
+      );
+      if (rows[0]) recovered.push(fromRow(rows[0]));
+    }
+    return recovered;
   }
 
   private async heartbeatWithStatus(jobId: string, workerId: string, leaseMs: number, status?: "running") {
@@ -266,7 +323,7 @@ class SupabaseExecutionJobStore implements InssaExecutionJobStore {
       }),
       method: "PATCH"
     });
-    if (rows.length !== 1) throw new Error(`Execution lease is no longer owned by worker ${workerId}.`);
+    if (rows.length !== 1) throw new ExecutionLeaseOwnershipError(jobId, workerId);
   }
 
   private async request(resource: string, init: RequestInit = {}) {
@@ -278,7 +335,8 @@ class SupabaseExecutionJobStore implements InssaExecutionJobStore {
         "content-type": "application/json",
         prefer: "return=representation",
         ...init.headers
-      }
+      },
+      signal: init.signal ?? AbortSignal.timeout(10_000)
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -296,6 +354,13 @@ export class ActiveExecutionJobError extends Error {
   }
 }
 
+export class ExecutionLeaseOwnershipError extends Error {
+  constructor(jobId: string, workerId: string) {
+    super(`Execution job ${jobId} is no longer owned by worker ${workerId}.`);
+    this.name = "ExecutionLeaseOwnershipError";
+  }
+}
+
 function recoverExpiredJobs(snapshot: JobStoreSnapshot) {
   const now = Date.now();
   const recovered: InssaExecutionJobRecord[] = [];
@@ -304,8 +369,12 @@ function recoverExpiredJobs(snapshot: JobStoreSnapshot) {
     if (new Date(job.leaseExpiresAt).getTime() > now) continue;
     job.claimedBy = null;
     job.leaseExpiresAt = null;
-    job.lastError = "Worker lease expired before completion.";
-    job.status = job.attempt < job.maxAttempts ? "queued" : "abandoned";
+    const preExecutionRetry = job.status === "claimed" && job.attempt < job.maxAttempts;
+    job.completedAt = preExecutionRetry ? null : new Date().toISOString();
+    job.lastError = preExecutionRetry
+      ? "Pre-execution worker lease expired; the claim may be retried without overlapping a campaign process."
+      : "Execution recovery blocked: a running campaign lease expired and automatic retry is unsafe.";
+    job.status = preExecutionRetry ? "queued" : "abandoned";
     job.updatedAt = new Date().toISOString();
     recovered.push({ ...job });
   }

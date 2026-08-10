@@ -63,7 +63,7 @@ Supported event types:
 5. An unexpected worker exception inserts `execution_failed` in addition to the terminal run event.
 6. Durable evidence upload failure inserts `evidence_upload_failed`; the run retains its existing warning behavior.
 7. Worker startup inserts `worker_restarted`.
-8. Lease recovery inserts `worker_lease_expired` and `job_recovery` after the job is durably requeued or abandoned.
+8. Lease recovery inserts `worker_lease_expired` and `job_recovery` after the job is durably requeued or abandoned. An abandoned running attempt uses the existing `job_recovery` event with the title `Execution recovery blocked` and includes the durable reason.
 
 ## Deduplication
 

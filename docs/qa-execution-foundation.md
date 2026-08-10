@@ -25,9 +25,9 @@ Artifact metadata -> Evidence Bundle -> Durable Storage
 
 ## Job Ownership
 
-Execution jobs use schema version `1` and persist an idempotency key, claim owner, attempt count, lease expiry, heartbeat, completion state, and optional lifecycle artifact selection. Only one queued, claimed, or running job is allowed globally. An expired lease is returned to `queued` while attempts remain; otherwise it becomes `abandoned`.
+Execution jobs use schema version `1` and persist an idempotency key, claim owner, attempt count, lease expiry, heartbeat, completion state, and optional lifecycle artifact selection. Only one queued, claimed, or running job is allowed globally. Only an expired pre-execution `claimed` job may return to `queued`; an expired `running` job becomes `abandoned` so a second campaign process can never overlap it. Worker startup reconciles abandoned jobs with nonterminal run records.
 
-The local backend stores jobs in `dashboard/.data/execution-jobs.json` with an inter-process file lock. Supabase deployments use `execution_jobs` and atomic claim/recovery functions from `dashboard/supabase/migrations/20260721_execution_foundation.sql`.
+The local backend stores jobs in `dashboard/.data/execution-jobs.json` with an inter-process file lock. Supabase deployments use `execution_jobs`, its one-active-job constraint, and conditional REST updates for claim and recovery ownership. Legacy claim/recovery functions remain migration-managed but are not used by the worker because they can requeue an expired running campaign.
 
 ## Worker Operation
 
@@ -36,8 +36,12 @@ The local backend stores jobs in `dashboard/.data/execution-jobs.json` with an i
 Worker defaults:
 
 - Poll interval: `INSSA_WORKER_POLL_MS=1000`
-- Lease: `INSSA_WORKER_LEASE_MS=30000`
-- Heartbeat: one third of the lease duration
+- Heartbeat: `INSSA_WORKER_HEARTBEAT_MS=15000`
+- Consecutive heartbeat failure limit: `INSSA_WORKER_HEARTBEAT_FAILURE_LIMIT=3`
+- Lease: `INSSA_WORKER_LEASE_MS=120000`
+- Process termination grace period: `INSSA_WORKER_TERMINATION_GRACE_MS=10000`
+
+The heartbeat loop is sequential and each Supabase request is bounded to ten seconds. Three consecutive transport failures terminate the owned campaign process tree before the 120-second lease can expire. Ownership loss is fatal immediately. On POSIX hosts, npm, Playwright, Chromium, and their descendants run in a dedicated process group; timeout or lease loss sends `SIGTERM` to that group, waits ten seconds, then sends `SIGKILL` if required.
 - Maximum attempts: `2`
 
 ## Run Isolation

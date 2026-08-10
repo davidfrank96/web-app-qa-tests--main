@@ -71,7 +71,7 @@ For a stuck job:
 2. Confirm worker process and heartbeat.
 3. Inspect the run and execution-job logs.
 4. Restart the supervisor cleanly if the worker died.
-5. Allow lease recovery to requeue or abandon the job.
+5. Allow lease recovery to requeue only a pre-execution claim. An expired running job is abandoned, reconciled to a failed run, and must not be retried automatically.
 6. Confirm recovery events in the Notification Outbox.
 
 ## Evidence Review

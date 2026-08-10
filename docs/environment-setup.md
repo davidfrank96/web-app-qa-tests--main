@@ -57,7 +57,10 @@ Every non-comment line in `.env.inssa.live-staging` must be a `NAME=value` assig
 | `INSSA_EVIDENCE_STORAGE_PROVIDER` | `local` | `local` or `supabase`. |
 | `INSSA_EVIDENCE_SUPABASE_BUCKET` | `inssa-evidence` | Private bucket. |
 | `INSSA_WORKER_POLL_MS` | `1000` | Worker poll interval. |
-| `INSSA_WORKER_LEASE_MS` | `30000` | Worker lease duration. |
+| `INSSA_WORKER_HEARTBEAT_MS` | `15000` | Sequential active-job heartbeat interval. |
+| `INSSA_WORKER_HEARTBEAT_FAILURE_LIMIT` | `3` | Consecutive heartbeat failures allowed before owned execution is terminated. |
+| `INSSA_WORKER_LEASE_MS` | `120000` | Worker lease duration; must exceed heartbeat interval multiplied by failure limit. |
+| `INSSA_WORKER_TERMINATION_GRACE_MS` | `10000` | Grace period between process-group `SIGTERM` and `SIGKILL`. |
 | `INSSA_SCHEDULER_INTERVAL_MS` | `60000` | Scheduler evaluation interval. |
 | `INSSA_QA_REPO_ROOT` | auto-detected | Explicit repository root for separated services/tests. |
 

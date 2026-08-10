@@ -40,7 +40,8 @@ export const INSSA_PHASE1_COMMANDS: InssaCommandDefinition[] = [
     producesFindings: false,
     producesReports: true,
     riskLevel: "safe",
-    timeoutMs: 10 * 60 * 1000
+    // Hosted 1-vCPU validation measured 16.9 minutes under saturation; keep bounded headroom without relaxing assertions.
+    timeoutMs: 25 * 60 * 1000
   },
   {
     adminOnly: true,
