@@ -70,6 +70,41 @@ export async function persistEvidenceBundleToDurableStorage(
   }
 }
 
+export async function downloadEvidenceItemFromDurableStorage(item: InssaEvidenceItemRecord): Promise<Buffer> {
+  if (item.storageBackend !== "supabase-storage" || item.uploadStatus !== "uploaded") {
+    throw new Error("Evidence item is not available from durable storage.");
+  }
+
+  const config = readEvidenceStorageConfig();
+  if (config.provider !== "supabase") {
+    throw new Error("Durable evidence storage is not configured for Supabase retrieval.");
+  }
+
+  const storageKey = normalizeStorageKey(item.storageKey);
+  const client = createClient(config.supabaseUrl, config.serviceRoleKey, {
+    auth: {
+      persistSession: false
+    }
+  });
+  const download = await client.storage.from(config.bucket).download(storageKey);
+  if (download.error) {
+    throw new Error(`Supabase Storage download failed: ${download.error.message}`);
+  }
+
+  return verifyEvidenceItemBytes(item, Buffer.from(await download.data.arrayBuffer()));
+}
+
+export function verifyEvidenceItemBytes(item: InssaEvidenceItemRecord, bytes: Buffer): Buffer {
+  if (bytes.byteLength !== item.sizeBytes) {
+    throw new Error(`Durable evidence size verification failed: expected ${item.sizeBytes}, received ${bytes.byteLength}.`);
+  }
+  const checksum = createHash("sha256").update(bytes).digest("hex");
+  if (checksum !== item.sha256) {
+    throw new Error("Durable evidence checksum verification failed.");
+  }
+  return bytes;
+}
+
 function readEvidenceStorageConfig(): EvidenceStorageConfig {
   const provider = process.env.INSSA_EVIDENCE_STORAGE_PROVIDER?.trim().toLowerCase() ?? "local";
   if (provider !== "supabase") {
@@ -220,6 +255,18 @@ function normalizeRelativeEvidencePath(relativePath: string) {
   const normalized = path.posix.normalize(relativePath.split(path.sep).join("/"));
   if (!normalized || normalized === "." || normalized.startsWith("../") || normalized === ".." || path.posix.isAbsolute(normalized)) {
     throw new Error(`Invalid evidence item path: ${relativePath}`);
+  }
+  return normalized;
+}
+
+function normalizeStorageKey(storageKey: string) {
+  const unixPath = storageKey.trim().replaceAll("\\", "/");
+  if (!unixPath || unixPath.includes("\0") || unixPath.startsWith("/") || unixPath.split("/").includes("..")) {
+    throw new Error("Invalid durable evidence storage key.");
+  }
+  const normalized = path.posix.normalize(unixPath);
+  if (normalized === "." || normalized === ".." || normalized.startsWith("../")) {
+    throw new Error("Invalid durable evidence storage key.");
   }
   return normalized;
 }

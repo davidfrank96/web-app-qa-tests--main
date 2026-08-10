@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { InssaArtifactRecord } from "./types";
+import type { InssaArtifactRecord, InssaEvidenceItemRecord } from "./types";
 import { getRepoRoot } from "./paths";
 
 export const PLAYWRIGHT_REPORT_ROOT = "playwright-report";
@@ -19,9 +19,12 @@ export type ResolvedEvidenceBundleFile = {
   absolutePath: string;
   bundleRoot: string;
   contentType: string;
+  evidenceItemPath: string;
   fileName: string;
   relativePath: string;
 };
+
+export type ResolvedEvidenceBundlePath = Omit<ResolvedEvidenceBundleFile, "absolutePath" | "bundleRoot">;
 
 const EVIDENCE_CONTENT_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -58,20 +61,12 @@ export async function resolvePlaywrightEvidenceBundleFile(
   artifact: InssaArtifactRecord,
   relativePathSegments?: string[]
 ): Promise<ResolvedEvidenceBundleFile> {
-  const relativePath = normalizeBundleRelativePath(relativePathSegments);
+  const logical = resolvePlaywrightEvidenceBundlePath(artifact, relativePathSegments);
   const repoRoot = getRepoRoot();
-  const normalizedArtifactPath = artifact.filePath.split(path.sep).join("/");
-  const runPrefix = `run-output/${artifact.runId}/`;
-  const expectedIndexPath = normalizedArtifactPath.startsWith(runPrefix)
-    ? `${runPrefix}${PLAYWRIGHT_REPORT_ROOT}/index.html`
-    : `${PLAYWRIGHT_REPORT_ROOT}/index.html`;
-  if (normalizedArtifactPath !== expectedIndexPath) {
-    throw new InssaEvidenceServingError("Playwright evidence metadata does not identify a valid bundle root.", 403);
-  }
-  const artifactPath = path.resolve(repoRoot, normalizedArtifactPath);
+  const artifactPath = path.resolve(repoRoot, artifact.filePath);
   assertInsideRepo(repoRoot, artifactPath);
   const bundleRoot = path.dirname(artifactPath);
-  const absolutePath = path.resolve(bundleRoot, relativePath);
+  const absolutePath = path.resolve(bundleRoot, logical.relativePath);
   const relativeToBundle = path.relative(bundleRoot, absolutePath);
 
   if (relativeToBundle.startsWith("..") || path.isAbsolute(relativeToBundle)) {
@@ -81,12 +76,45 @@ export async function resolvePlaywrightEvidenceBundleFile(
   const canonical = await resolveCanonicalFileWithinRoot(repoRoot, bundleRoot, absolutePath);
 
   return {
+    ...logical,
     absolutePath: canonical.absolutePath,
-    bundleRoot: canonical.allowedRoot,
+    bundleRoot: canonical.allowedRoot
+  };
+}
+
+export function resolvePlaywrightEvidenceBundlePath(
+  artifact: InssaArtifactRecord,
+  relativePathSegments?: string[]
+): ResolvedEvidenceBundlePath {
+  const relativePath = normalizeBundleRelativePath(relativePathSegments);
+  const normalizedArtifactPath = artifact.filePath.split(path.sep).join("/");
+  const runPrefix = `run-output/${artifact.runId}/`;
+  const expectedIndexPath = normalizedArtifactPath.startsWith(runPrefix)
+    ? `${runPrefix}${PLAYWRIGHT_REPORT_ROOT}/index.html`
+    : `${PLAYWRIGHT_REPORT_ROOT}/index.html`;
+  if (normalizedArtifactPath !== expectedIndexPath) {
+    throw new InssaEvidenceServingError("Playwright evidence metadata does not identify a valid bundle root.", 403);
+  }
+
+  return {
     contentType: contentTypeForEvidencePath(relativePath),
-    fileName: path.basename(relativePath),
+    evidenceItemPath: path.posix.join(path.posix.dirname(normalizedArtifactPath), relativePath),
+    fileName: path.posix.basename(relativePath),
     relativePath
   };
+}
+
+export function findUploadedEvidenceItem(
+  items: InssaEvidenceItemRecord[],
+  relativePath: string
+): InssaEvidenceItemRecord | null {
+  const normalizedPath = relativePath.split(path.sep).join("/");
+  return items.find((item) =>
+    item.relativePath.split(path.sep).join("/") === normalizedPath &&
+    item.storageBackend === "supabase-storage" &&
+    item.uploadStatus === "uploaded" &&
+    Boolean(item.storageKey)
+  ) ?? null;
 }
 
 export async function resolveCanonicalFileWithinRoot(repoRoot: string, allowedRoot: string, targetPath: string) {

@@ -2,11 +2,14 @@ import fs from "node:fs/promises";
 import { NextRequest, NextResponse } from "next/server";
 import { requireInssaApiUser } from "../../../../../../lib/inssa-ops/api-guard";
 import {
+  findUploadedEvidenceItem,
   InssaEvidenceServingError,
   isPlaywrightReportArtifact,
   resolvePlaywrightEvidenceBundleFile,
+  resolvePlaywrightEvidenceBundlePath,
   safeEvidenceFileName
 } from "../../../../../../lib/inssa-ops/evidence-serving";
+import { downloadEvidenceItemFromDurableStorage } from "../../../../../../lib/inssa-ops/evidence-storage";
 import { getInssaRunStore } from "../../../../../../lib/inssa-ops/run-store";
 import { isRedactableContentType, redactInssaTextOutput } from "../../../../../../lib/inssa-ops/redaction";
 
@@ -21,7 +24,8 @@ export async function GET(
   if (auth.response) return auth.response;
 
   const { id, relativePath } = await context.params;
-  const artifact = await getInssaRunStore().getArtifact(id);
+  const store = getInssaRunStore();
+  const artifact = await store.getArtifact(id);
   if (!artifact) {
     return NextResponse.json({ error: `Artifact not found: ${id}` }, { status: 404 });
   }
@@ -30,9 +34,9 @@ export async function GET(
     return NextResponse.json({ error: "Bundle serving is only enabled for Playwright report artifacts." }, { status: 403 });
   }
 
-  let resolved;
+  let logical;
   try {
-    resolved = await resolvePlaywrightEvidenceBundleFile(artifact, relativePath);
+    logical = resolvePlaywrightEvidenceBundlePath(artifact, relativePath);
   } catch (error) {
     if (error instanceof InssaEvidenceServingError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -40,28 +44,40 @@ export async function GET(
     throw error;
   }
 
-  let file;
+  let file: Buffer;
   try {
+    const resolved = await resolvePlaywrightEvidenceBundleFile(artifact, relativePath);
     file = await fs.readFile(resolved.absolutePath);
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
-      return NextResponse.json({ error: "Evidence bundle file no longer exists on disk." }, { status: 404 });
-    }
-    if (isNodeError(error) && error.code === "EISDIR") {
+      const evidence = await store.getEvidence(artifact.runId);
+      const item = findUploadedEvidenceItem(evidence.items, logical.evidenceItemPath);
+      if (!item) {
+        return NextResponse.json({ error: "Evidence bundle file is unavailable locally and in durable storage." }, { status: 404 });
+      }
+      try {
+        file = await downloadEvidenceItemFromDurableStorage(item);
+      } catch {
+        return NextResponse.json({ error: "Durable evidence retrieval or integrity verification failed." }, { status: 502 });
+      }
+    } else if (isNodeError(error) && error.code === "EISDIR") {
       return NextResponse.json({ error: "Evidence bundle directory listing is not enabled." }, { status: 403 });
+    } else if (error instanceof InssaEvidenceServingError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    } else {
+      throw error;
     }
-    throw error;
   }
 
-  if (isRedactableContentType(resolved.contentType)) {
+  if (isRedactableContentType(logical.contentType)) {
     file = Buffer.from(redactInssaTextOutput(file), "utf8");
   }
 
   const headers = new Headers({
     "accept-ranges": "bytes",
     "cache-control": "no-store",
-    "content-disposition": `inline; filename="${safeEvidenceFileName(resolved.fileName)}"`,
-    "content-type": resolved.contentType,
+    "content-disposition": `inline; filename="${safeEvidenceFileName(logical.fileName)}"`,
+    "content-type": logical.contentType,
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff"
   });

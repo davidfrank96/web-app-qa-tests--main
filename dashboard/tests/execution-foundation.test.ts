@@ -6,11 +6,14 @@ import test from "node:test";
 import { classifyArtifact, indexArtifactsForRun } from "../lib/inssa-ops/artifact-indexer";
 import { ActiveExecutionJobError, getInssaExecutionJobStore } from "../lib/inssa-ops/execution-job-store";
 import {
+  findUploadedEvidenceItem,
   InssaEvidenceServingError,
   isPlaywrightReportArtifact,
   logicalArtifactPath,
-  resolvePlaywrightEvidenceBundleFile
+  resolvePlaywrightEvidenceBundleFile,
+  resolvePlaywrightEvidenceBundlePath
 } from "../lib/inssa-ops/evidence-serving";
+import { verifyEvidenceItemBytes } from "../lib/inssa-ops/evidence-storage";
 import { finalizeRunOutput, prepareRunOutput } from "../lib/inssa-ops/run-output";
 import { buildEvidenceMetadataForRun } from "../lib/inssa-ops/evidence";
 import type { InssaArtifactRecord, InssaRunRecord } from "../lib/inssa-ops/types";
@@ -80,6 +83,9 @@ test("run output produces an immutable manifest and indexable artifact paths", a
     const report = artifacts.find((artifact) => artifact.artifactType === "Playwright Report")!;
     assert.equal(isPlaywrightReportArtifact(report), true);
     assert.equal(logicalArtifactPath(report), "playwright-report/index.html");
+    const durablePath = resolvePlaywrightEvidenceBundlePath(report, ["data", "asset.png"]);
+    assert.equal(durablePath.relativePath, "data/asset.png");
+    assert.equal(durablePath.evidenceItemPath, `run-output/${runId}/playwright-report/data/asset.png`);
     assert.equal(
       (await resolvePlaywrightEvidenceBundleFile(report, ["index.html"])).absolutePath,
       await fs.realpath(path.join(outputRoot, "playwright-report", "index.html"))
@@ -89,6 +95,22 @@ test("run output produces an immutable manifest and indexable artifact paths", a
       () => resolvePlaywrightEvidenceBundleFile({ ...report, filePath: `run-output/${runId}/other/playwright-report/index.html` }),
       InssaEvidenceServingError
     );
+
+    const reportBytes = Buffer.from("<html>report</html>");
+    const evidence = buildEvidenceMetadataForRun(runRecord(runId), [{
+      ...report,
+      fileSize: reportBytes.byteLength,
+      sha256: "d4504aee5c2043441a539d48f507840f27087655d44e319b85885bf920e52ab0"
+    }]);
+    const uploadedItem = {
+      ...evidence.items[0],
+      storageBackend: "supabase-storage" as const,
+      storageKey: `inssa/staging/test/${runId}/bundle/${report.filePath}`,
+      uploadStatus: "uploaded" as const
+    };
+    assert.equal(findUploadedEvidenceItem([uploadedItem], report.filePath)?.id, uploadedItem.id);
+    assert.equal(verifyEvidenceItemBytes(uploadedItem, reportBytes), reportBytes);
+    assert.throws(() => verifyEvidenceItemBytes(uploadedItem, Buffer.from("changed")), /size verification/);
 
     const outside = path.join(repoRoot, "outside.txt");
     await fs.writeFile(outside, "outside", "utf8");
@@ -101,6 +123,36 @@ test("run output produces an immutable manifest and indexable artifact paths", a
     await fs.rm(repoRoot, { force: true, recursive: true });
   }
 });
+
+function runRecord(runId: string): InssaRunRecord {
+  const now = new Date().toISOString();
+  return {
+    campaignKey: "test_inssa_safe",
+    commandSnapshot: {
+      commandType: "campaign",
+      displayName: "INSSA Safe Suite",
+      key: "test_inssa_safe",
+      mutatesStaging: false,
+      npmScript: "test:inssa:safe",
+      operatorDescription: "Safe suite.",
+      phase1Enabled: true,
+      producesFindings: false,
+      producesReports: true,
+      riskLevel: "safe",
+      targetEnvironment: "staging",
+      timeoutMs: 120_000
+    },
+    completedAt: now,
+    createdAt: now,
+    durationMs: 1,
+    exitCode: 0,
+    id: runId,
+    requestedBy: "operator@example.invalid",
+    startedAt: now,
+    status: "passed",
+    updatedAt: now
+  };
+}
 
 test("phase-scoped Playwright reports remain reports without promoting trace viewer HTML", () => {
   assert.equal(classifyArtifact("playwright-report/create/index.html").artifactType, "Playwright Report");
