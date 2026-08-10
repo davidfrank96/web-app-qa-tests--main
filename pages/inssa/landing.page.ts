@@ -10,8 +10,20 @@ import {
 } from "../../utils/inssa-test-data";
 
 const DEFAULT_TIMEOUT = 15_000;
+const AUTHENTICATED_LANDING_READY_TIMEOUT = 45_000;
+const LOCATION_PROMPT_OR_CONTROLS_TIMEOUT = 15_000;
 const LOCATION_PROMPT_ATTEMPTS = 3;
-const LOCATION_PROMPT_ATTEMPT_TIMEOUT = 3_000;
+const LOCATION_PROMPT_ATTEMPT_TIMEOUT = 10_000;
+
+type AuthenticatedLandingReadiness = {
+  buryEnabled: boolean;
+  buryVisible: boolean;
+  findEnabled: boolean;
+  findVisible: boolean;
+  locationPromptVisible: boolean;
+  pointsLedgerVisible: boolean;
+  searchVisible: boolean;
+};
 
 export class LandingPage {
   constructor(private readonly page: Page) {}
@@ -42,22 +54,45 @@ export class LandingPage {
   }
 
   async expectAuthenticatedLandingSurface(): Promise<void> {
+    const startedAt = Date.now();
     await expectPageNotBlank(this.page);
     await expect(this.page.locator("body")).not.toContainText(INSSA_GENERIC_JS_SHELL_PATTERN);
     await this.dismissLandingOverlaysIfPresent();
-    await expect(this.searchField(), "Expected the authenticated INSSA home to show the search field.").toBeVisible({
-      timeout: DEFAULT_TIMEOUT
-    });
-    await expect(this.findButton(), "Expected the authenticated INSSA home to expose the Find action.").toBeVisible({
-      timeout: DEFAULT_TIMEOUT
-    });
-    await expect(this.buryButton(), "Expected the authenticated INSSA home to expose the Bury action.").toBeVisible({
-      timeout: DEFAULT_TIMEOUT
-    });
-    await expect(
-      this.page.locator("a[href='/points-ledger']").first(),
-      "Expected the authenticated INSSA home to expose the points ledger link."
-    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+
+    try {
+      await expect
+        .poll(() => this.authenticatedLandingReadiness(), {
+          message:
+            "Expected the authenticated INSSA home to finish initialization with search, Find, Bury, and points-ledger controls ready.",
+          timeout: AUTHENTICATED_LANDING_READY_TIMEOUT
+        })
+        .toEqual({
+          buryEnabled: true,
+          buryVisible: true,
+          findEnabled: true,
+          findVisible: true,
+          locationPromptVisible: false,
+          pointsLedgerVisible: true,
+          searchVisible: true
+        });
+    } catch (error) {
+      console.log(
+        `INSSA_LANDING_READY_FAILURE ${JSON.stringify({
+          elapsedMs: Date.now() - startedAt,
+          route: this.safeCurrentRoute(),
+          state: await this.authenticatedLandingReadiness()
+        })}`
+      );
+      throw error;
+    }
+
+    console.log(
+      `INSSA_LANDING_READY ${JSON.stringify({
+        elapsedMs: Date.now() - startedAt,
+        route: this.safeCurrentRoute(),
+        surface: "authenticated"
+      })}`
+    );
   }
 
   async openFindChooser(): Promise<void> {
@@ -77,7 +112,6 @@ export class LandingPage {
     const buryButton = this.buryButton();
     await expect(buryButton).toBeVisible({ timeout: DEFAULT_TIMEOUT });
     await expect(buryButton).toBeEnabled({ timeout: DEFAULT_TIMEOUT });
-    await this.page.waitForTimeout(500);
     await buryButton.click();
     await this.page.waitForLoadState("domcontentloaded").catch(() => {});
   }
@@ -87,11 +121,11 @@ export class LandingPage {
   }
 
   findButton(): Locator {
-    return this.page.locator("button:visible").filter({ hasText: INSSA_FIND_BUTTON_PATTERN }).first();
+    return this.page.getByRole("button", { name: INSSA_FIND_BUTTON_PATTERN }).first();
   }
 
   buryButton(): Locator {
-    return this.page.locator("button:visible").filter({ hasText: INSSA_BURY_BUTTON_PATTERN }).first();
+    return this.page.getByRole("button", { name: INSSA_BURY_BUTTON_PATTERN }).first();
   }
 
   searchField(): Locator {
@@ -128,7 +162,21 @@ export class LandingPage {
   }
 
   private async dismissLocationPromptIfPresent(): Promise<void> {
-    if (!(await this.locationPrompt().isVisible({ timeout: 1_000 }).catch(() => false))) {
+    let observedState = "pending";
+    await expect
+      .poll(
+        async () => {
+          observedState = await this.locationOrLandingControlState();
+          return observedState;
+        },
+        {
+          message: "Expected either the location prompt or primary landing controls to become observable.",
+          timeout: LOCATION_PROMPT_OR_CONTROLS_TIMEOUT
+        }
+      )
+      .not.toBe("pending");
+
+    if (observedState !== "location-prompt") {
       return;
     }
 
@@ -170,6 +218,57 @@ export class LandingPage {
 
   private locationPrompt(): Locator {
     return this.page.getByRole("dialog", { name: /Unlock what's near you/i }).first();
+  }
+
+  private async authenticatedLandingReadiness(): Promise<AuthenticatedLandingReadiness> {
+    const [
+      buryEnabled,
+      buryVisible,
+      findEnabled,
+      findVisible,
+      locationPromptVisible,
+      pointsLedgerVisible,
+      searchVisible
+    ] = await Promise.all([
+      this.buryButton().isEnabled().catch(() => false),
+      this.buryButton().isVisible().catch(() => false),
+      this.findButton().isEnabled().catch(() => false),
+      this.findButton().isVisible().catch(() => false),
+      this.locationPrompt().isVisible().catch(() => false),
+      this.page.locator("a[href='/points-ledger']").first().isVisible().catch(() => false),
+      this.searchField().isVisible().catch(() => false)
+    ]);
+
+    return {
+      buryEnabled,
+      buryVisible,
+      findEnabled,
+      findVisible,
+      locationPromptVisible,
+      pointsLedgerVisible,
+      searchVisible
+    };
+  }
+
+  private async locationOrLandingControlState(): Promise<"landing-controls" | "location-prompt" | "pending"> {
+    if (await this.locationPrompt().isVisible().catch(() => false)) {
+      return "location-prompt";
+    }
+
+    const [buryVisible, findVisible] = await Promise.all([
+      this.buryButton().isVisible().catch(() => false),
+      this.findButton().isVisible().catch(() => false)
+    ]);
+    return buryVisible && findVisible ? "landing-controls" : "pending";
+  }
+
+  private safeCurrentRoute(): string {
+    try {
+      const current = new URL(this.page.url());
+      return `${current.origin}${current.pathname}`;
+    } catch {
+      return "unavailable";
+    }
   }
 
   private isTransientLocationPromptError(error: unknown): boolean {
