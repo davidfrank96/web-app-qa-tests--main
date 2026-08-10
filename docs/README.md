@@ -1,6 +1,6 @@
 # Documentation Index
 
-Last reviewed: 2026-07-27
+Last reviewed: 2026-08-10
 
 This index is the authoritative map for repository documentation. A document marked **Historical** is retained as release, discovery, or validation evidence and must not be used as the current implementation specification.
 
@@ -20,6 +20,7 @@ This index is the authoritative map for repository documentation. A document mar
 | [CI/CD Pipeline](ci-cd.md) | Current | Required checks, job graph, environment policy, and local reproduction. |
 | [Platform Core v1.0 Release Notes](platform-core-v1.0-release-notes.md) | Current | Release scope, limitations, and certification state. |
 | [Repository Documentation Certification](repository-documentation-certification.md) | Current | Sprint D audit evidence and verdict. |
+| [DigitalOcean Cutover Gate 1 and Gate 2](digitalocean-cutover-gate-1-2.md) | Current | First-hosted-deployment preparation, archive boundary, validation, and blockers. |
 
 ## Core Architecture
 

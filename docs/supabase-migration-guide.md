@@ -12,6 +12,7 @@
 | 6 | `20260725_authentication_monitoring.sql` | Authentication-monitor definitions |
 | 7 | `20260802_admin_live_campaigns.sql` | Sanitized live execution context, cleanup metadata, and approval/preflight/cleanup audit events |
 | 8 | `20260802_deferred_cleanup_ledger.sql` | Deferred-cleanup ledger, retention metadata, limits support, indexes, RLS, and service-role-only access |
+| 9 | `20260810123743_disable_staging_auth_monitor_schedule.sql` | First-deployment safety state: staging authentication monitoring remains available manually but is not scheduled |
 
 Dependencies flow only forward. No later migration recreates or replaces an earlier subsystem's function.
 
@@ -29,7 +30,7 @@ Dependencies flow only forward. No later migration recreates or replaces an earl
 
 The current chain was applied to an empty PostgreSQL 18 database with Supabase roles represented, then replayed. Both passes succeeded. The certified result is:
 
-- 11 public tables.
+- 12 public tables.
 - 45 indexes including primary/unique backing indexes.
 - 12 foreign keys.
 - 18 primary/unique constraints.

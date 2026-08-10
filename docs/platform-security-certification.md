@@ -40,3 +40,11 @@ Release Hardening Sprint C covers Wazuh ingestion authentication, sensitive-outp
 ## Certification Gate
 
 Code-level security controls pass. Production release remains **BLOCKED** because commit `3506a72a018f` contains unredacted UUID-form share tokens in six historical `lifecycle-investigations/*.json` files. Before release, invalidate or confirm expiry of those product share tokens, rewrite the affected Git history with coordinated repository-owner approval, force-update all remote refs, and have every collaborator re-clone. The Wazuh deployment must also receive a unique `/etc/inssa-ingestion.env` credential and be revalidated after restart. Anonymous compatibility mode does not exist.
+
+## 2026-08-10 Gate 1 Revalidation
+
+- The current dependency graph uses `nanoid@3.3.17`; root and dashboard production audits contain zero high or critical findings.
+- The six affected historical files contain five unique token values. Four have complete capsule URLs and one appears only in incomplete navigation evidence.
+- Read-only browser validation found no current access benefit from the four testable historical tokens: the tokenized views did not display the expected QA capsule content, while tokenless public-by-ID views did.
+- No product token-status or revocation API is available, so this observation is not proof of expiry or revocation. The fifth value remains untestable.
+- The coordinated history rewrite remains required by the release policy. It was not performed automatically.
