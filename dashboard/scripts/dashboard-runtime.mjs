@@ -511,6 +511,8 @@ function checkRunnerPrerequisites() {
     "dashboard/scripts/dashboard-supervisor.mjs",
     "dashboard/scripts/inssa-scheduler.ts",
     "dashboard/scripts/inssa-worker.ts",
+    "dashboard/scripts/archive-development-evidence.mjs",
+    "dashboard/scripts/import-first-deployment-state.mjs",
     "dashboard/scripts/provision-persistence.mjs",
     "dashboard/lib/monitoring/scheduler-store.ts",
     "dashboard/lib/inssa-ops/execution-job-store.ts",
@@ -521,6 +523,9 @@ function checkRunnerPrerequisites() {
     "dashboard/supabase/migrations/20260724_scheduler_trigger.sql",
     "dashboard/supabase/migrations/20260725_authentication_monitoring.sql",
     "dashboard/supabase/migrations/20260802_admin_live_campaigns.sql",
+    "dashboard/supabase/migrations/20260810174608_deferred_cleanup_ledger_version_fix.sql",
+    "dashboard/supabase/migrations/20260810175709_execution_job_claim_timestamp_fix.sql",
+    "dashboard/supabase/migrations/20260810123743_disable_staging_auth_monitor_schedule.sql",
     "dashboard/node_modules/tsx/package.json"
   ];
   const missingWorkerFiles = requiredWorkerFiles.filter((file) => !fs.existsSync(path.join(repoRoot, file)));

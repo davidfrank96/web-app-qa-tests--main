@@ -214,7 +214,7 @@ INSSA_OPS_METADATA_STORE=local
 INSSA_EVIDENCE_STORAGE_PROVIDER=local
 ```
 
-Durable deployments use Supabase Postgres for metadata and a private Supabase Storage bucket for evidence bytes. Apply all seven ordered migrations and provision the bucket before selecting Supabase providers:
+Durable deployments use Supabase Postgres for metadata and a private Supabase Storage bucket for evidence bytes. Apply all nine ordered migrations and provision the bucket before selecting Supabase providers:
 
 ```bash
 cd dashboard
@@ -233,7 +233,7 @@ The scheduler evaluates enabled schedule definitions and creates durable jobs. I
 
 The Notification Outbox records queued, started, completed, failed, recovery, and evidence-upload events. Email, SMS, Slack, Teams, webhook, and push dispatchers are not implemented.
 
-Authentication Monitoring is the first continuous campaign. Monitor credentials use the canonical `AUTH_MONITOR_*` namespace and are loaded from the same dashboard environment as the worker and scheduler. Production monitoring remains disabled by default and requires `AUTH_MONITOR_ALLOW_PRODUCTION=1` plus exact host confirmation.
+Authentication Monitoring is the first continuous campaign. Monitor credentials use the canonical `AUTH_MONITOR_*` namespace and are loaded from the same dashboard environment as the worker and scheduler. All authentication schedules are disabled for the first hosted deployment; controlled manual execution remains available. Production monitoring additionally requires `AUTH_MONITOR_ALLOW_PRODUCTION=1` plus exact host confirmation.
 
 ## SIEM And Wazuh
 
@@ -296,6 +296,7 @@ Key references:
 - [Platform Operations](docs/inssa-platform-operations.md)
 - [Security Guide](docs/platform-security-guide.md)
 - [Deployment Guide](docs/platform-deployment-guide.md)
+- [DigitalOcean Cutover Gate 1 and Gate 2](docs/digitalocean-cutover-gate-1-2.md)
 - [Release Guide](docs/platform-release-guide.md)
 - [CI/CD Pipeline](docs/ci-cd.md)
 - [Changelog](CHANGELOG.md)

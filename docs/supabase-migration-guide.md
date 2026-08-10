@@ -11,7 +11,9 @@
 | 5 | `20260724_scheduler_trigger.sql` | Schedule configuration, occurrence ledger, scheduler status |
 | 6 | `20260725_authentication_monitoring.sql` | Authentication-monitor definitions |
 | 7 | `20260802_admin_live_campaigns.sql` | Sanitized live execution context, cleanup metadata, and approval/preflight/cleanup audit events |
-| 8 | `20260802_deferred_cleanup_ledger.sql` | Deferred-cleanup ledger, retention metadata, limits support, indexes, RLS, and service-role-only access |
+| 8 | `20260810123743_disable_staging_auth_monitor_schedule.sql` | First-deployment safety state: staging authentication monitoring remains available manually but is not scheduled |
+| 9 | `20260810174608_deferred_cleanup_ledger_version_fix.sql` | Deferred-cleanup ledger, retention metadata, limits support, indexes, RLS, and service-role-only access; uniquely versions the migration after correcting the duplicate `20260802` identity |
+| 10 | `20260810175709_execution_job_claim_timestamp_fix.sql` | Corrects the execution-job claim function's timestamp variable resolution after remote worker validation exposed a `timestamptz`/`timetz` comparison defect |
 
 Dependencies flow only forward. No later migration recreates or replaces an earlier subsystem's function.
 
@@ -29,11 +31,11 @@ Dependencies flow only forward. No later migration recreates or replaces an earl
 
 The current chain was applied to an empty PostgreSQL 18 database with Supabase roles represented, then replayed. Both passes succeeded. The certified result is:
 
-- 11 public tables.
-- 45 indexes including primary/unique backing indexes.
+- 12 public tables.
+- 50 indexes including primary/unique backing indexes.
 - 12 foreign keys.
-- 18 primary/unique constraints.
-- 44 check constraints.
+- 20 primary/unique constraints.
+- 50 check constraints.
 - RLS enabled on all 12 tables.
 - Zero anon/authenticated table privileges.
 - Two service-role-only security-definer RPCs with empty search paths.

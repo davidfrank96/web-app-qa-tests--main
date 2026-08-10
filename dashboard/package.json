@@ -14,6 +14,8 @@
     "start": "node scripts/dashboard-supervisor.mjs start",
     "scheduler": "node --import tsx scripts/inssa-scheduler.ts",
     "worker": "node --import tsx scripts/inssa-worker.ts",
+    "persistence:archive-development": "node scripts/archive-development-evidence.mjs",
+    "persistence:import-operational-state": "node scripts/import-first-deployment-state.mjs",
     "persistence:provision": "node scripts/provision-persistence.mjs",
     "persistence:verify": "node scripts/provision-persistence.mjs --verify-only",
     "test:execution-foundation": "node --import tsx --test --test-concurrency=1 tests/*.test.ts"
@@ -36,6 +38,7 @@
     "typescript": "^5.8.0"
   },
   "overrides": {
+    "nanoid": "3.3.17",
     "postcss": "$postcss",
     "sharp": "0.35.0"
   }
