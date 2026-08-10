@@ -24,6 +24,7 @@ const REQUIRED_APP_ROUTES = [
 
 const REQUIRED_ROUTE_BUNDLES = [
   "app/api/campaign-definitions/route.js",
+  "app/api/lifecycle-artifacts/route.js",
   "app/api/runs/route.js",
   "app/api/runs/[id]/route.js",
   "app/api/runs/[id]/logs/route.js",

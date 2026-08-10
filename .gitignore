@@ -11,7 +11,7 @@ node_modules/
 # Playwright/generated QA output.
 playwright-report/
 test-results/
-lifecycle-artifacts/
+/lifecycle-artifacts/
 lifecycle-campaigns/
 lifecycle-investigations/
 security-campaigns/
