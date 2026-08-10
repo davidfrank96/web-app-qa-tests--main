@@ -50,7 +50,7 @@ Readiness: **67%**. The runtime and staging controls are healthy, but the target
 
 ## Deployment Blockers
 
-1. Apply all eight Supabase migrations, verify all 12 RLS-protected tables, provision the private evidence bucket, then enable Supabase metadata/evidence providers.
+1. Apply all nine Supabase migrations, verify all 12 RLS-protected tables, provision the private evidence bucket, then enable Supabase metadata/evidence providers.
 2. Recover the Cross-User capsule ID from sanitized write evidence or the product, record it in the ledger, and only then release the mutation hold.
 3. Update Media and Video contact-selection assumptions without weakening finalization assertions.
 4. Run one fresh Text campaign after phase-scoped recording is deployed to prove video retention.

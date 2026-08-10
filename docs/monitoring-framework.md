@@ -48,7 +48,7 @@ Supported trigger values are:
 
 The scheduler evaluates only enabled definitions whose trigger type is `schedule`. There is no webhook receiver, deployment hook, cron expression parser, or trigger execution for the other values.
 
-The scheduled catalog includes a daily staging Safe Suite and midday staging [Authentication Monitoring](./authentication-monitoring.md). Production midday and evening authentication definitions are provisioned disabled until production-specific credentials and confirmation are configured.
+The scheduled catalog includes a daily staging Safe Suite. Staging, production-midday, and production-evening [Authentication Monitoring](./authentication-monitoring.md) definitions remain present but are disabled for the first hosted deployment until provider checks are separately certified.
 
 ## Run Policy
 

@@ -24,10 +24,18 @@ const REQUIRED_TABLES = [
 const verifyOnly = process.argv.includes("--verify-only");
 const supabaseUrl = process.env.SUPABASE_URL?.trim();
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+const confirmedProjectRef = process.env.SUPABASE_PROJECT_REF?.trim();
 const bucketName = process.env.INSSA_EVIDENCE_SUPABASE_BUCKET?.trim() || "inssa-evidence";
 
 if (!supabaseUrl || !serviceRoleKey) {
   fail("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.");
+}
+const parsedUrl = new URL(supabaseUrl);
+if (parsedUrl.hostname.endsWith(".supabase.co")) {
+  const configuredProjectRef = parsedUrl.hostname.split(".")[0];
+  if (!confirmedProjectRef || confirmedProjectRef !== configuredProjectRef) {
+    fail("SUPABASE_PROJECT_REF must exactly match the configured hosted Supabase URL.");
+  }
 }
 
 const headers = {

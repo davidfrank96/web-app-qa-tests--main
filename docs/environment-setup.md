@@ -52,6 +52,7 @@ Every non-comment line in `.env.inssa.live-staging` must be a `NAME=value` assig
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `SUPABASE_PROJECT_REF` | none | Hosted deployment confirmation; must exactly match the project reference in `SUPABASE_URL`. |
 | `INSSA_OPS_METADATA_STORE` | `local` | `local` or `supabase`. |
 | `INSSA_EVIDENCE_STORAGE_PROVIDER` | `local` | `local` or `supabase`. |
 | `INSSA_EVIDENCE_SUPABASE_BUCKET` | `inssa-evidence` | Private bucket. |

@@ -5,6 +5,7 @@ node_modules/
 .env.*
 !.env.example
 !.env.inssa.live-staging.example
+!dashboard/.env.production.example
 .env.inssa.live-staging
 
 # Playwright/generated QA output.

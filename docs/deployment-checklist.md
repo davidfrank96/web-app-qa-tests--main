@@ -27,7 +27,10 @@ Every required item must have captured evidence for the target environment.
 
 ## Supabase
 
-- [ ] All eight migrations are applied in canonical order, including `20260802_admin_live_campaigns.sql` and `20260802_deferred_cleanup_ledger.sql`.
+- [ ] All nine migrations are applied in canonical order, including the forward-only first-deployment authentication-monitor scheduling guard.
+- [ ] `SUPABASE_PROJECT_REF` exactly matches the project reference in `SUPABASE_URL`.
+- [ ] The checksummed historical-development archive is stored off-host before operational-state import.
+- [ ] All nine deferred-cleanup records and the monitoring catalog are imported with authentication schedules disabled.
 - [ ] Migration history and linked schema diff are clean.
 - [ ] All 12 platform tables exist with RLS enabled.
 - [ ] Anonymous/authenticated roles have no direct platform table access.

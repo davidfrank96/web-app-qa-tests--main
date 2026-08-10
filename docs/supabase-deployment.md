@@ -22,7 +22,7 @@ npx supabase@latest init
 npx supabase@latest link --project-ref "$SUPABASE_PROJECT_REF"
 ```
 
-`supabase init` is needed only when `supabase/config.toml` is absent. It does not modify the remote database.
+The repository now includes `supabase/config.toml`; do not reinitialize it. Linking requires the project database password and must identify the dedicated QA Platform project.
 
 ## 2. Preview And Apply Migrations
 
@@ -43,9 +43,28 @@ npm run persistence:provision
 npm run persistence:verify
 ```
 
-The command first verifies all 11 PostgREST table resources, then creates the configured bucket when absent and verifies it is private. It is idempotent and does not upload evidence.
+The command first verifies all 12 PostgREST table resources, then creates the configured bucket when absent and verifies it is private. It is idempotent and does not upload evidence. Hosted targets also require `SUPABASE_PROJECT_REF` to exactly match the project reference in `SUPABASE_URL`.
 
-## 4. Configure The Dashboard
+## 4. Preserve First-Deployment State
+
+Create the checksummed historical development archive before importing hosted operational state:
+
+```bash
+npm run persistence:archive-development
+```
+
+Keep the resulting archive outside the repository and copy it to access-controlled off-host backup storage. It remains a historical development archive; it is not represented as Supabase evidence.
+
+After migration and bucket verification, dry-run and then apply the narrowly scoped operational import:
+
+```bash
+npm run persistence:import-operational-state -- --archive-manifest=/absolute/path/archive-manifest.json
+npm run persistence:import-operational-state -- --apply --archive-manifest=/absolute/path/archive-manifest.json
+```
+
+The importer preserves all nine deferred-cleanup records and the monitoring catalog, forces every authentication monitor disabled, and intentionally imports no historical runs, logs, artifacts, evidence, execution jobs, outbox events, or scheduler occurrences.
+
+## 5. Configure The Dashboard
 
 Create `dashboard/.env.local` from `dashboard/.env.example` and set:
 
@@ -55,6 +74,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable key>
 SUPABASE_URL=<project URL>
 SUPABASE_ANON_KEY=<anon key when the project still uses legacy keys>
 SUPABASE_SERVICE_ROLE_KEY=<server-only service role key>
+SUPABASE_PROJECT_REF=<exact QA Platform project reference>
 INSSA_OPS_METADATA_STORE=supabase
 INSSA_EVIDENCE_STORAGE_PROVIDER=supabase
 INSSA_EVIDENCE_SUPABASE_BUCKET=inssa-evidence
@@ -63,7 +83,9 @@ INSSA_URL=https://staging.inssa.us
 
 Never prefix the service-role variable with `NEXT_PUBLIC_` and never expose it to browser code, logs, CI artifacts, or screenshots.
 
-## 5. Verify Schema And Storage
+For a hosted deployment, start from `dashboard/.env.production.example`, not a developer `.env.local` file.
+
+## 6. Verify Schema And Storage
 
 In the Supabase dashboard verify:
 
@@ -83,7 +105,7 @@ npm run platform:healthcheck
 npm --prefix dashboard run test:execution-foundation
 ```
 
-## 6. Operational Verification
+## 7. Operational Verification
 
 Start the worker and dashboard through the existing supervisor, execute an approved safe run, and verify this chain:
 
