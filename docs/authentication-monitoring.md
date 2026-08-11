@@ -20,7 +20,7 @@ The scheduler only creates jobs. The worker remains the sole campaign executor, 
 
 | Environment | Target | Scheduled state | Safety boundary |
 | --- | --- | --- | --- |
-| INSSA Staging | `https://staging.inssa.us` | Enabled at 12:00 Europe/Dublin | Existing staging credentials; dedicated monitor credentials are preferred |
+| INSSA Staging | `https://staging.inssa.us` | Existing definition at 12:00 Europe/Dublin; activation requires a successful controlled hosted run | Dedicated monitor credentials and explicit enabled-method configuration |
 | INSSA Production | `https://inssa.us` | Midday and evening definitions are provisioned disabled | Requires explicit environment enablement, exact host confirmation, and production-only monitor accounts |
 
 Production execution requires both:
@@ -40,9 +40,9 @@ The campaign runs three independent Playwright tests with one worker and no retr
 2. Google OAuth: provider launch, configured test-account completion, redirect, authenticated profile, and logout.
 3. Apple Sign-In: provider launch, configured test-account completion, redirect, authenticated profile, and logout.
 
-Missing credentials, consent pages, MFA, CAPTCHA, security-key prompts, redirect failures, session failures, and logout failures are hard failures for the affected method. The campaign does not bypass provider security challenges or substitute stubs.
+Each method records one of `passed`, `failed`, `blocked_external`, `missing_configuration`, `disabled`, or `timed_out`. Provider policy restrictions, MFA, CAPTCHA, and account restrictions are `blocked_external`; the campaign does not bypass them or substitute stubs. Missing credentials are `missing_configuration`, and explicit method selection can produce `disabled` without reporting a false failure.
 
-All methods execute even when another method fails. The overall status passes only when all three method results pass.
+All enabled methods execute even when another method fails. Username/password failure makes the overall campaign fail. An INSSA application failure or timeout also fails the campaign. Provider blocks or missing provider configuration produce `degraded`; disabled methods are excluded from the overall result. A degraded wrapper exits successfully with a warning so durable evidence is still uploaded and the platform records `passed_with_warnings`.
 
 ## Configuration
 
@@ -61,7 +61,11 @@ AUTH_MONITOR_PRODUCTION_GOOGLE_EMAIL
 AUTH_MONITOR_PRODUCTION_GOOGLE_PASSWORD
 AUTH_MONITOR_PRODUCTION_APPLE_EMAIL
 AUTH_MONITOR_PRODUCTION_APPLE_PASSWORD
+AUTH_MONITOR_STAGING_METHODS
+AUTH_MONITOR_PRODUCTION_METHODS
 ```
+
+Method lists are comma-separated and accept only `username-password`, `google-oauth`, and `apple-sign-in`. Omitting a list preserves backward compatibility by enabling all three methods. Hosted deployments should set the list explicitly.
 
 Staging email/password checks fall back to `INSSA_TEST_EMAIL` and `INSSA_TEST_PASSWORD` when dedicated monitor credentials are blank. Google and Apple always require dedicated provider credentials. Production requires dedicated values and never falls back to staging credentials.
 
@@ -71,13 +75,13 @@ The authentication wrapper uses Next's `loadEnvConfig` against `dashboard/`, mat
 
 ## Evidence
 
-Every method writes:
+Every enabled method writes:
 
 - `result.json` with status and timing
 - `console-log.json` with sanitized browser console entries
 - `screenshot.png`
 
-Failed methods additionally write `network-log.json`. Playwright uses `trace=retain-on-failure`, so failed tests retain their trace bundle under the run-scoped `test-results` directory. Existing video-on-failure behavior remains unchanged.
+Failed, blocked, missing-configuration, and timed-out methods additionally write `network-log.json` and sanitized HAR diagnostics. Playwright uses `trace=retain-on-failure`, so these tests retain their trace bundle under the run-scoped `test-results` directory. Existing video-on-failure behavior remains unchanged.
 
 The wrapper produces `authentication-monitoring-summary.json` both in the authentication evidence directory and inside the Playwright report bundle. This lets the authenticated dashboard read monitoring results through the certified bundle route without a new file-serving API.
 
@@ -106,12 +110,6 @@ It has no scheduler, retry, notification, or credential controls.
 
 ## Failure Handling
 
-Any failed method makes Playwright exit non-zero. The existing worker then:
-
-1. Finalizes immutable output.
-2. Indexes artifacts and Evidence Bundle metadata.
-3. Uploads evidence through the configured durable storage provider.
-4. Marks the run failed.
-5. Writes the existing deduplicated `run_failed` Notification Outbox event.
+Playwright may exit non-zero when a method is blocked so its trace is retained. The wrapper derives the platform outcome from the independent result files: provider-only blocks become a successful degraded wrapper result, while username/password or application failures remain non-zero. The existing worker always finalizes immutable output and indexes artifacts and Evidence Bundle metadata. A degraded wrapper result exits zero, uploads durable evidence, becomes `passed_with_warnings`, and writes the deduplicated `run_completed` outbox event. A hard failure remains non-zero and uses the existing failed-run and `run_failed` paths.
 
 Notification delivery remains unimplemented.

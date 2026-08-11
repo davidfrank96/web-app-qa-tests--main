@@ -12,7 +12,7 @@
     "test:ci:playwright": "playwright test tests/inssa/smoke.spec.ts tests/inssa/inssa-time-capsule-create.spec.ts tests/inssa/us-compose-location-matrix.spec.ts tests/inssa/media-step-capability.spec.ts --project=inssa-chrome --workers=1",
     "test:ci:playwright:list": "playwright test tests/inssa/smoke.spec.ts tests/inssa/inssa-time-capsule-create.spec.ts tests/inssa/us-compose-location-matrix.spec.ts tests/inssa/media-step-capability.spec.ts --project=inssa-chrome --list",
     "test:ci:auth-monitor:discovery": "playwright test tests/inssa/authentication-monitoring.spec.ts --project=inssa-chrome --list",
-    "test:ci:platform": "npm --prefix dashboard run test:execution-foundation",
+    "test:ci:platform": "node --test scripts/inssa/authentication-monitoring-policy.test.js && npm --prefix dashboard run test:execution-foundation",
     "test:ci:security": "node --test services/inssa-ingestion/server.test.js scripts/siem/security-hardening.test.js",
     "test:localman": "playwright test --project=localman-chrome",
     "test:kbean": "playwright test --project=kbean-chrome",

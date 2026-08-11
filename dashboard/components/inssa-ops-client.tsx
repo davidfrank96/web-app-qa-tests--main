@@ -93,6 +93,7 @@ type MonitoringDefinition = {
 };
 
 type SchedulerStatus = {
+  definitionStates?: Array<{ definitionId: string; lastRunAt: string | null; nextRunAt: string | null }>;
   heartbeatAt: string | null;
   jobsQueuedToday: number;
   lastEvaluationAt: string | null;
@@ -105,7 +106,7 @@ type AuthenticationMonitoringCheck = {
   error: string | null;
   method: string;
   startedAt: string;
-  status: "failed" | "passed";
+  status: "blocked_external" | "disabled" | "failed" | "missing_configuration" | "passed" | "timed_out";
 };
 
 type AuthenticationMonitoringSummary = {
@@ -113,7 +114,7 @@ type AuthenticationMonitoringSummary = {
   completedAt: string;
   durationMs: number;
   environment: "production" | "staging";
-  overallStatus: "failed" | "passed";
+  overallStatus: "degraded" | "failed" | "passed";
   runId: string;
   schemaVersion: 1;
   startedAt: string;
@@ -575,6 +576,14 @@ export function InssaOpsClient({
     return runs.filter((run) => run.campaignKey === key);
   }, [authenticationMonitoringEnvironment, runs]);
   const latestAuthenticationMonitoringRun = authenticationMonitoringRuns[0] ?? null;
+  const authenticationMonitoringDefinition = monitoringDefinitions.find(
+    (definition) =>
+      definition.campaignId === `monitor_inssa_auth_${authenticationMonitoringEnvironment}` &&
+      definition.environment === authenticationMonitoringEnvironment
+  );
+  const authenticationMonitoringScheduleState = schedulerStatus?.definitionStates?.find(
+    (state) => state.definitionId === authenticationMonitoringDefinition?.id
+  );
   const latestAuthenticationMonitoringReport = latestAuthenticationMonitoringRun
     ? reportArtifacts.find(
         (artifact) => artifact.runId === latestAuthenticationMonitoringRun.id && artifact.artifactType === "Playwright Report"
@@ -1803,15 +1812,31 @@ export function InssaOpsClient({
                       </div>
                     ) : latestAuthenticationMonitoringRun ? (
                       <>
-                        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                           <MetadataCard
                             label="Overall Status"
-                            tone={authenticationMonitoringSummary?.overallStatus === "passed" ? "pass" : "fail"}
+                            tone={
+                              authenticationMonitoringSummary?.overallStatus === "passed"
+                                ? "pass"
+                                : authenticationMonitoringSummary?.overallStatus === "degraded"
+                                  ? "active"
+                                  : "fail"
+                            }
                             value={authenticationMonitoringSummary ? humanizePolicy(authenticationMonitoringSummary.overallStatus) : humanizePolicy(latestAuthenticationMonitoringRun.status)}
                           />
                           <MetadataCard label="Execution Time" value={formatDuration(authenticationMonitoringSummary?.durationMs ?? latestAuthenticationMonitoringRun.durationMs)} />
                           <MetadataCard label="Last Success" value={lastAuthenticationSuccess ? formatDate(lastAuthenticationSuccess.completedAt ?? lastAuthenticationSuccess.createdAt) : "None"} />
                           <MetadataCard label="Last Failure" value={lastAuthenticationFailure ? formatDate(lastAuthenticationFailure.completedAt ?? lastAuthenticationFailure.createdAt) : "None"} />
+                          <MetadataCard
+                            label="Next Scheduled"
+                            value={
+                              authenticationMonitoringDefinition?.enabled && authenticationMonitoringScheduleState?.nextRunAt
+                                ? formatDate(authenticationMonitoringScheduleState.nextRunAt)
+                                : authenticationMonitoringDefinition?.enabled
+                                  ? "Pending evaluation"
+                                  : "Disabled"
+                            }
+                          />
                         </div>
                         <div className="mt-4 grid gap-3 lg:grid-cols-3">
                           <AuthenticationCheckCard label="Username & Password" result={authenticationMonitoringSummary?.checks["username-password"]} />
@@ -3368,14 +3393,32 @@ function StatusBadge({ status }: { status: string }) {
 
 function AuthenticationCheckCard({ label, result }: { label: string; result?: AuthenticationMonitoringCheck }) {
   const passed = result?.status === "passed";
+  const warning = result && ["blocked_external", "disabled", "missing_configuration"].includes(result.status);
+  const statusLabel = result?.status === "blocked_external"
+    ? "BLOCKED - PROVIDER"
+    : result?.status === "missing_configuration"
+      ? "MISSING CONFIGURATION"
+      : result?.status === "disabled"
+        ? "NOT CERTIFIED / DISABLED"
+        : result?.status.replaceAll("_", " ").toUpperCase() ?? "NO DATA";
   return (
-    <article className={`rounded-2xl border p-4 ${passed ? "border-emerald-300/20 bg-emerald-300/5" : "border-rose-300/20 bg-rose-300/5"}`}>
+    <article
+      className={`rounded-2xl border p-4 ${
+        passed
+          ? "border-emerald-300/20 bg-emerald-300/5"
+          : warning
+            ? "border-amber-300/20 bg-amber-300/5"
+            : "border-rose-300/20 bg-rose-300/5"
+      }`}
+    >
       <div className="flex items-center justify-between gap-3">
         <h3 className="font-semibold text-slate-100">{label}</h3>
-        <span className={`report-chip ${passed ? "" : "report-chip-warn"}`}>{result ? result.status.toUpperCase() : "NO DATA"}</span>
+        <span className={`report-chip ${passed ? "" : "report-chip-warn"}`}>{statusLabel}</span>
       </div>
       <p className="mt-3 text-sm text-slate-400">Timing: {result ? formatDuration(result.durationMs) : "not recorded"}</p>
-      {result?.error ? <p className="mt-2 break-words text-xs leading-5 text-rose-200">{result.error}</p> : null}
+      {result?.error ? (
+        <p className={`mt-2 break-words text-xs leading-5 ${warning ? "text-amber-200" : "text-rose-200"}`}>{result.error}</p>
+      ) : null}
     </article>
   );
 }

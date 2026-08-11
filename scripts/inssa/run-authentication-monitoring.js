@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const { createRequire } = require("node:module");
 const path = require("node:path");
 const process = require("node:process");
+const { overallStatusFor } = require("./authentication-monitoring-policy");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 const dashboardRoot = path.join(repoRoot, "dashboard");
@@ -71,14 +72,15 @@ const child = spawnSync(command, args, {
 const results = METHODS.map((method) => readResult(method));
 const summary = writeSummary(results, startedAt);
 process.stdout.write(
-  `Authentication monitoring ${environment}: overall=${summary.overallStatus}, checks=${results.map((result) => `${result.method}:${result.status}`).join(",")}\n`
+  `${summary.overallStatus === "degraded" ? "WARNING: " : ""}Authentication monitoring ${environment}: ` +
+    `overall=${summary.overallStatus}, checks=${results.map((result) => `${result.method}:${result.status}`).join(",")}\n`
 );
 
 if (child.error) {
   process.stderr.write(`Authentication monitoring process failed to start: ${child.error.message}\n`);
   process.exit(1);
 }
-process.exit(child.status === 0 && summary.overallStatus === "passed" ? 0 : 1);
+process.exit(summary.overallStatus === "failed" ? 1 : 0);
 
 function productionIsConfirmed() {
   return process.env.AUTH_MONITOR_ALLOW_PRODUCTION === "1" &&
@@ -121,7 +123,7 @@ function writeSummary(results, startedAt = new Date()) {
     completedAt: completedAt.toISOString(),
     durationMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
     environment,
-    overallStatus: results.every((result) => result.status === "passed") ? "passed" : "failed",
+    overallStatus: overallStatusFor(results),
     runId,
     schemaVersion: 1,
     startedAt: startedAt.toISOString(),
