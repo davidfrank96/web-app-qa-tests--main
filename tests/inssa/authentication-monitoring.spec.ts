@@ -4,17 +4,25 @@ import { expect, test, type Locator, type Page, type Request, type Response, typ
 import { AuthPage } from "../../pages/inssa/auth-page";
 
 type AuthenticationMethod = "apple-sign-in" | "google-oauth" | "username-password";
+type AuthenticationCheckStatus =
+  | "blocked_external"
+  | "disabled"
+  | "failed"
+  | "missing_configuration"
+  | "passed"
+  | "timed_out";
 type CheckResult = {
   completedAt: string;
   durationMs: number;
   error: string | null;
   method: AuthenticationMethod;
   startedAt: string;
-  status: "failed" | "passed";
+  status: AuthenticationCheckStatus;
 };
 
 type AuthenticationMonitorConfig = {
   environment: string;
+  enabledMethods: Set<AuthenticationMethod>;
   outputRoot: string;
   targetHost: string;
   targetUrl: string;
@@ -94,6 +102,22 @@ async function runAuthenticationCheck(
   const networkEntries: Array<{ method?: string; status?: number; url: string }> = [];
   const requestStates = new Map<Request, HarEntryState>();
   const observedPages = new Set<Page>();
+  await fs.mkdir(outputDir, { recursive: true });
+  if (!config.enabledMethods.has(method)) {
+    const completedAt = new Date();
+    const result: CheckResult = {
+      completedAt: completedAt.toISOString(),
+      durationMs: completedAt.getTime() - startedAt.getTime(),
+      error: null,
+      method,
+      startedAt: startedAt.toISOString(),
+      status: "disabled"
+    };
+    const resultPath = path.join(outputDir, "result.json");
+    await fs.writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+    await testInfo.attach(`${method}-result`, { contentType: "application/json", path: resultPath });
+    return;
+  }
   const attachObservers = (observedPage: Page) => {
     observedPages.add(observedPage);
     observedPage.on("console", (message) => consoleEntries.push({ text: sanitize(message.text()), type: message.type() }));
@@ -138,8 +162,6 @@ async function runAuthenticationCheck(
     }
     networkEntries.push({ method: request.method(), url: safeUrl(request.url()) });
   });
-  await fs.mkdir(outputDir, { recursive: true });
-
   let failure: Error | null = null;
   try {
     await check();
@@ -154,7 +176,7 @@ async function runAuthenticationCheck(
     error: failure ? sanitize(failure.message) : null,
     method,
     startedAt: startedAt.toISOString(),
-    status: failure ? "failed" : "passed"
+    status: failure ? classifyAuthenticationFailure(failure) : "passed"
   };
   const screenshotPath = path.join(outputDir, "screenshot.png");
   const consolePath = path.join(outputDir, "console-log.json");
@@ -189,7 +211,7 @@ async function runAuthenticationCheck(
     }
   }
   result.error = failure ? sanitize(failure.message) : null;
-  result.status = failure ? "failed" : "passed";
+  result.status = failure ? classifyAuthenticationFailure(failure) : "passed";
   await fs.writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
 
   await testInfo.attach(`${method}-result`, { contentType: "application/json", path: resultPath });
@@ -360,7 +382,7 @@ async function completeAppleSignIn(page: Page, email: string, password: string) 
   await clickVisibleAppleSubmit(page, "Apple password step");
   const response = await completionResponse;
   if (response && response.status() >= 400) {
-    throw new Error(
+    throw new ProviderBlockedError(
       `Apple authentication was rejected by the provider (HTTP ${response.status()}): ${await readAppleServiceError(response)}`
     );
   }
@@ -374,11 +396,13 @@ async function settleProviderFlow(applicationPage: Page, providerPage: Page) {
       { timeout: 25_000 }
     );
   } catch {
-    throw new Error(
+    const providerState = await providerStateSummary(providerPage);
+    const message =
       `Authentication provider did not return to an authenticated INSSA route. ` +
         `Application=${safeUrl(applicationPage.url())}; provider=${safeUrl(providerPage.url())}; ` +
-        `providerState=${await providerStateSummary(providerPage)}`
-    );
+        `providerState=${providerState}`;
+    if (!providerPage.isClosed() && !isInssaPage(providerPage)) throw new ProviderBlockedError(message);
+    throw new Error(message);
   }
   await applicationPage.bringToFront();
 }
@@ -388,7 +412,7 @@ async function rejectUnsupportedChallenge(page: Page, provider: string) {
   if (page.isClosed() || isInssaPage(page)) return;
   const text = (await page.locator("body").innerText().catch(() => "")).toLowerCase();
   if (/captcha|verify it'?s you|2-step|two-factor|verification code|security key/.test(text)) {
-    throw new Error(`${provider} authentication requires an interactive challenge that monitoring must not bypass.`);
+    throw new ProviderBlockedError(`${provider} authentication requires an interactive challenge that monitoring must not bypass.`);
   }
 }
 
@@ -397,7 +421,9 @@ async function expectProviderControl(control: Locator, page: Page, label: string
     await expect(control, `Expected a visible ${label}.`).toBeVisible({ timeout: 20_000 });
     await expect(control, `Expected an enabled ${label}.`).toBeEnabled({ timeout: 20_000 });
   } catch {
-    throw new Error(`Expected a visible and enabled ${label}. Provider state: ${await providerStateSummary(page)}`);
+    const message = `Expected a visible and enabled ${label}. Provider state: ${await providerStateSummary(page)}`;
+    if (/Google|Apple/.test(label)) throw new ProviderBlockedError(message);
+    throw new Error(message);
   }
 }
 
@@ -412,10 +438,10 @@ async function waitForProviderControlOrReturn(page: Page, control: Locator, labe
       return true;
     }
     const providerError = await visibleProviderError(page);
-    if (providerError) throw new Error(`${label} was not reached: ${providerError}`);
+    if (providerError) throw new ProviderBlockedError(`${label} was not reached: ${providerError}`);
     await page.waitForTimeout(250);
   }
-  throw new Error(`Expected a visible and enabled ${label}. Provider state: ${await providerStateSummary(page)}`);
+  throw new ProviderBlockedError(`Expected a visible and enabled ${label}. Provider state: ${await providerStateSummary(page)}`);
 }
 
 async function clickEnabledProviderButton(page: Page, name: RegExp, step: string) {
@@ -478,7 +504,9 @@ function credentialsFor(environment: string, provider: "apple" | "google" | "pas
   const passwordName = provider === "password" ? `${prefix}_PASSWORD` : `${prefix}_${provider.toUpperCase()}_PASSWORD`;
   const email = process.env[emailName] || (environment === "staging" && provider === "password" ? process.env.INSSA_TEST_EMAIL : "");
   const password = process.env[passwordName] || (environment === "staging" && provider === "password" ? process.env.INSSA_TEST_PASSWORD : "");
-  if (!email || !password) throw new Error(`Missing required ${environment} ${provider} authentication monitor credentials.`);
+  if (!email || !password) {
+    throw new MissingConfigurationError(`Missing required ${environment} ${provider} authentication monitor credentials.`);
+  }
   return { email, password };
 }
 
@@ -498,7 +526,40 @@ function authenticationMonitorConfig(): AuthenticationMonitorConfig {
   )) {
     throw new Error("Production authentication monitoring confirmation is missing.");
   }
-  return { environment, outputRoot, targetHost, targetUrl };
+  return { environment, enabledMethods: authenticationMethodsFor(environment), outputRoot, targetHost, targetUrl };
+}
+
+function authenticationMethodsFor(environment: string) {
+  const variableName = environment === "production" ? "AUTH_MONITOR_PRODUCTION_METHODS" : "AUTH_MONITOR_STAGING_METHODS";
+  const configured = process.env[variableName]?.trim();
+  if (!configured) return new Set<AuthenticationMethod>(["username-password", "google-oauth", "apple-sign-in"]);
+  const methods = configured.split(",").map((value) => value.trim()).filter(Boolean);
+  const supported = new Set<AuthenticationMethod>(["username-password", "google-oauth", "apple-sign-in"]);
+  const unknown = methods.filter((method) => !supported.has(method as AuthenticationMethod));
+  if (unknown.length > 0) throw new Error(`${variableName} contains unsupported authentication methods: ${unknown.join(", ")}`);
+  if (methods.length === 0) throw new Error(`${variableName} must enable at least one authentication method.`);
+  return new Set(methods as AuthenticationMethod[]);
+}
+
+function classifyAuthenticationFailure(error: Error): AuthenticationCheckStatus {
+  if (error instanceof MissingConfigurationError) return "missing_configuration";
+  if (error instanceof ProviderBlockedError) return "blocked_external";
+  if (error.name === "TimeoutError" || /timed?\s*out|timeout/i.test(error.message)) return "timed_out";
+  return "failed";
+}
+
+class MissingConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MissingConfigurationError";
+  }
+}
+
+class ProviderBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProviderBlockedError";
+  }
 }
 
 function isInssaPage(page: Page) {
