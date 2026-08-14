@@ -2,6 +2,7 @@
 
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { summarizeAuthenticationSchedule, workspaceLoadsMonitoringState } from "../lib/monitoring/authentication-schedule";
+import { describeAuthenticationMonitorIncompleteRun } from "../lib/monitoring/authentication-failure";
 
 type CampaignDefinition = {
   commandType: "artifact_validation" | "campaign" | "export" | "healthcheck" | "report_render";
@@ -519,6 +520,7 @@ export function InssaOpsClient({
   const [authenticationMonitoringEnvironment, setAuthenticationMonitoringEnvironment] = useState<"production" | "staging">("staging");
   const [authenticationMonitoringSummary, setAuthenticationMonitoringSummary] = useState<AuthenticationMonitoringSummary | null>(null);
   const [authenticationMonitoringError, setAuthenticationMonitoringError] = useState("");
+  const [authenticationMonitoringIncompleteReason, setAuthenticationMonitoringIncompleteReason] = useState("");
   const [monitoringProductFilter, setMonitoringProductFilter] = useState("all");
   const [monitoringEnabledFilter, setMonitoringEnabledFilter] = useState("all");
   const [message, setMessage] = useState("");
@@ -603,6 +605,31 @@ export function InssaOpsClient({
     }
     void refreshAuthenticationMonitoringSummary(latestAuthenticationMonitoringReport);
   }, [activeWorkspace, latestAuthenticationMonitoringReport?.id]);
+
+  useEffect(() => {
+    if (
+      activeWorkspace !== "authentication-monitoring" ||
+      !latestAuthenticationMonitoringRun ||
+      !["failed", "failed_startup", "timed_out"].includes(latestAuthenticationMonitoringRun.status) ||
+      latestAuthenticationMonitoringReport
+    ) {
+      setAuthenticationMonitoringIncompleteReason("");
+      return;
+    }
+    const endpoint = `/api/runs/${latestAuthenticationMonitoringRun.id}/logs`;
+    void fetch(endpoint, { cache: "no-store" })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => ({}))) as { error?: string; logs?: RunLogRecord[] };
+        if (!response.ok) {
+          recordApiFailure(endpoint, response.status, body.error ?? response.statusText);
+          return;
+        }
+        startTransition(() =>
+          setAuthenticationMonitoringIncompleteReason(describeAuthenticationMonitorIncompleteRun(body.logs ?? []))
+        );
+      })
+      .catch((error) => recordApiFailure(endpoint, "network", error instanceof Error ? error.message : String(error)));
+  }, [activeWorkspace, latestAuthenticationMonitoringReport?.id, latestAuthenticationMonitoringRun?.id, latestAuthenticationMonitoringRun?.status]);
 
   useEffect(() => {
     if (selectedRunId) {
@@ -1846,6 +1873,12 @@ export function InssaOpsClient({
                       </div>
                     ) : latestAuthenticationMonitoringRun ? (
                       <>
+                        {authenticationMonitoringIncompleteReason ? (
+                          <div className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
+                            <p className="font-semibold">Authentication monitor did not complete provider results.</p>
+                            <p className="mt-1 break-words">Reason: {authenticationMonitoringIncompleteReason}</p>
+                          </div>
+                        ) : null}
                         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                           <MetadataCard
                             label="Overall Status"

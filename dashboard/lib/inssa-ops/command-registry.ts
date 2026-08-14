@@ -13,7 +13,7 @@ export const INSSA_PHASE1_COMMANDS: InssaCommandDefinition[] = [
     producesReports: true,
     riskLevel: "read_only",
     targetEnvironment: "staging",
-    timeoutMs: 2 * 60 * 1000
+    timeoutMs: 6 * 60 * 1000
   },
   {
     commandType: "campaign",
@@ -27,7 +27,7 @@ export const INSSA_PHASE1_COMMANDS: InssaCommandDefinition[] = [
     producesReports: true,
     riskLevel: "read_only",
     targetEnvironment: "production",
-    timeoutMs: 2 * 60 * 1000
+    timeoutMs: 6 * 60 * 1000
   },
   {
     commandType: "campaign",

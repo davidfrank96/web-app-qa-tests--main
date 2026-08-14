@@ -68,6 +68,21 @@ export class AuthPage {
     await this.expectProfileSurface();
   }
 
+  async expectAuthenticatedSession(): Promise<void> {
+    await expect
+      .poll(
+        () =>
+          this.page.evaluate(() =>
+            Object.keys(window.localStorage).some((key) => key.startsWith("firebase:authUser:"))
+          ),
+        {
+          message: "Expected the authenticated INSSA session to persist in Firebase Auth storage.",
+          timeout: DEFAULT_TIMEOUT
+        }
+      )
+      .toBe(true);
+  }
+
   async expectProfileSurface(): Promise<void> {
     await expectPageNotBlank(this.page);
     await expect

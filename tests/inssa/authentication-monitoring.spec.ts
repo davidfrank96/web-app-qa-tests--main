@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Locator, type Page, type Request, type Response, type TestInfo } from "@playwright/test";
 import { AuthPage } from "../../pages/inssa/auth-page";
+import { resolveAuthenticationMonitorCredentials } from "../../scripts/inssa/authentication-monitoring-config.js";
 
 type AuthenticationMethod = "apple-sign-in" | "google-oauth" | "username-password";
 type AuthenticationCheckStatus =
@@ -40,7 +41,7 @@ type HarEntryState = {
   url: string;
 };
 
-const AUTH_TIMEOUT_MS = readPositiveInteger(process.env.AUTH_MONITOR_TIMEOUT_MS, 60_000);
+const AUTH_TIMEOUT_MS = readPositiveInteger(process.env.AUTH_MONITOR_TIMEOUT_MS, 90_000);
 const AUTH_MONITOR_CAMPAIGN_REQUESTED = Boolean(process.env.AUTH_MONITOR_ENVIRONMENT);
 
 test.describe.configure({ mode: "default", timeout: AUTH_TIMEOUT_MS });
@@ -54,6 +55,7 @@ test("Username & Password", async ({ page }, testInfo) => {
     await authPage.goToSignIn();
     await authPage.signInWithEmail(credentials.email, credentials.password);
     await authPage.expectAuthenticatedState();
+    await authPage.expectAuthenticatedSession();
     await authPage.signOut();
     await expectLoggedOutState(page);
   });
@@ -499,15 +501,11 @@ async function providerStateSummary(page: Page) {
 }
 
 function credentialsFor(environment: string, provider: "apple" | "google" | "password") {
-  const prefix = environment === "production" ? "AUTH_MONITOR_PRODUCTION" : "AUTH_MONITOR_STAGING";
-  const emailName = provider === "password" ? `${prefix}_EMAIL` : `${prefix}_${provider.toUpperCase()}_EMAIL`;
-  const passwordName = provider === "password" ? `${prefix}_PASSWORD` : `${prefix}_${provider.toUpperCase()}_PASSWORD`;
-  const email = process.env[emailName] || (environment === "staging" && provider === "password" ? process.env.INSSA_TEST_EMAIL : "");
-  const password = process.env[passwordName] || (environment === "staging" && provider === "password" ? process.env.INSSA_TEST_PASSWORD : "");
-  if (!email || !password) {
+  const credentials = resolveAuthenticationMonitorCredentials(process.env, environment, provider);
+  if (!credentials) {
     throw new MissingConfigurationError(`Missing required ${environment} ${provider} authentication monitor credentials.`);
   }
-  return { email, password };
+  return credentials;
 }
 
 function authenticationMonitorConfig(): AuthenticationMonitorConfig {
