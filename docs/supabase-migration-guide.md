@@ -14,6 +14,7 @@
 | 8 | `20260810123743_disable_staging_auth_monitor_schedule.sql` | First-deployment safety state: staging authentication monitoring remains available manually but is not scheduled |
 | 9 | `20260810174608_deferred_cleanup_ledger_version_fix.sql` | Deferred-cleanup ledger, retention metadata, limits support, indexes, RLS, and service-role-only access; uniquely versions the migration after correcting the duplicate `20260802` identity |
 | 10 | `20260810175709_execution_job_claim_timestamp_fix.sql` | Corrects the execution-job claim function's timestamp variable resolution after remote worker validation exposed a `timestamptz`/`timetz` comparison defect |
+| 11 | `20260814093000_enable_twice_daily_staging_auth_monitor.sql` | Preserves the staging midday definition, enables a distinct staging evening definition, and keeps both production Authentication Monitoring definitions disabled |
 
 Dependencies flow only forward. No later migration recreates or replaces an earlier subsystem's function.
 

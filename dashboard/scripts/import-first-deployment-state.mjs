@@ -101,7 +101,7 @@ const cleanupRows = cleanupRecords.map((record) => ({
 const monitoringRows = definitions.map((definition) => ({
   campaign_id: definition.campaignId,
   created_at: definition.createdAt,
-  enabled: definition.campaignId === "monitor_inssa_auth_staging" ? false : definition.enabled,
+  enabled: definition.campaignId === "monitor_inssa_auth_production" ? false : definition.enabled,
   environment: definition.environment,
   evidence_policy: definition.evidencePolicy,
   id: definition.id,
@@ -149,8 +149,14 @@ if (cleanupError) throw new Error(`cleanup_ledger verification failed: ${cleanup
 if (definitionError) throw new Error(`monitoring_definitions verification failed: ${definitionError.message}`);
 if (importedCleanup?.length !== cleanupRows.length) throw new Error("Cleanup-ledger count verification failed.");
 if (importedDefinitions?.length !== monitoringRows.length) throw new Error("Monitoring-definition count verification failed.");
-if (importedDefinitions.some((definition) => definition.campaign_id.includes("auth") && definition.enabled)) {
-  throw new Error("An authentication monitoring definition remains scheduled after import.");
+if (importedDefinitions.some((definition) => definition.campaign_id === "monitor_inssa_auth_production" && definition.enabled)) {
+  throw new Error("A production authentication monitoring definition remains scheduled after import.");
+}
+const stagingAuthenticationDefinitions = importedDefinitions.filter(
+  (definition) => definition.campaign_id === "monitor_inssa_auth_staging" && definition.environment === "staging"
+);
+if (stagingAuthenticationDefinitions.length !== 2 || stagingAuthenticationDefinitions.some((definition) => !definition.enabled)) {
+  throw new Error("The twice-daily staging authentication monitoring definitions were not imported as enabled.");
 }
 
 const receipt = {

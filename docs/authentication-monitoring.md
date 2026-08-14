@@ -20,7 +20,7 @@ The scheduler only creates jobs. The worker remains the sole campaign executor, 
 
 | Environment | Target | Scheduled state | Safety boundary |
 | --- | --- | --- | --- |
-| INSSA Staging | `https://staging.inssa.us` | Existing definition at 12:00 Europe/Dublin; activation requires a successful controlled hosted run | Dedicated monitor credentials and explicit enabled-method configuration |
+| INSSA Staging | `https://staging.inssa.us` | Enabled twice daily at 12:00 and 18:00 Europe/Dublin | Dedicated monitor credentials and explicit enabled-method configuration |
 | INSSA Production | `https://inssa.us` | Midday and evening definitions are provisioned disabled | Requires explicit environment enablement, exact host confirmation, and production-only monitor accounts |
 
 Production execution requires both:
