@@ -34,7 +34,7 @@ The global Operations Platform `INSSA_URL` guard remains staging-only. Productio
 
 ## Independent Checks
 
-The campaign runs three independent Playwright tests with one worker and no retries:
+The campaign runs three independent Playwright tests with one worker and no retries. Each check has a 90-second Playwright timeout, while the complete three-check campaign has a six-minute worker envelope so one slow provider cannot prevent later providers from producing explicit results:
 
 1. Username and password: sign-in page, credential submission, redirect, authenticated profile, and logout.
 2. Google OAuth: provider launch, configured test-account completion, redirect, authenticated profile, and logout.
@@ -71,6 +71,8 @@ Staging email/password checks fall back to `INSSA_TEST_EMAIL` and `INSSA_TEST_PA
 
 The authentication wrapper uses Next's `loadEnvConfig` against `dashboard/`, matching the worker and scheduler. Store monitor credentials in the ignored `dashboard/.env.local` file for dashboard-managed execution. The wrapper does not independently load root `.env` or `.env.inssa.live-staging`.
 
+At campaign startup the wrapper records a sanitized configuration preflight. It emits only variable names with `SET` or `MISSING` and writes `authentication-monitoring-preflight.json`; credential values are never logged. Missing Apple configuration remains isolated to Apple and does not prevent username/password or Google from running.
+
 `AUTH_MONITOR_ENVIRONMENT`, `AUTH_MONITOR_OUTPUT_DIR`, and `AUTH_MONITOR_RUN_ID` are execution-managed internal variables and should not be set for normal operation. The complete variable inventory is in `.env.example`. Secrets remain local and must not be written to logs, summaries, screenshots, or committed files.
 
 ## Evidence
@@ -89,10 +91,11 @@ The wrapper produces `authentication-monitoring-summary.json` both in the authen
 
 ```bash
 npm run test:inssa:monitor:auth:staging
+npm run test:inssa:monitor:auth:staging:password
 npm run test:inssa:monitor:auth:production
 ```
 
-The production command fails before browser startup unless the production gate is satisfied.
+The password-only command is the locked staging regression baseline. It uses the same wrapper, target allowlist, credential resolution, Playwright test, authenticated profile assertion, Firebase session assertion, logout check, result format, and evidence path as the complete monitor while explicitly disabling the two provider checks. The production command fails before browser startup unless the production gate is satisfied.
 
 ## Dashboard
 
@@ -106,10 +109,14 @@ The read-only Authentication Monitoring workspace displays:
 - Playwright evidence link
 - Historical environment-specific runs
 
-It has no scheduler, retry, notification, or credential controls.
+It has no scheduler, retry, notification, or credential controls. If a run ends before producing a summary, the workspace reads that run's existing sanitized logs and displays the recorded timeout, startup, or worker failure reason above the `NO DATA` provider cards.
 
 ## Failure Handling
 
-Playwright may exit non-zero when a method is blocked so its trace is retained. The wrapper derives the platform outcome from the independent result files: provider-only blocks become a successful degraded wrapper result, while username/password or application failures remain non-zero. The existing worker always finalizes immutable output and indexes artifacts and Evidence Bundle metadata. A degraded wrapper result exits zero, uploads durable evidence, becomes `passed_with_warnings`, and writes the deduplicated `run_completed` outbox event. A hard failure remains non-zero and uses the existing failed-run and `run_failed` paths.
+Playwright may exit non-zero when a method is blocked so its trace is retained. The wrapper derives the platform outcome from the independent result files: provider-only blocks become a successful degraded wrapper result, while username/password or application failures remain non-zero. Completed commands are finalized into immutable output and indexed as artifacts and Evidence Bundle metadata. A degraded wrapper result exits zero, uploads durable evidence, becomes `passed_with_warnings`, and writes the deduplicated `run_completed` outbox event. A hard failure remains non-zero and uses the existing failed-run and `run_failed` paths.
+
+## Locked Username/Password Baseline
+
+The staging username/password flow is a release regression gate. It must resolve dedicated `AUTH_MONITOR_STAGING_EMAIL` and `AUTH_MONITOR_STAGING_PASSWORD` values or the documented staging fallback, load `https://staging.inssa.us/signin`, submit the QA credentials, leave the sign-in surface, reach the authenticated profile, observe a Firebase Auth session key, sign out, and write a structured `passed` result. Missing credentials, missing form controls, rejected credentials, redirect failure, missing authenticated state, and missing session persistence are explicit failures. Google and Apple outcomes must never skip or weaken this baseline.
 
 Notification delivery remains unimplemented.

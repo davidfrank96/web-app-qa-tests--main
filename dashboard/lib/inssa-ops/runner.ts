@@ -32,6 +32,7 @@ import type {
   InssaLiveExecutionContext,
   InssaRunLogRecord,
   InssaRunRecord,
+  InssaRunStatus,
   ResolvedInssaLifecycleArtifactSelection
 } from "./types";
 
@@ -312,7 +313,16 @@ async function executeRun(
     );
     void terminate("parent_exit_descendants");
   }
-  const termination = terminationState.promise ? await terminationState.promise : null;
+  let termination: Awaited<ReturnType<typeof terminateOwnedProcessTree>> | null = null;
+  let terminationFailure: string | null = null;
+  if (terminationState.promise) {
+    try {
+      termination = await terminationState.promise;
+    } catch (error) {
+      terminationFailure = redactInssaLogLine(error instanceof Error ? error.message : String(error));
+      await appendLog("system", `Campaign process-tree cleanup failure: ${terminationFailure}`);
+    }
+  }
   await logChain;
   if (termination) {
     await appendLog(
@@ -406,17 +416,15 @@ async function executeRun(
     );
   }
 
-  const finalStatus = timedOut
-    ? "timed_out"
-    : leaseLost
-      ? "failed"
-      : exit.code === 0
-        ? stderrSeen || warningSeen
-          ? "passed_with_warnings"
-          : "passed"
-        : startupError || (exit.code === null && exit.signal)
-          ? "failed_startup"
-          : "failed";
+  const finalStatus = determineExecutionFinalStatus({
+    exitCode: exit.code,
+    exitSignal: exit.signal,
+    leaseLost,
+    startupError: Boolean(startupError),
+    terminationFailure: Boolean(terminationFailure),
+    timedOut,
+    warningSeen: stderrSeen || warningSeen
+  });
 
   await store.updateRun(run.id, {
     completedAt: completedAt.toISOString(),
@@ -431,13 +439,29 @@ async function executeRun(
   await recordInssaAuditEvent({
     campaignKey: run.campaignKey,
     eventType: finalStatus === "passed" || finalStatus === "passed_with_warnings" ? "run_completed" : "run_failed",
-    metadata: { durationMs, exitCode: exit.code, requestedBy: run.requestedBy },
+    metadata: { durationMs, exitCode: exit.code, requestedBy: run.requestedBy, terminationFailure },
     runId: run.id,
     status: finalStatus
   });
   await recordRunOutcomeNotification(run, finalStatus, durationMs, exit.code);
   leaseSignal?.removeEventListener("abort", stopForLeaseLoss);
   return finalStatus;
+}
+
+export function determineExecutionFinalStatus(input: {
+  exitCode: number | null;
+  exitSignal: NodeJS.Signals | null;
+  leaseLost: boolean;
+  startupError: boolean;
+  terminationFailure: boolean;
+  timedOut: boolean;
+  warningSeen: boolean;
+}): InssaRunStatus {
+  if (input.timedOut) return "timed_out";
+  if (input.leaseLost || input.terminationFailure) return "failed";
+  if (input.exitCode === 0) return input.warningSeen ? "passed_with_warnings" : "passed";
+  if (input.startupError || (input.exitCode === null && input.exitSignal)) return "failed_startup";
+  return "failed";
 }
 
 function buildRunCommand(

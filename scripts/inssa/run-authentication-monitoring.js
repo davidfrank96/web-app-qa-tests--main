@@ -4,6 +4,11 @@ const fs = require("node:fs");
 const { createRequire } = require("node:module");
 const path = require("node:path");
 const process = require("node:process");
+const {
+  authenticationMonitorConfiguration,
+  parseMethodSelection,
+  sanitizedConfigurationLines
+} = require("./authentication-monitoring-config");
 const { overallStatusFor } = require("./authentication-monitoring-policy");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
@@ -19,6 +24,14 @@ const TARGETS = {
 };
 const METHODS = ["username-password", "google-oauth", "apple-sign-in"];
 const environment = process.argv[2] || "staging";
+let requestedMethods;
+
+try {
+  requestedMethods = parseMethodSelection(process.argv.slice(3));
+} catch (error) {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.exit(2);
+}
 
 if (!(environment in TARGETS)) {
   process.stderr.write(`Unsupported authentication monitoring environment: ${environment}\n`);
@@ -33,6 +46,14 @@ const outputRoot = process.env.INSSA_RUN_OUTPUT_DIR
 const playwrightReportRoot = process.env.PLAYWRIGHT_HTML_OUTPUT_DIR || path.join(outputRoot, "playwright-report");
 
 fs.mkdirSync(outputRoot, { recursive: true });
+
+const configuration = authenticationMonitorConfiguration(process.env, environment);
+for (const line of sanitizedConfigurationLines(configuration)) process.stdout.write(`${line}\n`);
+fs.writeFileSync(
+  path.join(outputRoot, "authentication-monitoring-preflight.json"),
+  `${JSON.stringify(configuration, null, 2)}\n`,
+  "utf8"
+);
 
 if (environment === "production" && !productionIsConfirmed()) {
   const message = "Production authentication monitoring is blocked. Set AUTH_MONITOR_ALLOW_PRODUCTION=1 and confirm host inssa.us.";
@@ -59,6 +80,9 @@ const child = spawnSync(command, args, {
     ...process.env,
     AUTH_MONITOR_RUN_ID: runId,
     AUTH_MONITOR_ENVIRONMENT: environment,
+    ...(requestedMethods
+      ? { [environment === "production" ? "AUTH_MONITOR_PRODUCTION_METHODS" : "AUTH_MONITOR_STAGING_METHODS"]: requestedMethods.join(",") }
+      : {}),
     AUTH_MONITOR_OUTPUT_DIR: outputRoot,
     INSSA_URL: targetUrl,
     PLAYWRIGHT_HTML_OPEN: "never",

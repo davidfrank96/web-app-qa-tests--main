@@ -94,7 +94,7 @@ export const DEFAULT_MONITORING_DEFINITIONS: MonitoringDefinition[] = [
     schedule: { frequency: "daily", hour: 12, minute: 0, timezone: "Europe/Dublin" },
     schemaVersion: 1,
     severity: "critical",
-    timeout: 120_000,
+    timeout: 360_000,
     triggerType: "schedule",
     updatedAt: CATALOG_TIMESTAMP
   },
@@ -113,7 +113,7 @@ export const DEFAULT_MONITORING_DEFINITIONS: MonitoringDefinition[] = [
     schedule: { frequency: "daily", hour: 18, minute: 0, timezone: "Europe/Dublin" },
     schemaVersion: 1,
     severity: "critical",
-    timeout: 120_000,
+    timeout: 360_000,
     triggerType: "schedule",
     updatedAt: CATALOG_TIMESTAMP
   },
@@ -132,7 +132,7 @@ export const DEFAULT_MONITORING_DEFINITIONS: MonitoringDefinition[] = [
     schedule: { frequency: "daily", hour: 12, minute: 0, timezone: "Europe/Dublin" },
     schemaVersion: 1,
     severity: "critical",
-    timeout: 120_000,
+    timeout: 360_000,
     triggerType: "schedule",
     updatedAt: CATALOG_TIMESTAMP
   },
@@ -151,7 +151,7 @@ export const DEFAULT_MONITORING_DEFINITIONS: MonitoringDefinition[] = [
     schedule: { frequency: "daily", hour: 18, minute: 0, timezone: "Europe/Dublin" },
     schemaVersion: 1,
     severity: "critical",
-    timeout: 120_000,
+    timeout: 360_000,
     triggerType: "schedule",
     updatedAt: CATALOG_TIMESTAMP
   }
