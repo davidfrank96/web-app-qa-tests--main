@@ -76,7 +76,7 @@ The Monitoring workspace intentionally displays only Running, Heartbeat, Last Ev
 ## Safety Boundaries
 
 - Only enabled `schedule` definitions are evaluated.
-- The enabled scheduled catalog targets the INSSA Safe Suite. All authentication monitoring schedules are seeded disabled for the first hosted deployment.
+- The enabled scheduled catalog targets the INSSA Safe Suite and separate staging Authentication Monitoring definitions at 12:00 and 18:00 Europe/Dublin. Production Authentication Monitoring schedules remain disabled.
 - The command registry and environment guard validate every enqueued command.
 - The scheduler cannot execute commands or bypass the worker.
 - Notification delivery remains absent; normal worker events continue to enter the durable outbox.

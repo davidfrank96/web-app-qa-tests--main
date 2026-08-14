@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -31,6 +32,16 @@ test("schedule evaluation supports hourly, daily, and weekly IANA-timezone occur
   };
   assert.equal(evaluateSchedule(futureDefinition, new Date("2026-07-21T13:00:00.000Z")), null);
   assert.equal(getNextScheduledRun(futureDefinition, new Date("2026-07-21T13:00:00.000Z")), "2026-07-21T14:00:00.000Z");
+});
+
+test("Dublin authentication schedules retain local noon and evening times across daylight saving", () => {
+  const midday = definition({ frequency: "daily", hour: 12, minute: 0, timezone: "Europe/Dublin" }, "auth-midday");
+  const evening = definition({ frequency: "daily", hour: 18, minute: 0, timezone: "Europe/Dublin" }, "auth-evening");
+
+  assert.equal(getNextScheduledRun(midday, new Date("2026-08-14T10:00:00.000Z")), "2026-08-14T11:00:00.000Z");
+  assert.equal(getNextScheduledRun(evening, new Date("2026-08-14T10:00:00.000Z")), "2026-08-14T17:00:00.000Z");
+  assert.equal(getNextScheduledRun(midday, new Date("2026-12-14T10:00:00.000Z")), "2026-12-14T12:00:00.000Z");
+  assert.equal(getNextScheduledRun(evening, new Date("2026-12-14T10:00:00.000Z")), "2026-12-14T18:00:00.000Z");
 });
 
 test("a persisted occurrence is queued once across repeated evaluation and scheduler restart", async () => {
@@ -90,14 +101,68 @@ test("a persisted occurrence is queued once across repeated evaluation and sched
   }
 });
 
-function definition(schedule: MonitoringSchedule): MonitoringDefinition {
+test("midday and evening definitions enqueue two distinct daily occurrences without restart duplicates", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qa-auth-scheduler-trigger-"));
+  process.env.INSSA_QA_REPO_ROOT = repoRoot;
+  delete process.env.INSSA_OPS_METADATA_STORE;
+  const schedulerStore = getSchedulerStore();
+  const definitions = [
+    definition({ frequency: "daily", hour: 12, minute: 0, timezone: "Europe/Dublin" }, "auth-midday", "monitor_inssa_auth_staging"),
+    definition({ frequency: "daily", hour: 18, minute: 0, timezone: "Europe/Dublin" }, "auth-evening", "monitor_inssa_auth_staging")
+  ];
+  const definitionStore = multipleDefinitionStore(definitions);
+  const queued: string[] = [];
+  const enqueue = async (_definition: MonitoringDefinition, occurrenceKey: string) => {
+    queued.push(occurrenceKey);
+    return { outcome: "queued" as const, runId: crypto.randomUUID() };
+  };
+
+  try {
+    await schedulerStore.start("scheduler-a", new Date("2026-08-14T17:05:00.000Z"));
+    const first = await evaluateSchedulerOnce({
+      at: new Date("2026-08-14T17:05:00.000Z"),
+      definitionStore,
+      enqueue,
+      schedulerId: "scheduler-a",
+      schedulerStore
+    });
+    const repeated = await evaluateSchedulerOnce({
+      at: new Date("2026-08-14T17:05:30.000Z"),
+      definitionStore,
+      enqueue,
+      schedulerId: "scheduler-a",
+      schedulerStore
+    });
+    await schedulerStore.stop("scheduler-a", new Date("2026-08-14T17:06:00.000Z"));
+    await schedulerStore.start("scheduler-b", new Date("2026-08-14T17:06:01.000Z"));
+    const restarted = await evaluateSchedulerOnce({
+      at: new Date("2026-08-14T17:06:01.000Z"),
+      definitionStore,
+      enqueue,
+      schedulerId: "scheduler-b",
+      schedulerStore
+    });
+
+    assert.equal(first.jobsQueued, 2);
+    assert.equal(repeated.jobsQueued, 0);
+    assert.equal(restarted.jobsQueued, 0);
+    assert.deepEqual(queued, [
+      "auth-midday:2026-08-14T12:00[Europe/Dublin]",
+      "auth-evening:2026-08-14T18:00[Europe/Dublin]"
+    ]);
+  } finally {
+    await fs.rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+function definition(schedule: MonitoringSchedule, id = "scheduler-test", campaignId = "test_inssa_safe"): MonitoringDefinition {
   return {
-    campaignId: "test_inssa_safe",
+    campaignId,
     createdAt: "2026-01-01T00:00:00.000Z",
     enabled: true,
     environment: "staging",
     evidencePolicy: "always",
-    id: "scheduler-test",
+    id,
     name: "Scheduler test",
     notificationPolicy: "warning",
     product: "INSSA",
@@ -109,6 +174,20 @@ function definition(schedule: MonitoringSchedule): MonitoringDefinition {
     timeout: 600_000,
     triggerType: "schedule",
     updatedAt: "2026-01-01T00:00:00.000Z"
+  };
+}
+
+function multipleDefinitionStore(items: MonitoringDefinition[]): MonitoringDefinitionStore {
+  return {
+    async get(id) {
+      return items.find((item) => item.id === id) ?? null;
+    },
+    async list() {
+      return {
+        items,
+        pagination: { hasMore: false, limit: 100, nextCursor: null, total: items.length }
+      };
+    }
   };
 }
 

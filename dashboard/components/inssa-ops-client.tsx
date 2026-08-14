@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useEffect, useMemo, useState } from "react";
+import { summarizeAuthenticationSchedule, workspaceLoadsMonitoringState } from "../lib/monitoring/authentication-schedule";
 
 type CampaignDefinition = {
   commandType: "artifact_validation" | "campaign" | "export" | "healthcheck" | "report_render";
@@ -564,7 +565,7 @@ export function InssaOpsClient({
   }, [activeWorkspace]);
 
   useEffect(() => {
-    if (activeWorkspace !== "monitoring") return;
+    if (!workspaceLoadsMonitoringState(activeWorkspace)) return;
     void refreshMonitoringDefinitions();
     void refreshSchedulerStatus();
   }, [activeWorkspace]);
@@ -576,13 +577,14 @@ export function InssaOpsClient({
     return runs.filter((run) => run.campaignKey === key);
   }, [authenticationMonitoringEnvironment, runs]);
   const latestAuthenticationMonitoringRun = authenticationMonitoringRuns[0] ?? null;
-  const authenticationMonitoringDefinition = monitoringDefinitions.find(
-    (definition) =>
-      definition.campaignId === `monitor_inssa_auth_${authenticationMonitoringEnvironment}` &&
-      definition.environment === authenticationMonitoringEnvironment
-  );
-  const authenticationMonitoringScheduleState = schedulerStatus?.definitionStates?.find(
-    (state) => state.definitionId === authenticationMonitoringDefinition?.id
+  const authenticationMonitoringSchedule = useMemo(
+    () =>
+      summarizeAuthenticationSchedule(
+        monitoringDefinitions,
+        schedulerStatus?.definitionStates ?? [],
+        authenticationMonitoringEnvironment
+      ),
+    [authenticationMonitoringEnvironment, monitoringDefinitions, schedulerStatus?.definitionStates]
   );
   const latestAuthenticationMonitoringReport = latestAuthenticationMonitoringRun
     ? reportArtifacts.find(
@@ -1805,6 +1807,38 @@ export function InssaOpsClient({
                       </label>
                     </div>
 
+                    {monitoringError || schedulerStatusError ? (
+                      <div className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm text-amber-100">
+                        <p className="font-semibold">Authentication monitoring schedule failed to load.</p>
+                        <p className="mt-1 break-words">{monitoringError || schedulerStatusError}</p>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      <MetadataCard
+                        label="Schedule"
+                        tone={
+                          authenticationMonitoringSchedule.enabledCount === authenticationMonitoringSchedule.totalCount && authenticationMonitoringSchedule.enabledCount > 0
+                            ? "pass"
+                            : authenticationMonitoringSchedule.enabledCount > 0
+                              ? "warn"
+                              : "neutral"
+                        }
+                        value={authenticationMonitoringSchedule.scheduleLabel}
+                      />
+                      <MetadataCard label="Times" value={authenticationMonitoringSchedule.timesLabel} />
+                      <MetadataCard
+                        label="Next Scheduled"
+                        value={
+                          authenticationMonitoringSchedule.nextRunAt
+                            ? formatDate(authenticationMonitoringSchedule.nextRunAt)
+                            : authenticationMonitoringSchedule.enabledCount > 0
+                              ? "Pending evaluation"
+                              : authenticationMonitoringSchedule.scheduleLabel
+                        }
+                      />
+                    </div>
+
                     {authenticationMonitoringError ? (
                       <div className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
                         <p className="font-semibold">Authentication monitoring evidence failed to load.</p>
@@ -1812,7 +1846,7 @@ export function InssaOpsClient({
                       </div>
                     ) : latestAuthenticationMonitoringRun ? (
                       <>
-                        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                           <MetadataCard
                             label="Overall Status"
                             tone={
@@ -1827,16 +1861,6 @@ export function InssaOpsClient({
                           <MetadataCard label="Execution Time" value={formatDuration(authenticationMonitoringSummary?.durationMs ?? latestAuthenticationMonitoringRun.durationMs)} />
                           <MetadataCard label="Last Success" value={lastAuthenticationSuccess ? formatDate(lastAuthenticationSuccess.completedAt ?? lastAuthenticationSuccess.createdAt) : "None"} />
                           <MetadataCard label="Last Failure" value={lastAuthenticationFailure ? formatDate(lastAuthenticationFailure.completedAt ?? lastAuthenticationFailure.createdAt) : "None"} />
-                          <MetadataCard
-                            label="Next Scheduled"
-                            value={
-                              authenticationMonitoringDefinition?.enabled && authenticationMonitoringScheduleState?.nextRunAt
-                                ? formatDate(authenticationMonitoringScheduleState.nextRunAt)
-                                : authenticationMonitoringDefinition?.enabled
-                                  ? "Pending evaluation"
-                                  : "Disabled"
-                            }
-                          />
                         </div>
                         <div className="mt-4 grid gap-3 lg:grid-cols-3">
                           <AuthenticationCheckCard label="Username & Password" result={authenticationMonitoringSummary?.checks["username-password"]} />

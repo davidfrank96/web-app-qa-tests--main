@@ -62,7 +62,7 @@ npm run persistence:import-operational-state -- --archive-manifest=/absolute/pat
 npm run persistence:import-operational-state -- --apply --archive-manifest=/absolute/path/archive-manifest.json
 ```
 
-The importer preserves all nine deferred-cleanup records and the monitoring catalog, forces every authentication monitor disabled, and intentionally imports no historical runs, logs, artifacts, evidence, execution jobs, outbox events, or scheduler occurrences.
+The importer preserves all nine deferred-cleanup records and the monitoring catalog, keeps the staging midday and evening Authentication Monitoring definitions enabled, forces production Authentication Monitoring definitions disabled, and intentionally imports no historical runs, logs, artifacts, evidence, execution jobs, outbox events, or scheduler occurrences.
 
 ## 5. Configure The Dashboard
 
