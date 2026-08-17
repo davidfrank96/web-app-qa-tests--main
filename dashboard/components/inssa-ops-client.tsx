@@ -537,6 +537,13 @@ export function InssaOpsClient({
   const [approvalError, setApprovalError] = useState("");
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const hasActiveRuns = runs.some((run) => ACTIVE_STATUSES.has(run.status));
+  const reportArchiveRunSignature = runs
+    .slice(0, 40)
+    .map((run) => `${run.id}:${run.status}:${run.completedAt ?? ""}`)
+    .join("|");
+  const workspaceLoadsRunDetail = activeWorkspace === "execution" || activeWorkspace === "runs";
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -544,33 +551,49 @@ export function InssaOpsClient({
   }, [themeMode]);
 
   useEffect(() => {
+    if (sessionExpired) return;
     void refreshCampaigns();
     void refreshLifecycleArtifacts();
     void refreshCleanupLedger();
     void refreshRuns();
-    const interval = window.setInterval(() => {
-      void refreshRuns();
-      void refreshCleanupLedger();
-      if (selectedRunId) {
-        void refreshRunDetail(selectedRunId);
-      }
-    }, 3_000);
-
-    return () => window.clearInterval(interval);
-  }, [selectedRunId]);
+  }, [sessionExpired]);
 
   useEffect(() => {
-    if (activeWorkspace !== "notifications") return;
+    if (sessionExpired) return;
+    const refresh = () => {
+      if (document.hidden) return;
+      void refreshRuns();
+      if (activeWorkspace === "lifecycle" || activeWorkspace === "overview") void refreshCleanupLedger();
+      if (workspaceLoadsRunDetail && selectedRunId) void refreshRunDetail(selectedRunId);
+    };
+    const interval = window.setInterval(() => {
+      refresh();
+    }, hasActiveRuns ? 3_000 : 15_000);
+    document.addEventListener("visibilitychange", refresh);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [activeWorkspace, hasActiveRuns, selectedRunId, sessionExpired, workspaceLoadsRunDetail]);
+
+  useEffect(() => {
+    if (sessionExpired || activeWorkspace !== "reports") return;
+    void refreshReportArchive(runs);
+  }, [activeWorkspace, reportArchiveRunSignature, sessionExpired]);
+
+  useEffect(() => {
+    if (sessionExpired || activeWorkspace !== "notifications") return;
     void refreshNotifications();
     const interval = window.setInterval(() => void refreshNotifications(), 5_000);
     return () => window.clearInterval(interval);
-  }, [activeWorkspace]);
+  }, [activeWorkspace, sessionExpired]);
 
   useEffect(() => {
-    if (!workspaceLoadsMonitoringState(activeWorkspace)) return;
+    if (sessionExpired || !workspaceLoadsMonitoringState(activeWorkspace)) return;
     void refreshMonitoringDefinitions();
     void refreshSchedulerStatus();
-  }, [activeWorkspace]);
+  }, [activeWorkspace, sessionExpired]);
 
   const authenticationMonitoringRuns = useMemo(() => {
     const key = authenticationMonitoringEnvironment === "production"
@@ -597,17 +620,18 @@ export function InssaOpsClient({
   const lastAuthenticationFailure = authenticationMonitoringRuns.find((run) => FAILED_STATUSES.has(run.status)) ?? null;
 
   useEffect(() => {
-    if (activeWorkspace !== "authentication-monitoring") return;
+    if (sessionExpired || activeWorkspace !== "authentication-monitoring") return;
     if (!latestAuthenticationMonitoringReport) {
       setAuthenticationMonitoringSummary(null);
       setAuthenticationMonitoringError("");
       return;
     }
     void refreshAuthenticationMonitoringSummary(latestAuthenticationMonitoringReport);
-  }, [activeWorkspace, latestAuthenticationMonitoringReport?.id]);
+  }, [activeWorkspace, latestAuthenticationMonitoringReport?.id, sessionExpired]);
 
   useEffect(() => {
     if (
+      sessionExpired ||
       activeWorkspace !== "authentication-monitoring" ||
       !latestAuthenticationMonitoringRun ||
       !["failed", "failed_startup", "timed_out"].includes(latestAuthenticationMonitoringRun.status) ||
@@ -617,7 +641,7 @@ export function InssaOpsClient({
       return;
     }
     const endpoint = `/api/runs/${latestAuthenticationMonitoringRun.id}/logs`;
-    void fetch(endpoint, { cache: "no-store" })
+    void apiFetch(endpoint, { cache: "no-store" })
       .then(async (response) => {
         const body = (await response.json().catch(() => ({}))) as { error?: string; logs?: RunLogRecord[] };
         if (!response.ok) {
@@ -629,9 +653,10 @@ export function InssaOpsClient({
         );
       })
       .catch((error) => recordApiFailure(endpoint, "network", error instanceof Error ? error.message : String(error)));
-  }, [activeWorkspace, latestAuthenticationMonitoringReport?.id, latestAuthenticationMonitoringRun?.id, latestAuthenticationMonitoringRun?.status]);
+  }, [activeWorkspace, latestAuthenticationMonitoringReport?.id, latestAuthenticationMonitoringRun?.id, latestAuthenticationMonitoringRun?.status, sessionExpired]);
 
   useEffect(() => {
+    if (sessionExpired || !workspaceLoadsRunDetail) return;
     if (selectedRunId) {
       void refreshRunDetail(selectedRunId);
     } else {
@@ -639,7 +664,7 @@ export function InssaOpsClient({
       setLogs([]);
       setArtifacts([]);
     }
-  }, [selectedRunId]);
+  }, [selectedRunId, sessionExpired, workspaceLoadsRunDetail]);
 
   const overview = useMemo(() => {
     return {
@@ -840,10 +865,19 @@ export function InssaOpsClient({
   const expectedOutputs = buildExpectedOutputs(executionCampaign, artifacts);
   const campaignAwareness = describeCampaignAwareness(executionCampaign, selectedLifecycleArtifact);
 
+  async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
+    const response = await fetch(input, init);
+    if (response.status === 401 && !sessionExpired) {
+      setSessionExpired(true);
+      window.location.replace("/login?reason=session_expired");
+    }
+    return response;
+  }
+
   async function refreshCampaigns() {
     const endpoint = "/api/campaign-definitions";
     try {
-      const response = await fetch(endpoint, { cache: "no-store" });
+      const response = await apiFetch(endpoint, { cache: "no-store" });
       if (!response.ok) {
         const body = await readJsonResponse(response);
         recordApiFailure(endpoint, response.status, body.error ?? response.statusText);
@@ -859,7 +893,7 @@ export function InssaOpsClient({
   async function refreshRuns() {
     const endpoint = "/api/runs";
     try {
-      const response = await fetch(endpoint, { cache: "no-store" });
+      const response = await apiFetch(endpoint, { cache: "no-store" });
       const body = (await response.json().catch(() => ({}))) as {
         error?: string;
         metadataBackend?: MetadataBackendSummary;
@@ -876,7 +910,6 @@ export function InssaOpsClient({
       }
 
       const nextRuns = body.runs ?? [];
-      void refreshReportArchive(nextRuns);
       startTransition(() => {
         setRunHistoryError("");
         setRuns(nextRuns);
@@ -894,7 +927,7 @@ export function InssaOpsClient({
   async function refreshNotifications() {
     const endpoint = "/api/notifications?limit=100";
     try {
-      const response = await fetch(endpoint, { cache: "no-store" });
+      const response = await apiFetch(endpoint, { cache: "no-store" });
       const body = (await response.json().catch(() => ({}))) as {
         error?: string;
         notifications?: NotificationOutboxRecord[];
@@ -919,7 +952,7 @@ export function InssaOpsClient({
   async function refreshMonitoringDefinitions() {
     const endpoint = "/api/monitoring-definitions?limit=100";
     try {
-      const response = await fetch(endpoint, { cache: "no-store" });
+      const response = await apiFetch(endpoint, { cache: "no-store" });
       const body = (await response.json().catch(() => ({}))) as {
         error?: string;
         monitoringDefinitions?: MonitoringDefinition[];
@@ -944,7 +977,7 @@ export function InssaOpsClient({
   async function refreshSchedulerStatus() {
     const endpoint = "/api/scheduler/status";
     try {
-      const response = await fetch(endpoint, { cache: "no-store" });
+      const response = await apiFetch(endpoint, { cache: "no-store" });
       const body = (await response.json().catch(() => ({}))) as {
         error?: string;
         scheduler?: SchedulerStatus;
@@ -969,7 +1002,7 @@ export function InssaOpsClient({
   async function refreshAuthenticationMonitoringSummary(report: ArtifactRecord) {
     const endpoint = `/api/artifacts/${report.id}/bundle/authentication-monitoring-summary.json`;
     try {
-      const response = await fetch(endpoint, { cache: "no-store" });
+      const response = await apiFetch(endpoint, { cache: "no-store" });
       const body = (await response.json().catch(() => ({}))) as AuthenticationMonitoringSummary & { error?: string };
       if (!response.ok) {
         const failureMessage = body.error ?? response.statusText;
@@ -991,7 +1024,7 @@ export function InssaOpsClient({
   async function refreshLifecycleArtifacts() {
     const endpoint = "/api/lifecycle-artifacts";
     try {
-      const response = await fetch(endpoint, { cache: "no-store" });
+      const response = await apiFetch(endpoint, { cache: "no-store" });
       const body = (await response.json().catch(() => ({}))) as {
         artifacts?: LifecycleArtifactOption[];
         error?: string;
@@ -1021,7 +1054,7 @@ export function InssaOpsClient({
   async function refreshCleanupLedger() {
     const endpoint = "/api/cleanup-ledger";
     try {
-      const response = await fetch(endpoint, { cache: "no-store" });
+      const response = await apiFetch(endpoint, { cache: "no-store" });
       const body = (await response.json().catch(() => ({}))) as { error?: string; records?: CleanupLedgerRecord[] };
       if (!response.ok) {
         recordApiFailure(endpoint, response.status, body.error ?? response.statusText);
@@ -1041,10 +1074,10 @@ export function InssaOpsClient({
 
     try {
       [runResponse, logsResponse, artifactsResponse, evidenceResponse] = await Promise.all([
-        fetch(`/api/runs/${runId}`, { cache: "no-store" }),
-        fetch(`/api/runs/${runId}/logs`, { cache: "no-store" }),
-        fetch(`/api/runs/${runId}/artifacts`, { cache: "no-store" }),
-        fetch(`/api/runs/${runId}/evidence`, { cache: "no-store" })
+        apiFetch(`/api/runs/${runId}`, { cache: "no-store" }),
+        apiFetch(`/api/runs/${runId}/logs`, { cache: "no-store" }),
+        apiFetch(`/api/runs/${runId}/artifacts`, { cache: "no-store" }),
+        apiFetch(`/api/runs/${runId}/evidence`, { cache: "no-store" })
       ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1112,7 +1145,7 @@ export function InssaOpsClient({
       recentRuns.map(async (run) => {
         const endpoint = `/api/runs/${run.id}/artifacts`;
         try {
-          const response = await fetch(endpoint, { cache: "no-store" });
+          const response = await apiFetch(endpoint, { cache: "no-store" });
           if (!response.ok) {
             const body = await readJsonResponse(response);
             recordApiFailure(endpoint, response.status, body.error ?? response.statusText);
@@ -1130,7 +1163,7 @@ export function InssaOpsClient({
       recentRuns.map(async (run) => {
         const endpoint = `/api/runs/${run.id}/evidence`;
         try {
-          const response = await fetch(endpoint, { cache: "no-store" });
+          const response = await apiFetch(endpoint, { cache: "no-store" });
           if (!response.ok) {
             const body = await readJsonResponse(response);
             recordApiFailure(endpoint, response.status, body.error ?? response.statusText);
@@ -1169,7 +1202,7 @@ export function InssaOpsClient({
     setMessage(`Starting ${campaignKey}...`);
     const endpoint = "/api/runs";
     try {
-      const response = await fetch(endpoint, {
+      const response = await apiFetch(endpoint, {
         body: JSON.stringify({
           artifactSelection: lifecycleArtifactSelection,
           campaignKey,
@@ -1217,7 +1250,7 @@ export function InssaOpsClient({
     setApprovalError("");
     setPreflightChecks([]);
     const endpoint = "/api/campaign-approvals";
-    const response = await fetch(endpoint, {
+    const response = await apiFetch(endpoint, {
       body: JSON.stringify({ action: "opened", campaignKey: campaign.key }),
       headers: { "content-type": "application/json" },
       method: "POST"
@@ -1240,7 +1273,7 @@ export function InssaOpsClient({
     setApprovalError("");
     const endpoint = "/api/campaign-approvals";
     try {
-      const response = await fetch(endpoint, {
+      const response = await apiFetch(endpoint, {
         body: JSON.stringify({ action: "preflight", campaignKey: campaign.key, liveApproval }),
         headers: { "content-type": "application/json" },
         method: "POST"
@@ -1260,7 +1293,7 @@ export function InssaOpsClient({
 
   async function confirmRunCleanup(run: RunRecord) {
     const endpoint = `/api/runs/${run.id}/cleanup`;
-    const response = await fetch(endpoint, {
+    const response = await apiFetch(endpoint, {
       body: JSON.stringify({ confirmed: true }),
       headers: { "content-type": "application/json" },
       method: "POST"
@@ -1316,7 +1349,9 @@ export function InssaOpsClient({
               <p className="truncate text-sm font-semibold">{currentUser.email || currentUser.id}</p>
               <p className="text-xs capitalize text-slate-400">{currentUser.role}</p>
             </div>
-            <a className="icon-button" href="/logout" title="Logout">Logout</a>
+            <form action="/logout" method="post">
+              <button className="icon-button" title="Logout" type="submit">Logout</button>
+            </form>
           </div>
         </header>
 

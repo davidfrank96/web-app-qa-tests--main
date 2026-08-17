@@ -27,6 +27,17 @@ export type LiveCampaignApprovalRequest = {
   resumeArtifactPath?: unknown;
 };
 
+export function parseLiveCampaignApprovalRequest(value: unknown): LiveCampaignApprovalRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const approval = value as Record<string, unknown>;
+  return {
+    acknowledgements: approval.acknowledgements,
+    confirmationPhrase: approval.confirmationPhrase,
+    executionMode: approval.executionMode,
+    resumeArtifactPath: approval.resumeArtifactPath
+  };
+}
+
 export type LiveCampaignPreflightCheck = {
   detail: string;
   id: string;

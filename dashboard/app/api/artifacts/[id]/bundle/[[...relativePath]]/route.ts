@@ -12,6 +12,7 @@ import {
 import { downloadEvidenceItemFromDurableStorage } from "../../../../../../lib/inssa-ops/evidence-storage";
 import { getInssaRunStore } from "../../../../../../lib/inssa-ops/run-store";
 import { isRedactableContentType, redactInssaTextOutput } from "../../../../../../lib/inssa-ops/redaction";
+import { readUuid, requestErrorResponse } from "../../../../../../lib/inssa-ops/request-security";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,7 +24,10 @@ export async function GET(
   const auth = await requireInssaApiUser(request, "viewer");
   if (auth.response) return auth.response;
 
-  const { id, relativePath } = await context.params;
+  const params = await context.params;
+  let id: string;
+  try { id = readUuid(params.id, "artifact id"); } catch (error) { return requestErrorResponse(error); }
+  const { relativePath } = params;
   const store = getInssaRunStore();
   const artifact = await store.getArtifact(id);
   if (!artifact) {

@@ -10,6 +10,7 @@ Every required item must have captured evidence for the target environment.
 - [ ] Required checks use only the approved staging-safe scope in [CI/CD Pipeline](./ci-cd.md).
 - [ ] Git history share-token remediation is complete and affected tokens are invalid/expired.
 - [ ] No real environment, credential, key, user-data, or generated evidence file is tracked.
+- [ ] `npm run security:secret-scan` passes; historical scanner findings have an explicit owner-approved disposition.
 - [ ] Root and dashboard versions are `1.0.0`.
 - [ ] Root and dashboard `npm audit` return zero unresolved vulnerabilities.
 - [ ] Root and dashboard TypeScript checks pass.
@@ -23,21 +24,23 @@ Every required item must have captured evidence for the target environment.
 - [ ] `npm run dashboard:clean` and `npm run dashboard:build` pass.
 - [ ] `npm run dashboard:start` starts Next.js, worker, and scheduler.
 - [ ] `/login` returns `200`; anonymous protected API access returns `401`.
+- [ ] `/api/health` returns `200` only while the dashboard supervisor is running.
 - [ ] Clean shutdown leaves no dashboard/worker/scheduler process.
 
 ## Supabase
 
-- [ ] All nine migrations are applied in canonical order, including the forward-only first-deployment authentication-monitor scheduling guard.
+- [ ] All 13 migrations are applied in canonical order, including the authentication rate-limit migration.
 - [ ] `SUPABASE_PROJECT_REF` exactly matches the project reference in `SUPABASE_URL`.
 - [ ] The checksummed historical-development archive is stored off-host before operational-state import.
 - [ ] All nine deferred-cleanup records and the monitoring catalog are imported with authentication schedules disabled.
 - [ ] Migration history and linked schema diff are clean.
-- [ ] All 12 platform tables exist with RLS enabled.
+- [ ] All 13 platform tables exist with RLS enabled.
 - [ ] Anonymous/authenticated roles have no direct platform table access.
 - [ ] Service-role execution RPCs and grants are correct.
 - [ ] Supabase security/performance advisors have no unresolved blocker.
 - [ ] Private evidence bucket is provisioned and verified.
 - [ ] Browser and server environment variables are separated correctly.
+- [ ] `INSSA_OPS_PUBLIC_ORIGIN` matches the deployed HTTPS origin and `INSSA_AUTH_RATE_LIMIT_SECRET` is a unique server-only secret.
 
 ## Authentication And RBAC
 
@@ -48,6 +51,8 @@ Every required item must have captured evidence for the target environment.
 - [ ] Viewer/operator receive `403` for governed live mutation commands.
 - [ ] Admin approval and server preflight are required before any live mutation job is created.
 - [ ] Unauthorized and role-violation audit events persist.
+- [ ] Unassigned Supabase identities are denied rather than receiving viewer access.
+- [ ] Access-token refresh, true session expiry, and POST logout are verified in an authenticated browser.
 
 ## Worker And Scheduler
 

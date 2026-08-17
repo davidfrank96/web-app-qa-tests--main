@@ -14,6 +14,7 @@
     "test:ci:auth-monitor:discovery": "playwright test tests/inssa/authentication-monitoring.spec.ts --project=inssa-chrome --list",
     "test:ci:platform": "node --test scripts/inssa/authentication-monitoring-policy.test.js scripts/inssa/authentication-monitoring-config.test.js && npm --prefix dashboard run test:execution-foundation",
     "test:ci:security": "node --test services/inssa-ingestion/server.test.js scripts/siem/security-hardening.test.js",
+    "security:secret-scan": "node scripts/security/scan-tracked-secrets.mjs",
     "test:localman": "playwright test --project=localman-chrome",
     "test:kbean": "playwright test --project=kbean-chrome",
     "test:inssa": "playwright test --project=inssa-chrome",

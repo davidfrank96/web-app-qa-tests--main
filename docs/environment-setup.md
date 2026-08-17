@@ -42,11 +42,15 @@ Every non-comment line in `.env.inssa.live-staging` must be a `NAME=value` assig
 | `SUPABASE_URL` | Server Supabase URL. |
 | `SUPABASE_ANON_KEY` | Legacy Auth fallback only. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only persistence and Storage access. |
+| `INSSA_OPS_PUBLIC_ORIGIN` | Canonical HTTPS dashboard origin used for mutation Origin checks and auth redirects. |
+| `INSSA_AUTH_RATE_LIMIT_SECRET` | Server-only high-entropy HMAC key for durable login-rate-limit scopes. |
 | `INSSA_OPS_VIEWER_EMAILS` | Optional viewer fallback allowlist. |
 | `INSSA_OPS_OPERATOR_EMAILS` | Optional operator fallback allowlist. |
 | `INSSA_OPS_ADMIN_EMAILS` | Optional admin fallback allowlist. |
 
-`app_metadata.inssa_ops_role` takes precedence over allowlists. Unassigned authenticated users resolve to `viewer`.
+`app_metadata.inssa_ops_role` takes precedence over allowlists. Authenticated users without a valid app-metadata role or an explicit email-allowlist match are denied; there is no implicit viewer role.
+
+Supabase access-token refresh is handled in Next.js Node-runtime middleware using the supported SSR cookie adapter. Tokens remain in HTTP cookies and are never copied into local or session storage. Hosted Supabase metadata mode fails Runtime Doctor unless both `INSSA_OPS_PUBLIC_ORIGIN` and `INSSA_AUTH_RATE_LIMIT_SECRET` are configured.
 
 ## Persistence And Runtime
 

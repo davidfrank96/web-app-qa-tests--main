@@ -44,6 +44,8 @@ jobs:
           if git rev-parse HEAD^ >/dev/null 2>&1; then
             git diff --check HEAD^ HEAD
           fi
+      - name: Scan tracked files for credential material
+        run: npm run security:secret-scan
 
   root-typescript:
     name: Root TypeScript

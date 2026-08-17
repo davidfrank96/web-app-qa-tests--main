@@ -132,7 +132,7 @@ test("persistence verification accepts a complete schema and private Storage buc
     });
     assert.equal(result.code, 0, result.stderr);
     assert.match(result.stdout, /persistence:verify PASS/);
-    assert.match(result.stdout, /Tables: 12\/12/);
+    assert.match(result.stdout, /Tables: 13\/13/);
     assert.match(result.stdout, /Evidence bucket: inssa-evidence \(private\)/);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

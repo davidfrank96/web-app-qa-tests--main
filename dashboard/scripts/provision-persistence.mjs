@@ -18,7 +18,8 @@ const REQUIRED_TABLES = [
   "monitoring_definitions",
   "monitoring_schedule_occurrences",
   "scheduler_runtime_status",
-  "cleanup_ledger"
+  "cleanup_ledger",
+  "auth_rate_limits"
 ];
 
 const verifyOnly = process.argv.includes("--verify-only");

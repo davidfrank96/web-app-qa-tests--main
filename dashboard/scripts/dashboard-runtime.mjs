@@ -29,6 +29,7 @@ const REQUIRED_ROUTE_BUNDLES = [
   "app/api/runs/[id]/route.js",
   "app/api/runs/[id]/logs/route.js",
   "app/api/runs/[id]/artifacts/route.js",
+  "app/api/health/route.js",
   "app/api/notifications/route.js",
   "app/api/notifications/[id]/route.js",
   "app/api/monitoring-definitions/route.js",
@@ -99,6 +100,7 @@ function runDoctor({ mode, startup }) {
     checkNextIntegrity({ mode: effectiveMode, startup }),
     checkEnvironment(),
     checkSupabaseConfig(),
+    checkDashboardSecurityConfig(),
     checkRunnerPrerequisites(),
     checkPlaywrightInstallation()
   ];
@@ -108,6 +110,49 @@ function runDoctor({ mode, startup }) {
   }, "PASS");
 
   return { checks, status };
+}
+
+function checkDashboardSecurityConfig() {
+  const hosted = process.env.INSSA_OPS_METADATA_STORE === "supabase";
+  const publicOrigin = process.env.INSSA_OPS_PUBLIC_ORIGIN?.trim();
+  const rateLimitSecret = process.env.INSSA_AUTH_RATE_LIMIT_SECRET?.trim();
+  const missing = [];
+  if (!publicOrigin) missing.push("INSSA_OPS_PUBLIC_ORIGIN");
+  if (!rateLimitSecret) missing.push("INSSA_AUTH_RATE_LIMIT_SECRET");
+
+  if (hosted && missing.length) {
+    return makeCheck(
+      "Dashboard security",
+      "FAIL",
+      `Hosted metadata is enabled without required security configuration: ${missing.join(", ")}.`,
+      "Configure the canonical HTTPS application origin and a high-entropy server-only rate-limit secret."
+    );
+  }
+
+  if (publicOrigin) {
+    try {
+      const parsed = new URL(publicOrigin);
+      if (parsed.origin !== publicOrigin.replace(/\/$/, "") || (hosted && parsed.protocol !== "https:")) {
+        throw new Error("invalid canonical origin");
+      }
+    } catch {
+      return makeCheck(
+        "Dashboard security",
+        "FAIL",
+        "INSSA_OPS_PUBLIC_ORIGIN must be a canonical origin without a path and must use HTTPS when hosted.",
+        "Set it to the exact deployed dashboard origin."
+      );
+    }
+  }
+
+  return makeCheck(
+    "Dashboard security",
+    missing.length ? "WARN" : "PASS",
+    missing.length
+      ? `Local development is using safe fallbacks; unset: ${missing.join(", ")}.`
+      : "Canonical origin and durable authentication rate-limit hashing are configured.",
+    missing.length ? "Set both variables before enabling hosted Supabase persistence." : null
+  );
 }
 
 function checkRuntimeOwnership({ mode, runtimeLock, startup }) {

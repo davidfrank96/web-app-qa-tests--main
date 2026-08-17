@@ -4,11 +4,12 @@ import { useState } from "react";
 
 type LoginFormProps = {
   authConfigured: boolean;
+  initialMessage?: string;
 };
 
-export function LoginForm({ authConfigured }: LoginFormProps) {
+export function LoginForm({ authConfigured, initialMessage = "" }: LoginFormProps) {
   const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(initialMessage);
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInssaApiUser } from "../../../../lib/inssa-ops/api-guard";
 import { getMonitoringDefinitionStore } from "../../../../lib/monitoring/store";
+import { readUuid, requestErrorResponse } from "../../../../lib/inssa-ops/request-security";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -9,7 +10,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   const auth = await requireInssaApiUser(request, "viewer");
   if (auth.response) return auth.response;
 
-  const { id } = await context.params;
+  let id: string;
+  try { id = readUuid((await context.params).id, "monitoring definition id"); } catch (error) { return requestErrorResponse(error); }
   try {
     const definition = await getMonitoringDefinitionStore().get(id);
     if (!definition) return NextResponse.json({ error: `Monitoring definition not found: ${id}` }, { status: 404 });
