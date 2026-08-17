@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { evaluateCleanupGate } from "./cleanup-ledger";
+import type { InssaRunStore } from "./run-store";
 import type { InssaAuthenticatedUser } from "./security";
 import { getRepoRoot, getRunOutputRoot } from "./paths";
 import type {
@@ -51,7 +52,9 @@ export type LiveCampaignPreflightResult =
 type PreflightDependencies = {
   activeRunId: string | null;
   environment?: Record<string, string | undefined>;
+  now?: Date;
   repoRoot?: string;
+  store?: InssaRunStore;
   workerHealthy: boolean;
 };
 
@@ -103,8 +106,10 @@ export async function validateLiveCampaignPreflight(
 
   const cleanupGate = await evaluateCleanupGate({
     environment: env,
+    now: dependencies.now,
     repoRoot: dependencies.repoRoot ?? getRepoRoot(),
-    requiresSecondaryAccount: command.requiresSecondaryAccount
+    requiresSecondaryAccount: command.requiresSecondaryAccount,
+    store: dependencies.store
   });
   if (!cleanupGate.ok) return fail(cleanupGate.id, cleanupGate.error, 409);
   pass(

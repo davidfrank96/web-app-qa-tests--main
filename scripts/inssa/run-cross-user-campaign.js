@@ -6,6 +6,10 @@ const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
 const { chromium } = require("@playwright/test");
+const {
+  requireCrossUserCapsuleIdentity,
+  resolveCrossUserCapsuleIdentity
+} = require("./cross-user-identity");
 
 const ROOT = process.cwd();
 const STAGING_HOSTNAME = "staging.inssa.us";
@@ -17,10 +21,12 @@ const REPORT_DIR = path.resolve(ROOT, "reports", "security");
 const CREATE_SPEC = "tests/inssa/contact-share-state-machine.spec.ts";
 const NAVIGATION_TIMEOUT_MS = 25_000;
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
 
 async function main() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
@@ -44,6 +50,8 @@ async function main() {
     throw new Error(`Create phase passed, but no new lifecycle artifact was found in ${LIFECYCLE_ARTIFACT_DIR}.`);
   }
 
+  const capsuleId = requireCrossUserCapsuleIdentity(artifactMatch.artifact);
+
   console.log(`PHASE 1 artifact: ${artifactMatch.path}`);
   const secondaryStorageStatePath = await ensureSecondaryStorageState(baseUrl);
 
@@ -57,6 +65,7 @@ async function main() {
     accessVerification,
     artifactMatch,
     baseUrl,
+    capsuleId,
     createResult,
     mediaVerification,
     secondaryStorageStatePath,
@@ -418,7 +427,7 @@ function buildSummary(input) {
     primaryCreate: {
       commandStatus: input.createResult.code === 0 ? "passed" : "failed",
       artifactPath: input.artifactMatch.path,
-      capsuleId: artifact.possibleFinalCapsuleId ?? null,
+      capsuleId: input.capsuleId,
       tokenizedUrl: redactUrl(resolveCapsuleUrls(input.baseUrl, artifact).tokenizedUrl),
       tokenlessUrl: redactUrl(resolveCapsuleUrls(input.baseUrl, artifact).tokenlessUrl),
       subject: artifact.subject
@@ -491,7 +500,7 @@ function buildSurfaceTargets(artifact) {
 }
 
 function resolveCapsuleUrls(baseUrl, artifact) {
-  const capsuleId = artifact.possibleFinalCapsuleId || extractCapsuleId(artifact.finalShareLink || artifact.finalUrl || "");
+  const capsuleId = resolveCrossUserCapsuleIdentity(artifact);
   const token = artifact.possibleShareToken || extractShareToken(artifact.finalShareLink || artifact.finalUrl || "");
   const directCapsuleUrl = capsuleId ? `${baseUrl}/capsule/${capsuleId}` : null;
   const tokenizedUrl =
