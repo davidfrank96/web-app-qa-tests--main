@@ -64,6 +64,7 @@ export type InssaRunStore = {
     bundle: InssaEvidenceBundleRecord | null;
     items: InssaEvidenceItemRecord[];
   }>;
+  updateEvidenceItemMetadata(id: string, metadata: Record<string, unknown>): Promise<InssaEvidenceItemRecord>;
   updateRun(id: string, patch: RunPatch): Promise<InssaRunRecord>;
   upsertCleanupLedger(record: InssaCleanupLedgerRecord): Promise<InssaCleanupLedgerRecord>;
 };
@@ -273,6 +274,16 @@ class LocalJsonRunStore implements InssaRunStore {
       if (bundle) snapshot.evidenceBundles.push(bundle);
       snapshot.evidenceItems.push(...items);
       return { bundle, items };
+    });
+  }
+
+  async updateEvidenceItemMetadata(id: string, metadata: Record<string, unknown>) {
+    return this.withWrite(async (snapshot) => {
+      const index = snapshot.evidenceItems.findIndex((item) => item.id === id);
+      if (index < 0) throw new Error(`Evidence item not found: ${id}`);
+      const updated = { ...snapshot.evidenceItems[index], metadata };
+      snapshot.evidenceItems[index] = updated;
+      return updated;
     });
   }
 
@@ -613,6 +624,16 @@ class SupabaseRunStore implements InssaRunStore {
     }
 
     return { bundle, items };
+  }
+
+  async updateEvidenceItemMetadata(id: string, metadata: Record<string, unknown>) {
+    const rows = await this.request(`evidence_items?id=eq.${encodeURIComponent(id)}&limit=1`);
+    if (!rows[0]) throw new Error(`Evidence item not found: ${id}`);
+    await this.request(`evidence_items?id=eq.${encodeURIComponent(id)}`, {
+      body: JSON.stringify({ metadata }),
+      method: "PATCH"
+    });
+    return fromSupabaseEvidenceItem({ ...rows[0], metadata });
   }
 
   async updateRun(id: string, patch: RunPatch) {

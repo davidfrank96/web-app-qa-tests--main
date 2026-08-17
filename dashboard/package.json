@@ -14,6 +14,7 @@
     "start": "node scripts/dashboard-supervisor.mjs start",
     "scheduler": "node --import tsx scripts/inssa-scheduler.ts",
     "worker": "node --import tsx scripts/inssa-worker.ts",
+    "auth-monitor:reconcile": "node --import tsx scripts/reconcile-authentication-monitor-results.ts",
     "persistence:archive-development": "node scripts/archive-development-evidence.mjs",
     "persistence:import-operational-state": "node scripts/import-first-deployment-state.mjs",
     "persistence:provision": "node scripts/provision-persistence.mjs",

@@ -1,8 +1,15 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { summarizeAuthenticationSchedule, workspaceLoadsMonitoringState } from "../lib/monitoring/authentication-schedule";
 import { describeAuthenticationMonitorIncompleteRun } from "../lib/monitoring/authentication-failure";
+import {
+  authenticationCheckPresentation,
+  authenticationEvidencePresentation,
+  type AuthenticationMonitoringCheck,
+  type AuthenticationMonitoringResultResponse,
+  type AuthenticationMonitoringSummary
+} from "../lib/monitoring/authentication-result";
 
 type CampaignDefinition = {
   commandType: "artifact_validation" | "campaign" | "export" | "healthcheck" | "report_render";
@@ -100,27 +107,6 @@ type SchedulerStatus = {
   jobsQueuedToday: number;
   lastEvaluationAt: string | null;
   running: boolean;
-};
-
-type AuthenticationMonitoringCheck = {
-  completedAt: string;
-  durationMs: number;
-  error: string | null;
-  method: string;
-  startedAt: string;
-  status: "blocked_external" | "disabled" | "failed" | "missing_configuration" | "passed" | "timed_out";
-};
-
-type AuthenticationMonitoringSummary = {
-  checks: Record<string, AuthenticationMonitoringCheck>;
-  completedAt: string;
-  durationMs: number;
-  environment: "production" | "staging";
-  overallStatus: "degraded" | "failed" | "passed";
-  runId: string;
-  schemaVersion: 1;
-  startedAt: string;
-  targetHost: string;
 };
 
 type ArtifactRecord = {
@@ -520,6 +506,9 @@ export function InssaOpsClient({
   const [authenticationMonitoringEnvironment, setAuthenticationMonitoringEnvironment] = useState<"production" | "staging">("staging");
   const [authenticationMonitoringSummary, setAuthenticationMonitoringSummary] = useState<AuthenticationMonitoringSummary | null>(null);
   const [authenticationMonitoringError, setAuthenticationMonitoringError] = useState("");
+  const [authenticationMonitoringResultReason, setAuthenticationMonitoringResultReason] = useState("");
+  const [authenticationMonitoringResultsByRun, setAuthenticationMonitoringResultsByRun] = useState<Record<string, AuthenticationMonitoringResultResponse>>({});
+  const [authenticationMonitoringResultErrorsByRun, setAuthenticationMonitoringResultErrorsByRun] = useState<Record<string, string>>({});
   const [authenticationMonitoringIncompleteReason, setAuthenticationMonitoringIncompleteReason] = useState("");
   const [monitoringProductFilter, setMonitoringProductFilter] = useState("all");
   const [monitoringEnabledFilter, setMonitoringEnabledFilter] = useState("all");
@@ -538,6 +527,7 @@ export function InssaOpsClient({
   const [preflightChecks, setPreflightChecks] = useState<PreflightCheck[]>([]);
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const authenticationMonitoringRequestSequence = useRef(0);
   const hasActiveRuns = runs.some((run) => ACTIVE_STATUSES.has(run.status));
   const reportArchiveRunSignature = runs
     .slice(0, 40)
@@ -601,6 +591,10 @@ export function InssaOpsClient({
       : "monitor_inssa_auth_staging";
     return runs.filter((run) => run.campaignKey === key);
   }, [authenticationMonitoringEnvironment, runs]);
+  const authenticationMonitoringRunSignature = authenticationMonitoringRuns
+    .slice(0, 20)
+    .map((run) => `${run.id}:${run.status}:${run.completedAt ?? ""}`)
+    .join("|");
   const latestAuthenticationMonitoringRun = authenticationMonitoringRuns[0] ?? null;
   const authenticationMonitoringSchedule = useMemo(
     () =>
@@ -611,23 +605,24 @@ export function InssaOpsClient({
       ),
     [authenticationMonitoringEnvironment, monitoringDefinitions, schedulerStatus?.definitionStates]
   );
-  const latestAuthenticationMonitoringReport = latestAuthenticationMonitoringRun
-    ? reportArtifacts.find(
-        (artifact) => artifact.runId === latestAuthenticationMonitoringRun.id && artifact.artifactType === "Playwright Report"
-      ) ?? null
+  const latestAuthenticationMonitoringResolution = latestAuthenticationMonitoringRun
+    ? authenticationMonitoringResultsByRun[latestAuthenticationMonitoringRun.id] ?? null
     : null;
+  const latestAuthenticationMonitoringReportId = latestAuthenticationMonitoringResolution?.evidence.reportArtifactId ?? null;
   const lastAuthenticationSuccess = authenticationMonitoringRuns.find((run) => PASSED_STATUSES.has(run.status)) ?? null;
   const lastAuthenticationFailure = authenticationMonitoringRuns.find((run) => FAILED_STATUSES.has(run.status)) ?? null;
 
   useEffect(() => {
     if (sessionExpired || activeWorkspace !== "authentication-monitoring") return;
-    if (!latestAuthenticationMonitoringReport) {
+    if (!latestAuthenticationMonitoringRun) {
+      authenticationMonitoringRequestSequence.current += 1;
       setAuthenticationMonitoringSummary(null);
       setAuthenticationMonitoringError("");
+      setAuthenticationMonitoringResultReason("");
       return;
     }
-    void refreshAuthenticationMonitoringSummary(latestAuthenticationMonitoringReport);
-  }, [activeWorkspace, latestAuthenticationMonitoringReport?.id, sessionExpired]);
+    void refreshAuthenticationMonitoringResults(authenticationMonitoringRuns);
+  }, [activeWorkspace, authenticationMonitoringRunSignature, sessionExpired]);
 
   useEffect(() => {
     if (
@@ -635,7 +630,7 @@ export function InssaOpsClient({
       activeWorkspace !== "authentication-monitoring" ||
       !latestAuthenticationMonitoringRun ||
       !["failed", "failed_startup", "timed_out"].includes(latestAuthenticationMonitoringRun.status) ||
-      latestAuthenticationMonitoringReport
+      latestAuthenticationMonitoringReportId
     ) {
       setAuthenticationMonitoringIncompleteReason("");
       return;
@@ -653,7 +648,7 @@ export function InssaOpsClient({
         );
       })
       .catch((error) => recordApiFailure(endpoint, "network", error instanceof Error ? error.message : String(error)));
-  }, [activeWorkspace, latestAuthenticationMonitoringReport?.id, latestAuthenticationMonitoringRun?.id, latestAuthenticationMonitoringRun?.status, sessionExpired]);
+  }, [activeWorkspace, latestAuthenticationMonitoringReportId, latestAuthenticationMonitoringRun?.id, latestAuthenticationMonitoringRun?.status, sessionExpired]);
 
   useEffect(() => {
     if (sessionExpired || !workspaceLoadsRunDetail) return;
@@ -999,26 +994,47 @@ export function InssaOpsClient({
     }
   }
 
-  async function refreshAuthenticationMonitoringSummary(report: ArtifactRecord) {
-    const endpoint = `/api/artifacts/${report.id}/bundle/authentication-monitoring-summary.json`;
-    try {
-      const response = await apiFetch(endpoint, { cache: "no-store" });
-      const body = (await response.json().catch(() => ({}))) as AuthenticationMonitoringSummary & { error?: string };
-      if (!response.ok) {
-        const failureMessage = body.error ?? response.statusText;
-        setAuthenticationMonitoringError(failureMessage);
-        recordApiFailure(endpoint, response.status, failureMessage);
-        return;
-      }
-      startTransition(() => {
-        setAuthenticationMonitoringError("");
-        setAuthenticationMonitoringSummary(body);
-      });
-    } catch (error) {
-      const failureMessage = error instanceof Error ? error.message : String(error);
-      setAuthenticationMonitoringError(failureMessage);
-      recordApiFailure(endpoint, "network", failureMessage);
-    }
+  async function refreshAuthenticationMonitoringResults(runList: RunRecord[]) {
+    const requestSequence = ++authenticationMonitoringRequestSequence.current;
+    const recentRuns = runList.slice(0, 20);
+    const hydrated = await Promise.all(
+      recentRuns.map(async (run) => {
+        const endpoint = `/api/runs/${run.id}/authentication-monitoring-result`;
+        try {
+          const response = await apiFetch(endpoint, { cache: "no-store" });
+          const body = (await response.json().catch(() => ({}))) as AuthenticationMonitoringResultResponse & { error?: string };
+          if (!response.ok) {
+            const failureMessage = body.error ?? response.statusText;
+            recordApiFailure(endpoint, response.status, failureMessage);
+            return { error: failureMessage, resolution: null, runId: run.id };
+          }
+          return { error: "", resolution: body, runId: run.id };
+        } catch (error) {
+          const failureMessage = error instanceof Error ? error.message : String(error);
+          recordApiFailure(endpoint, "network", failureMessage);
+          return { error: failureMessage, resolution: null, runId: run.id };
+        }
+      })
+    );
+    if (requestSequence !== authenticationMonitoringRequestSequence.current) return;
+    const latest = recentRuns[0] ? hydrated.find((entry) => entry.runId === recentRuns[0].id) : null;
+    startTransition(() => {
+      setAuthenticationMonitoringResultsByRun(
+        Object.fromEntries(
+          hydrated.flatMap((entry) => entry.resolution ? [[entry.runId, entry.resolution] as const] : [])
+        )
+      );
+      setAuthenticationMonitoringResultErrorsByRun(
+        Object.fromEntries(hydrated.flatMap((entry) => entry.error ? [[entry.runId, entry.error] as const] : []))
+      );
+      setAuthenticationMonitoringError(latest?.error ?? "");
+      setAuthenticationMonitoringSummary(latest?.resolution?.state === "available" ? latest.resolution.result : null);
+      setAuthenticationMonitoringResultReason(
+        latest?.resolution && latest.resolution.state !== "available"
+          ? latest.resolution.reason ?? "Result metadata unavailable."
+          : ""
+      );
+    });
   }
 
   async function refreshLifecycleArtifacts() {
@@ -1908,6 +1924,12 @@ export function InssaOpsClient({
                       </div>
                     ) : latestAuthenticationMonitoringRun ? (
                       <>
+                        {authenticationMonitoringResultReason ? (
+                          <div className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
+                            <p className="font-semibold">Authentication monitoring result metadata is unavailable.</p>
+                            <p className="mt-1 break-words">Reason: {authenticationMonitoringResultReason}</p>
+                          </div>
+                        ) : null}
                         {authenticationMonitoringIncompleteReason ? (
                           <div className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
                             <p className="font-semibold">Authentication monitor did not complete provider results.</p>
@@ -1931,18 +1953,18 @@ export function InssaOpsClient({
                           <MetadataCard label="Last Failure" value={lastAuthenticationFailure ? formatDate(lastAuthenticationFailure.completedAt ?? lastAuthenticationFailure.createdAt) : "None"} />
                         </div>
                         <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                          <AuthenticationCheckCard label="Username & Password" result={authenticationMonitoringSummary?.checks["username-password"]} />
-                          <AuthenticationCheckCard label="Google OAuth" result={authenticationMonitoringSummary?.checks["google-oauth"]} />
-                          <AuthenticationCheckCard label="Apple Sign-In" result={authenticationMonitoringSummary?.checks["apple-sign-in"]} />
+                          <AuthenticationCheckCard label="Username & Password" missingReason={authenticationMonitoringResultReason} result={authenticationMonitoringSummary?.checks["username-password"]} />
+                          <AuthenticationCheckCard label="Google OAuth" missingReason={authenticationMonitoringResultReason} result={authenticationMonitoringSummary?.checks["google-oauth"]} />
+                          <AuthenticationCheckCard label="Apple Sign-In" missingReason={authenticationMonitoringResultReason} result={authenticationMonitoringSummary?.checks["apple-sign-in"]} />
                         </div>
                         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm">
                           <span className="text-slate-400">Environment</span>
                           <span className="font-semibold capitalize text-slate-100">{authenticationMonitoringEnvironment}</span>
                           <span className="text-slate-600">·</span>
                           <span className="text-slate-400">Target</span>
-                          <span className="font-mono text-xs text-slate-200">{authenticationMonitoringSummary?.targetHost ?? "evidence pending"}</span>
-                          {latestAuthenticationMonitoringReport ? (
-                            <a className="primary-action ml-auto" href={`/api/artifacts/${latestAuthenticationMonitoringReport.id}/file`} rel="noreferrer" target="_blank">
+                          <span className="font-mono text-xs text-slate-200">{authenticationMonitoringSummary?.targetHost ?? (authenticationMonitoringResultReason ? "result unavailable" : "processing")}</span>
+                          {latestAuthenticationMonitoringReportId ? (
+                            <a className="primary-action ml-auto" href={`/api/artifacts/${latestAuthenticationMonitoringReportId}/file`} rel="noreferrer" target="_blank">
                               Open Evidence
                             </a>
                           ) : null}
@@ -1970,15 +1992,31 @@ export function InssaOpsClient({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800">
-                          {authenticationMonitoringRuns.map((run) => {
-                            const report = reportArtifacts.find((artifact) => artifact.runId === run.id && artifact.artifactType === "Playwright Report");
+                          {authenticationMonitoringRuns.map((run, index) => {
+                            const resolution = authenticationMonitoringResultsByRun[run.id];
+                            const reportArtifactId = resolution?.evidence.reportArtifactId ?? null;
+                            const evidencePresentation = resolution
+                              ? authenticationEvidencePresentation({
+                                  reportArtifactId,
+                                  runStatus: run.status,
+                                  uploadStatus: resolution.evidence.uploadStatus
+                                })
+                              : authenticationMonitoringResultErrorsByRun[run.id]
+                                ? { label: "Result lookup failed", state: "failed" as const }
+                                : index >= 20
+                                  ? { label: "Not loaded", state: "missing" as const }
+                                  : { label: "Loading", state: "processing" as const };
                             return (
                               <tr className="text-slate-300" key={run.id}>
                                 <td className="px-4 py-3 font-mono text-xs">{run.id}</td>
                                 <td className="px-4 py-3"><StatusBadge status={run.status} /></td>
                                 <td className="px-4 py-3 text-xs">{formatDate(run.startedAt ?? run.createdAt)}</td>
                                 <td className="px-4 py-3">{formatDuration(run.durationMs)}</td>
-                                <td className="px-4 py-3">{report ? <a className="text-cyan-200 hover:text-cyan-100" href={`/api/artifacts/${report.id}/file`} rel="noreferrer" target="_blank">Open</a> : "Pending"}</td>
+                                <td className="px-4 py-3">
+                                  {reportArtifactId && evidencePresentation.state === "available" ? (
+                                    <a className="text-cyan-200 hover:text-cyan-100" href={`/api/artifacts/${reportArtifactId}/file`} rel="noreferrer" target="_blank">{evidencePresentation.label}</a>
+                                  ) : evidencePresentation.label}
+                                </td>
                               </tr>
                             );
                           })}
@@ -3483,16 +3521,18 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs ring-1 ${className}`}>{status}</span>;
 }
 
-function AuthenticationCheckCard({ label, result }: { label: string; result?: AuthenticationMonitoringCheck }) {
-  const passed = result?.status === "passed";
-  const warning = result && ["blocked_external", "disabled", "missing_configuration"].includes(result.status);
-  const statusLabel = result?.status === "blocked_external"
-    ? "BLOCKED - PROVIDER"
-    : result?.status === "missing_configuration"
-      ? "MISSING CONFIGURATION"
-      : result?.status === "disabled"
-        ? "NOT CERTIFIED / DISABLED"
-        : result?.status.replaceAll("_", " ").toUpperCase() ?? "NO DATA";
+function AuthenticationCheckCard({
+  label,
+  missingReason,
+  result
+}: {
+  label: string;
+  missingReason?: string;
+  result?: AuthenticationMonitoringCheck;
+}) {
+  const presentation = authenticationCheckPresentation(result, missingReason || "Result metadata unavailable.");
+  const passed = presentation.tone === "success";
+  const warning = presentation.tone === "warning";
   return (
     <article
       className={`rounded-2xl border p-4 ${
@@ -3505,11 +3545,11 @@ function AuthenticationCheckCard({ label, result }: { label: string; result?: Au
     >
       <div className="flex items-center justify-between gap-3">
         <h3 className="font-semibold text-slate-100">{label}</h3>
-        <span className={`report-chip ${passed ? "" : "report-chip-warn"}`}>{statusLabel}</span>
+        <span className={`report-chip ${passed ? "" : "report-chip-warn"}`}>{presentation.label}</span>
       </div>
       <p className="mt-3 text-sm text-slate-400">Timing: {result ? formatDuration(result.durationMs) : "not recorded"}</p>
-      {result?.error ? (
-        <p className={`mt-2 break-words text-xs leading-5 ${warning ? "text-amber-200" : "text-rose-200"}`}>{result.error}</p>
+      {presentation.detail ? (
+        <p className={`mt-2 break-words text-xs leading-5 ${warning ? "text-amber-200" : "text-rose-200"}`}>{presentation.detail}</p>
       ) : null}
     </article>
   );
