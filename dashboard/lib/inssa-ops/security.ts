@@ -78,16 +78,18 @@ export function getInssaCommandAuthorization(role: InssaOpsRole, campaignKey: st
   return { allowed: true, command, reason: null };
 }
 
-export function toInssaAuthenticatedUser(user: User): InssaAuthenticatedUser {
+export function toInssaAuthenticatedUser(user: User): InssaAuthenticatedUser | null {
   const email = user.email ?? "";
+  const role = resolveRole(user, email);
+  if (!role) return null;
   return {
     email,
     id: user.id,
-    role: resolveRole(user, email)
+    role
   };
 }
 
-function resolveRole(user: User, email: string): InssaOpsRole {
+function resolveRole(user: User, email: string): InssaOpsRole | null {
   const appMetadataRole = user.app_metadata?.inssa_ops_role;
   if (isInssaOpsRole(appMetadataRole)) {
     return appMetadataRole;
@@ -97,7 +99,7 @@ function resolveRole(user: User, email: string): InssaOpsRole {
   if (emailMatchesEnvList(email, "INSSA_OPS_OPERATOR_EMAILS")) return "operator";
   if (emailMatchesEnvList(email, "INSSA_OPS_VIEWER_EMAILS")) return "viewer";
 
-  return "viewer";
+  return null;
 }
 
 function isInssaOpsRole(value: unknown): value is InssaOpsRole {

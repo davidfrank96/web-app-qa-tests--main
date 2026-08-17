@@ -30,6 +30,10 @@ export function getLocalSchedulerStorePath() {
   return path.join(getRepoRoot(), "dashboard", ".data", "scheduler-state.json");
 }
 
+export function getLocalAuthRateLimitPath() {
+  return path.join(getRepoRoot(), "dashboard", ".data", "auth-rate-limits.json");
+}
+
 export function getLocalRunLogDirectory() {
   return path.join(getRepoRoot(), "dashboard", ".data", "run-logs");
 }
