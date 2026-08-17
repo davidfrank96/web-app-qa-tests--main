@@ -1,6 +1,6 @@
 # Operations API Reference
 
-Last reviewed: 2026-08-02
+Last reviewed: 2026-08-17
 
 All Operations APIs are same-origin Next.js routes. Except login/magic-link, every route requires a valid Supabase session and viewer-or-higher role. Mutation authorization is server-side.
 
@@ -11,7 +11,9 @@ All Operations APIs are same-origin Next.js routes. Except login/magic-link, eve
 | `POST` | `/api/auth/password` | Email/password login. Body: `email`, `password`. |
 | `POST` | `/api/auth/magic-link` | Request magic link. Body: `email`. |
 | `GET` | `/auth/callback` | Exchange Supabase callback code and establish session. |
-| `GET` | `/logout` | Sign out and redirect to login. |
+| `POST` | `/logout` | Sign out and redirect to login. Requires a trusted Origin. |
+
+Password and magic-link requests require JSON, conservative body limits, a trusted Origin, normalized email input, and durable IP/account/combined/global rate limits. Magic links do not create users and return a non-enumerating response.
 
 ## Campaigns And Runs
 
@@ -58,6 +60,7 @@ No notification mutation or send route exists.
 | `GET` | `/api/monitoring-definitions` | Definition list. Filters: `product`, `campaign`, `environment`, `triggerType`, `severity`, `enabled`, `limit`, `cursor`. |
 | `GET` | `/api/monitoring-definitions/:id` | One definition. |
 | `GET` | `/api/scheduler/status` | Read-only scheduler heartbeat/evaluation state. |
+| `GET` | `/api/health` | Public, sanitized supervisor liveness for the hosting platform. Does not query Playwright or expose credentials/paths. |
 
 No monitor or scheduler control route exists.
 
@@ -71,5 +74,6 @@ No monitor or scheduler control route exists.
 - `403`: authenticated role lacks permission or command is not enabled.
 - `404`: run, artifact, definition, notification, or file is absent.
 - `500`: persistence or server operation failed; the dashboard surfaces endpoint, status, and timestamp.
+- `429`: durable authentication limit exceeded; the response includes `Retry-After`.
 
 APIs must not return secrets. Run-log and textual evidence responses apply redaction at the response boundary.

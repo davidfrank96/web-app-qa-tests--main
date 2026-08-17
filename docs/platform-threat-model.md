@@ -40,6 +40,10 @@ SIEM sender
 | Secret leakage through logs | Credential disclosure to viewers | Redaction before persistence and again on historical API responses. |
 | Secret leakage through reports | Durable credential disclosure | Textual response redaction and sensitive artifact classification. |
 | Service-role key in browser | Full persistence compromise | Server-only environment variable; no `NEXT_PUBLIC_` service credential. |
+| Self-registration or unassigned-user access | Unauthorized private run/evidence access | Magic-link user creation disabled; role resolution denies identities without app-metadata role or explicit allowlist admission. |
+| Credential stuffing or email bombing | Account compromise, provider abuse, or availability loss | Durable global/IP/account/combined rate limits with hashed scopes and `429 Retry-After`. |
+| CSRF and host-header redirect abuse | Unauthorized state change or poisoned auth redirect | Canonical public origin, strict mutation Origin checks, JSON body enforcement, POST-only logout. |
+| Expired access token | Dashboard remains open while APIs fail or role state becomes stale | Supabase SSR middleware refreshes cookies; central client `401` handling stops polling and returns to login. |
 | Vulnerable framework dependency | Auth bypass, XSS, SSRF, or DoS | Lockfile pinning, audit-clean Next/PostCSS graph, build regression. |
 | Production campaign misuse | Product mutation or account impact | Command registry, RBAC, environment guards, explicit production monitoring confirmation. |
 | Duplicate/replayed execution | Duplicate product activity and evidence | Durable job idempotency, leases, occurrence keys, and one-active-run policy. |
@@ -50,6 +54,7 @@ SIEM sender
 - A compromised worker host can access test credentials and local scratch evidence.
 - The Wazuh shared credential is a single deployment secret and requires rotation after suspected exposure.
 - Historical ignored local artifacts may predate current redaction. They must remain outside Git and be retained only on controlled hosts.
+- Full Git history still requires separate disposition or approved rewriting when historical secret scanners identify removed investigation artifacts. The current-tree CI gate prevents new tracked credential material.
 
 ## Review Triggers
 

@@ -16,6 +16,7 @@
 | 10 | `20260810175709_execution_job_claim_timestamp_fix.sql` | Corrects the execution-job claim function's timestamp variable resolution after remote worker validation exposed a `timestamptz`/`timetz` comparison defect |
 | 11 | `20260814093000_enable_twice_daily_staging_auth_monitor.sql` | Preserves the staging midday definition, enables a distinct staging evening definition, and keeps both production Authentication Monitoring definitions disabled |
 | 12 | `20260814113000_auth_monitor_execution_timeout.sql` | Gives all Authentication Monitoring definitions the certified six-minute execution envelope without changing schedules or enabling production monitoring |
+| 13 | `20260817090000_auth_rate_limits.sql` | Durable authentication throttling, service-role-only atomic consume RPC, and removal of public execution from the RLS event-trigger helper |
 
 Dependencies flow only forward. No later migration recreates or replaces an earlier subsystem's function.
 
@@ -33,14 +34,14 @@ Dependencies flow only forward. No later migration recreates or replaces an earl
 
 The current chain was applied to an empty PostgreSQL 18 database with Supabase roles represented, then replayed. Both passes succeeded. The certified result is:
 
-- 12 public tables.
-- 50 indexes including primary/unique backing indexes.
+- 13 public tables.
+- 53 indexes including primary/unique backing indexes.
 - 12 foreign keys.
-- 20 primary/unique constraints.
-- 50 check constraints.
-- RLS enabled on all 12 tables.
+- 21 primary/unique constraints.
+- 54 check constraints.
+- RLS enabled on all 13 tables.
 - Zero anon/authenticated table privileges.
-- Two service-role-only security-definer RPCs with empty search paths.
+- Two service-role-only security-definer execution RPCs with empty search paths and one service-role-only security-invoker authentication throttle RPC.
 - Bucket provisioning is separately verified through `npm run persistence:provision` and the supported Storage API.
 
 PostgreSQL replay validates SQL ordering, dependencies, constraints, functions, grants, and RLS flags. A linked Supabase project remains the authoritative validation for managed Storage and platform advisors.
