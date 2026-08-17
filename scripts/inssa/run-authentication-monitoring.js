@@ -124,7 +124,10 @@ function readResult(method) {
   try {
     return JSON.parse(fs.readFileSync(resultPath, "utf8"));
   } catch {
-    return failedResult(method, `Authentication check did not produce ${path.relative(repoRoot, resultPath)}.`);
+    const result = failedResult(method, `Authentication check did not produce ${path.relative(repoRoot, resultPath)}.`);
+    fs.mkdirSync(path.dirname(resultPath), { recursive: true });
+    fs.writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+    return result;
   }
 }
 
@@ -147,9 +150,14 @@ function writeSummary(results, startedAt = new Date()) {
     completedAt: completedAt.toISOString(),
     durationMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
     environment,
+    evidenceReferences: {
+      checks: Object.fromEntries(METHODS.map((method) => [method, providerEvidenceReferences(method)])),
+      report: relativeEvidencePath(path.join(playwrightReportRoot, "index.html")),
+      summary: relativeEvidencePath(path.join(outputRoot, "authentication-monitoring-summary.json"))
+    },
     overallStatus: overallStatusFor(results),
     runId,
-    schemaVersion: 1,
+    schemaVersion: 2,
     startedAt: startedAt.toISOString(),
     targetHost: new URL(targetUrl).hostname
   };
@@ -158,4 +166,24 @@ function writeSummary(results, startedAt = new Date()) {
     fs.writeFileSync(path.join(playwrightReportRoot, "authentication-monitoring-summary.json"), `${JSON.stringify(summary, null, 2)}\n`, "utf8");
   }
   return summary;
+}
+
+function relativeEvidencePath(absolutePath) {
+  return path.relative(repoRoot, absolutePath).split(path.sep).join("/");
+}
+
+function providerEvidenceReferences(method) {
+  const methodRoot = path.join(outputRoot, method);
+  const references = {
+    result: relativeEvidencePath(path.join(methodRoot, "result.json"))
+  };
+  const optionalFiles = [
+    ["consoleLog", "console-log.json"],
+    ["screenshot", "screenshot.png"]
+  ];
+  for (const [key, fileName] of optionalFiles) {
+    const candidate = path.join(methodRoot, fileName);
+    if (fs.existsSync(candidate)) references[key] = relativeEvidencePath(candidate);
+  }
+  return references;
 }

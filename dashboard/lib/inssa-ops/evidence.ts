@@ -1,4 +1,7 @@
+import fs from "node:fs";
 import path from "node:path";
+import { parseAuthenticationMonitoringSummary } from "../monitoring/authentication-result";
+import { getRepoRoot } from "./paths";
 import type {
   InssaArtifactRecord,
   InssaEvidenceBundleRecord,
@@ -72,7 +75,8 @@ function evidenceItemFromArtifact(
     metadata: {
       compatibilityArtifactId: artifact.id,
       compatibilityArtifactType: artifact.artifactType,
-      originalFilePath: artifact.filePath
+      originalFilePath: artifact.filePath,
+      ...authenticationMonitoringResultMetadata(artifact)
     },
     relativePath: artifact.filePath,
     renderInline: artifact.renderInline,
@@ -87,6 +91,30 @@ function evidenceItemFromArtifact(
     uploadStatus: "local_only",
     uploadedAt: null
   };
+}
+
+function authenticationMonitoringResultMetadata(artifact: InssaArtifactRecord): Record<string, unknown> {
+  const normalizedPath = artifact.filePath.replaceAll("\\", "/");
+  if (!normalizedPath.endsWith("authentication-monitoring-summary.json")) return {};
+  try {
+    const repoRoot = path.resolve(getRepoRoot());
+    const absolutePath = path.resolve(repoRoot, artifact.filePath);
+    const relative = path.relative(repoRoot, absolutePath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error("Summary path escapes the repository.");
+    }
+    return {
+      authenticationMonitoringResult: parseAuthenticationMonitoringSummary(
+        JSON.parse(fs.readFileSync(absolutePath, "utf8"))
+      ),
+      authenticationMonitoringResultState: "available"
+    };
+  } catch (error) {
+    return {
+      authenticationMonitoringResultError: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+      authenticationMonitoringResultState: "invalid"
+    };
+  }
 }
 
 function classifyBundleType(run: InssaRunRecord, artifacts: InssaArtifactRecord[]): InssaEvidenceBundleType {
