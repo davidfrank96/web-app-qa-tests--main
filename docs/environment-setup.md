@@ -80,6 +80,8 @@ Governed staging mutations also require the deferred-cleanup policy in `.env.ins
 | `INSSA_MAX_MUTATION_RUNS_PER_DAY` | `10` | UTC daily mutation-run limit. |
 | `INSSA_UNRESOLVED_RETENTION_DAYS` | `90` | Default cleanup-ledger evidence retention target. |
 
+`INSSA_MAX_UNRESOLVED_OBJECTS` must never be removed or set to an effectively unlimited value. A bounded staging certification window may override the default only after documenting the current ledger count and projected objects. For the August 2026 governed certification cycle, the verified baseline is 9 and the maximum projected addition is 8, so the approved temporary minimum is `17`. This override does not weaken the 90-day age limit, daily mutation limit, identity, ownership, sanitization, or deferred-cleanup requirements.
+
 `INSSA_DASHBOARD_MODE`, `INSSA_DASHBOARD_LOCK_TOKEN`, `HOSTNAME`, `INSSA_RUN_OUTPUT_DIR`, `PLAYWRIGHT_OUTPUT_DIR`, `PLAYWRIGHT_HTML_OUTPUT_DIR`, `INSSA_MUTATION_RECORDING`, `INSSA_MUTATION_RUN_ID`, `AUTH_MONITOR_ENVIRONMENT`, `AUTH_MONITOR_OUTPUT_DIR`, and `AUTH_MONITOR_RUN_ID` are supervisor/runner-managed internals. Do not set them for normal operation.
 
 ## Authentication Monitoring

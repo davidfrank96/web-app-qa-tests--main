@@ -137,6 +137,23 @@ type CleanupLedgerRecord = {
   updatedAt: string;
 };
 
+type MutationReadinessRecord = {
+  blockingReason: string | null;
+  campaignKey: string;
+  checks: Array<{ detail: string; id: string; passed: boolean }>;
+  cleanupStatus: string;
+  createdObjectPaths: string[];
+  executionAllowed: boolean;
+  latestRunAvailable: boolean;
+  latestRunId: string | null;
+  lastResult: string;
+  oldestUnresolvedAt: string | null;
+  retentionDeadline: string | null;
+  safelyAccounted: boolean;
+  status: string;
+  unresolvedCount: number;
+};
+
 type EvidenceBundleRecord = {
   bundleType: string;
   campaignKey: string;
@@ -459,6 +476,7 @@ export function InssaOpsClient({
   const [logs, setLogs] = useState<RunLogRecord[]>([]);
   const [artifacts, setArtifacts] = useState<ArtifactRecord[]>([]);
   const [cleanupLedger, setCleanupLedger] = useState<CleanupLedgerRecord[]>([]);
+  const [mutationReadiness, setMutationReadiness] = useState<MutationReadinessRecord[]>([]);
   const [apiFailures, setApiFailures] = useState<ApiFailure[]>(
     initialLoadError
       ? [
@@ -1071,12 +1089,19 @@ export function InssaOpsClient({
     const endpoint = "/api/cleanup-ledger";
     try {
       const response = await apiFetch(endpoint, { cache: "no-store" });
-      const body = (await response.json().catch(() => ({}))) as { error?: string; records?: CleanupLedgerRecord[] };
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        readiness?: MutationReadinessRecord[];
+        records?: CleanupLedgerRecord[];
+      };
       if (!response.ok) {
         recordApiFailure(endpoint, response.status, body.error ?? response.statusText);
         return;
       }
-      startTransition(() => setCleanupLedger(body.records ?? []));
+      startTransition(() => {
+        setCleanupLedger(body.records ?? []);
+        setMutationReadiness(body.readiness ?? []);
+      });
     } catch (error) {
       recordApiFailure(endpoint, "network", error instanceof Error ? error.message : String(error));
     }
@@ -1540,6 +1565,7 @@ export function InssaOpsClient({
                     artifacts={reportArtifacts}
                     campaigns={securityCommands.filter((campaign) => campaign.mutatesStaging)}
                     cleanupLedger={cleanupLedger}
+                    readiness={mutationReadiness}
                     onOpenRun={(runId) => {
                       setSelectedRunId(runId);
                       setActiveWorkspace("runs");
@@ -1572,6 +1598,7 @@ export function InssaOpsClient({
                     artifacts={reportArtifacts}
                     campaigns={lifecycleCommands}
                     cleanupLedger={cleanupLedger}
+                    readiness={mutationReadiness}
                     onOpenRun={(runId) => {
                       setSelectedRunId(runId);
                       setActiveWorkspace("runs");
@@ -3202,12 +3229,14 @@ function MutationCampaignReadiness({
   campaigns,
   cleanupLedger,
   onOpenRun,
+  readiness,
   runs
 }: {
   artifacts: ArtifactRecord[];
   campaigns: CampaignDefinition[];
   cleanupLedger: CleanupLedgerRecord[];
   onOpenRun: (runId: string) => void;
+  readiness: MutationReadinessRecord[];
   runs: RunRecord[];
 }) {
   if (campaigns.length === 0) return null;
@@ -3222,28 +3251,26 @@ function MutationCampaignReadiness({
       </div>
       <div className="mt-4 grid gap-3 xl:grid-cols-2">
         {campaigns.map((campaign) => {
-          const latestRun = findLatestRunForCommand(runs, campaign.key);
-          const campaignRecords = cleanupLedger
-            .filter((record) => record.campaignKey === campaign.key)
-            .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-          const runRecords = latestRun
-            ? campaignRecords.filter((record) => record.originatingRunId === latestRun.id)
-            : campaignRecords.slice(0, 1);
-          const unresolvedRecords = runRecords.filter((record) => record.status !== "completed");
-          const playwrightReport = latestRun
-            ? artifacts.find((artifact) => artifact.runId === latestRun.id && artifact.artifactType === "Playwright Report") ?? null
+          const campaignReadiness = readiness.find((record) => record.campaignKey === campaign.key) ?? null;
+          const latestRun = campaignReadiness?.latestRunAvailable && campaignReadiness.latestRunId
+            ? runs.find((run) => run.id === campaignReadiness.latestRunId) ?? null
             : null;
-          const video = latestRun
+          const latestRunId = campaignReadiness?.latestRunId ?? latestRun?.id ?? null;
+          const playwrightReport = latestRunId
+            ? artifacts.find((artifact) => artifact.runId === latestRunId && artifact.artifactType === "Playwright Report") ?? null
+            : null;
+          const video = latestRunId
             ? artifacts.find(
                 (artifact) =>
-                  artifact.runId === latestRun.id &&
+                  artifact.runId === latestRunId &&
                   artifact.artifactType === "Video" &&
                   artifact.filePath.includes("/playwright-report/")
               ) ?? null
             : null;
           const videoHref = playwrightReport && video ? playwrightBundleAssetHref(playwrightReport, video.filePath) : null;
-          const cleanupStatus = runRecords[0]?.status ?? latestRun?.cleanup?.status ?? "not recorded";
-          const reason = runRecords.find((record) => record.reasonCode)?.reasonCode ?? latestRun?.cleanup?.reasonCode ?? null;
+          const campaignRecords = cleanupLedger.filter((record) => record.campaignKey === campaign.key);
+          const fallbackResult = latestRun ? latestRun.status : campaignRecords.length ? "historical_run_recorded" : "not_yet_validated";
+          const displayedStatus = campaignReadiness?.status ?? "BLOCKED_CONFIGURATION";
           return (
             <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4" key={campaign.key}>
               <div className="flex items-start justify-between gap-3">
@@ -3251,19 +3278,22 @@ function MutationCampaignReadiness({
                   <p className="font-semibold text-slate-100">{campaign.displayName}</p>
                   <p className="mt-1 font-mono text-xs text-slate-500">{campaign.npmScript}</p>
                 </div>
-                <StatusBadge status={mutationReadiness(latestRun, runRecords)} />
+                <StatusBadge status={displayedStatus} />
               </div>
               <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                <Metadata label="Last result" value={latestRun ? humanizePolicy(latestRun.status) : "not run"} />
-                <Metadata label="Cleanup status" value={humanizePolicy(cleanupStatus)} />
+                <Metadata label="Last result" value={humanizePolicy(campaignReadiness?.lastResult ?? fallbackResult)} />
+                <Metadata label="Cleanup status" value={humanizePolicy(campaignReadiness?.cleanupStatus ?? "not_recorded")} />
                 <Metadata
                   label="Created objects"
-                  value={runRecords.length ? runRecords.map((record) => record.objectPath).join(", ") : "none recorded"}
+                  value={campaignReadiness?.createdObjectPaths.length ? campaignReadiness.createdObjectPaths.join(", ") : "none recorded"}
                   mono
                 />
-                <Metadata label="Unresolved age" value={unresolvedAge(unresolvedRecords)} />
-                <Metadata label="Known issue" value={reason ?? (latestRun && FAILED_STATUSES.has(latestRun.status) ? "Review failed run evidence" : "none recorded")} />
-                <Metadata label="Current readiness" value={humanizePolicy(mutationReadiness(latestRun, runRecords))} />
+                <Metadata label="Unresolved objects" value={String(campaignReadiness?.unresolvedCount ?? 0)} />
+                <Metadata label="Oldest unresolved age" value={campaignReadiness?.oldestUnresolvedAt ? ageFromDate(campaignReadiness.oldestUnresolvedAt) : "none"} />
+                <Metadata label="Retention deadline" value={campaignReadiness?.retentionDeadline ? formatDate(campaignReadiness.retentionDeadline) : "not recorded"} />
+                <Metadata label="Safely accounted" value={campaignReadiness?.safelyAccounted ? "yes" : "no"} />
+                <Metadata label="Blocking reason" value={campaignReadiness?.blockingReason ?? "none"} />
+                <Metadata label="Current readiness" value={humanizePolicy(displayedStatus)} />
               </dl>
               <div className="mt-4 flex flex-wrap gap-2">
                 {videoHref ? (
@@ -3288,21 +3318,8 @@ function MutationCampaignReadiness({
   );
 }
 
-function mutationReadiness(run: RunRecord | null, records: CleanupLedgerRecord[]) {
-  if (!run) return "blocked";
-  if (ACTIVE_STATUSES.has(run.status)) return "unstable";
-  if (records.some((record) => !record.safelyAccounted || record.status === "pending" || record.status === "failed")) return "blocked";
-  if (FAILED_STATUSES.has(run.status)) return "unstable";
-  if (records.some((record) => record.status === "deferred" || record.status === "cleanup_unavailable")) {
-    return "ready_with_known_issues";
-  }
-  return PASSED_STATUSES.has(run.status) ? "ready" : "blocked";
-}
-
-function unresolvedAge(records: CleanupLedgerRecord[]) {
-  if (records.length === 0) return "none";
-  const oldest = Math.min(...records.map((record) => new Date(record.createdAt).getTime()));
-  const ageMs = Date.now() - oldest;
+function ageFromDate(value: string) {
+  const ageMs = Date.now() - new Date(value).getTime();
   if (!Number.isFinite(ageMs) || ageMs < 0) return "unknown";
   const hours = Math.floor(ageMs / 3_600_000);
   return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
@@ -3510,13 +3527,19 @@ function RiskBadge({ risk }: { risk: string }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const className = ACTIVE_STATUSES.has(status)
-    ? "bg-cyan-300/15 text-cyan-200 ring-cyan-300/20"
-    : PASSED_STATUSES.has(status)
-      ? "bg-emerald-300/15 text-emerald-200 ring-emerald-300/20"
-      : FAILED_STATUSES.has(status)
-        ? "bg-rose-300/15 text-rose-200 ring-rose-300/20"
-        : "bg-slate-700 text-slate-300 ring-slate-600";
+  const className = status === "READY_WITH_DEFERRED_CLEANUP" || status === "NOT_YET_VALIDATED"
+    ? "bg-amber-300/15 text-amber-200 ring-amber-300/20"
+    : status.startsWith("BLOCKED_")
+      ? "bg-rose-300/15 text-rose-200 ring-rose-300/20"
+      : status === "READY"
+        ? "bg-emerald-300/15 text-emerald-200 ring-emerald-300/20"
+        : ACTIVE_STATUSES.has(status)
+          ? "bg-cyan-300/15 text-cyan-200 ring-cyan-300/20"
+          : PASSED_STATUSES.has(status)
+            ? "bg-emerald-300/15 text-emerald-200 ring-emerald-300/20"
+            : FAILED_STATUSES.has(status)
+              ? "bg-rose-300/15 text-rose-200 ring-rose-300/20"
+              : "bg-slate-700 text-slate-300 ring-slate-600";
 
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs ring-1 ${className}`}>{status}</span>;
 }

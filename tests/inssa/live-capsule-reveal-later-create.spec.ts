@@ -28,6 +28,7 @@ import {
   INSSA_LIVE_CAPSULE_MANUAL_CLEANUP_APPROVED_ENV_FLAG,
   INSSA_REVEAL_LATER_CAPSULE_ENV_FLAG
 } from "../../utils/inssa-mutation";
+import { hasPersistedRevealSchedule } from "../../utils/inssa-reveal-schedule";
 import { withInssaStabilityMonitor } from "../../utils/monitor";
 
 const DEFAULT_TIMEOUT = 20_000;
@@ -632,6 +633,15 @@ test.describe("INSSA live reveal-later capsule create", () => {
         body: JSON.stringify(artifact, null, 2),
         contentType: "application/json"
       });
+
+      if (finalActionClicked && observedCreateSuccess) {
+        expect(
+          hasPersistedRevealSchedule(timestampEvidenceForArtifact),
+          `Reveal-later finalization succeeded without durable schedule evidence. Source: ${
+            timestampEvidenceForArtifact?.source ?? "none"
+          }; scheduledAtIso: ${timestampEvidenceForArtifact?.scheduledAtIso ?? "none"}.`
+        ).toBe(true);
+      }
     }
   });
 });

@@ -130,6 +130,12 @@ The dashboard exposes only the four governed campaign wrappers above, never `liv
 
 Every mutation job has one attempt so the final Bury/share action is not automatically retried. The worker preserves immutable run evidence and creates `cleanup-manifest.json`. Deferred Cleanup Mode may permit the next live campaign when every unresolved object is identified, attributed to a dedicated QA account, sanitized, safely represented in the durable ledger, within age/count/rate limits, and truthfully marked `deferred` or `cleanup_unavailable`. Unknown or unexpected objects remain blocking.
 
+### Governed Certification Capacity
+
+The unresolved-object threshold remains mandatory and finite. Before a complete governed certification cycle, operators must calculate the projected ledger peak rather than disabling the threshold. The August 2026 staging baseline contains nine unresolved, safely accounted records. One sequential Text, Media, Video, Cross-User, Reveal-Later Lifecycle, and Reveal-Later Security cycle can add at most eight records: one Text capsule, a Media capsule and image, a Video capsule and MP4, one Cross-User capsule, one Reveal-Later capsule, and one additional Reveal-Later Security capsule if create mode is used. The bounded minimum for that certification window is therefore `INSSA_MAX_UNRESOLVED_OBJECTS=17`.
+
+This value is a staging-only operational ceiling, not a new default and not cleanup completion. The default remains `10`. The temporary value must be recorded with the certification run, reviewed after the cycle, and reduced when cleanup capability or ledger disposition permits. Production mutation remains prohibited. Age, daily-rate, QA ownership, identity, sanitization, and deferred-mode gates remain unchanged.
+
 The current Text flow is:
 
 ```text

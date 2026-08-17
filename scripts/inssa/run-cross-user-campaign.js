@@ -17,10 +17,12 @@ const REPORT_DIR = path.resolve(ROOT, "reports", "security");
 const CREATE_SPEC = "tests/inssa/contact-share-state-machine.spec.ts";
 const NAVIGATION_TIMEOUT_MS = 25_000;
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
 
 async function main() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
@@ -44,6 +46,8 @@ async function main() {
     throw new Error(`Create phase passed, but no new lifecycle artifact was found in ${LIFECYCLE_ARTIFACT_DIR}.`);
   }
 
+  const capsuleId = requireCrossUserCapsuleIdentity(artifactMatch.artifact);
+
   console.log(`PHASE 1 artifact: ${artifactMatch.path}`);
   const secondaryStorageStatePath = await ensureSecondaryStorageState(baseUrl);
 
@@ -57,6 +61,7 @@ async function main() {
     accessVerification,
     artifactMatch,
     baseUrl,
+    capsuleId,
     createResult,
     mediaVerification,
     secondaryStorageStatePath,
@@ -418,7 +423,7 @@ function buildSummary(input) {
     primaryCreate: {
       commandStatus: input.createResult.code === 0 ? "passed" : "failed",
       artifactPath: input.artifactMatch.path,
-      capsuleId: artifact.possibleFinalCapsuleId ?? null,
+      capsuleId: input.capsuleId,
       tokenizedUrl: redactUrl(resolveCapsuleUrls(input.baseUrl, artifact).tokenizedUrl),
       tokenlessUrl: redactUrl(resolveCapsuleUrls(input.baseUrl, artifact).tokenlessUrl),
       subject: artifact.subject
@@ -491,7 +496,7 @@ function buildSurfaceTargets(artifact) {
 }
 
 function resolveCapsuleUrls(baseUrl, artifact) {
-  const capsuleId = artifact.possibleFinalCapsuleId || extractCapsuleId(artifact.finalShareLink || artifact.finalUrl || "");
+  const capsuleId = resolveCrossUserCapsuleIdentity(artifact);
   const token = artifact.possibleShareToken || extractShareToken(artifact.finalShareLink || artifact.finalUrl || "");
   const directCapsuleUrl = capsuleId ? `${baseUrl}/capsule/${capsuleId}` : null;
   const tokenizedUrl =
@@ -499,6 +504,27 @@ function resolveCapsuleUrls(baseUrl, artifact) {
     (capsuleId && token ? `${baseUrl}/capsule/${capsuleId}?token=${encodeURIComponent(token)}` : null);
   const tokenlessUrl = tokenizedUrl ? buildTokenlessUrl(tokenizedUrl) : directCapsuleUrl;
   return { directCapsuleUrl, tokenizedUrl, tokenlessUrl };
+}
+
+function resolveCrossUserCapsuleIdentity(artifact) {
+  const candidates = [
+    artifact?.possibleFinalCapsuleId,
+    extractCapsuleId(artifact?.finalShareLink || ""),
+    extractCapsuleId(artifact?.finalUrl || ""),
+    extractCapsuleId(artifact?.finalShareEvidence?.finalShareLink || "")
+  ];
+
+  return candidates.find((candidate) => typeof candidate === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(candidate)) ?? null;
+}
+
+function requireCrossUserCapsuleIdentity(artifact) {
+  const capsuleId = resolveCrossUserCapsuleIdentity(artifact);
+  if (!capsuleId) {
+    throw new Error(
+      "FAILED_CLEANUP_IDENTITY: Cross-user creation succeeded, but the exact staging capsule ID was not captured. Secondary probes and campaign certification are blocked."
+    );
+  }
+  return capsuleId;
 }
 
 function extractMediaUrls(value, output = []) {
@@ -769,3 +795,8 @@ Outputs:
 This campaign creates one QA-tagged staging capsule with User A, then probes it as User B.
 `);
 }
+
+module.exports = {
+  requireCrossUserCapsuleIdentity,
+  resolveCrossUserCapsuleIdentity
+};
