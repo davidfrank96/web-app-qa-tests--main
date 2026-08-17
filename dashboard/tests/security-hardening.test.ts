@@ -137,6 +137,21 @@ test("local authentication throttling persists and blocks repeated attempts", as
   }
 });
 
+test("hosted authentication throttling uses an unambiguous timestamp variable", async () => {
+  const migration = await fs.readFile(
+    path.join(
+      process.cwd(),
+      "supabase",
+      "migrations",
+      "20260817150000_fix_auth_rate_limit_timestamp.sql"
+    ),
+    "utf8"
+  );
+  assert.match(migration, /v_now timestamptz := clock_timestamp\(\)/);
+  assert.doesNotMatch(migration, /\bcurrent_time\b/i);
+  assert.match(migration, /p_scope_hash, p_action, v_now, 0, null, v_now/);
+});
+
 test("magic-link throttling blocks repeated delivery attempts independently", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qa-magic-limits-"));
   const previous = {
