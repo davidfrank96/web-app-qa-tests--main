@@ -6,11 +6,19 @@ import { resolveInssaLifecycleArtifactSelection } from "../../../lib/inssa-ops/l
 import {
   dashboardWorkerIsHealthy,
   isGovernedLiveCampaign,
+  parseLiveCampaignApprovalRequest,
   validateLiveCampaignPreflight
 } from "../../../lib/inssa-ops/live-campaigns";
 import { getInssaExecutionJobStore } from "../../../lib/inssa-ops/execution-job-store";
 import { getInssaRunStore, getInssaRunStoreSummary } from "../../../lib/inssa-ops/run-store";
 import { startInssaPhase1Run } from "../../../lib/inssa-ops/runner";
+import {
+  assertAllowedFields,
+  readBoundedJsonObject,
+  readRequiredString,
+  requestErrorResponse,
+  requireTrustedMutationOrigin
+} from "../../../lib/inssa-ops/request-security";
 import { getInssaCommandAuthorization } from "../../../lib/inssa-ops/security";
 import type { InssaLifecycleArtifactSelection } from "../../../lib/inssa-ops/types";
 
@@ -43,13 +51,22 @@ export async function POST(request: NextRequest) {
   if (auth.response) {
     return auth.response;
   }
+  const originFailure = requireTrustedMutationOrigin(request);
+  if (originFailure) return originFailure;
 
-  const body = await request.json().catch(() => null);
-  const campaignKey = typeof body?.campaignKey === "string" ? body.campaignKey : "";
+  let body: Record<string, unknown>;
+  let campaignKey: string;
+  try {
+    body = await readBoundedJsonObject(request, 32_768);
+    assertAllowedFields(body, ["artifactSelection", "campaignKey", "liveApproval"]);
+    campaignKey = readRequiredString(body.campaignKey, "campaignKey", 128);
+  } catch (error) {
+    return requestErrorResponse(error);
+  }
   const artifactSelection = parseArtifactSelection(body?.artifactSelection);
-
-  if (!campaignKey) {
-    return NextResponse.json({ error: "campaignKey is required." }, { status: 400 });
+  const idempotencyKey = request.headers.get("idempotency-key")?.trim() || undefined;
+  if (idempotencyKey && (idempotencyKey.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey))) {
+    return NextResponse.json({ error: "Idempotency-Key is invalid." }, { status: 400 });
   }
 
   const authorization = getInssaCommandAuthorization(auth.user.role, campaignKey);
@@ -85,10 +102,15 @@ export async function POST(request: NextRequest) {
 
   if (authorization.command && isGovernedLiveCampaign(authorization.command)) {
     const activeJob = await getInssaExecutionJobStore().getActive();
-    const preflight = await validateLiveCampaignPreflight(authorization.command, body?.liveApproval, auth.user, {
-      activeRunId: activeJob?.runId ?? null,
-      workerHealthy: await dashboardWorkerIsHealthy()
-    });
+    const preflight = await validateLiveCampaignPreflight(
+      authorization.command,
+      parseLiveCampaignApprovalRequest(body.liveApproval),
+      auth.user,
+      {
+        activeRunId: activeJob?.runId ?? null,
+        workerHealthy: await dashboardWorkerIsHealthy()
+      }
+    );
     if (!preflight.ok) {
       await recordInssaAuditEvent({
         campaignKey,
@@ -137,7 +159,7 @@ export async function POST(request: NextRequest) {
 
   const result = await startInssaPhase1Run({
     campaignKey,
-    idempotencyKey: request.headers.get("idempotency-key") ?? undefined,
+    idempotencyKey,
     executionContext,
     lifecycleArtifact,
     requestedBy: auth.user.email || auth.user.id
