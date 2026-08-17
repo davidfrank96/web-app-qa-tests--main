@@ -6,6 +6,10 @@ const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
 const { chromium } = require("@playwright/test");
+const {
+  requireCrossUserCapsuleIdentity,
+  resolveCrossUserCapsuleIdentity
+} = require("./cross-user-identity");
 
 const ROOT = process.cwd();
 const STAGING_HOSTNAME = "staging.inssa.us";
@@ -506,27 +510,6 @@ function resolveCapsuleUrls(baseUrl, artifact) {
   return { directCapsuleUrl, tokenizedUrl, tokenlessUrl };
 }
 
-function resolveCrossUserCapsuleIdentity(artifact) {
-  const candidates = [
-    artifact?.possibleFinalCapsuleId,
-    extractCapsuleId(artifact?.finalShareLink || ""),
-    extractCapsuleId(artifact?.finalUrl || ""),
-    extractCapsuleId(artifact?.finalShareEvidence?.finalShareLink || "")
-  ];
-
-  return candidates.find((candidate) => typeof candidate === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(candidate)) ?? null;
-}
-
-function requireCrossUserCapsuleIdentity(artifact) {
-  const capsuleId = resolveCrossUserCapsuleIdentity(artifact);
-  if (!capsuleId) {
-    throw new Error(
-      "FAILED_CLEANUP_IDENTITY: Cross-user creation succeeded, but the exact staging capsule ID was not captured. Secondary probes and campaign certification are blocked."
-    );
-  }
-  return capsuleId;
-}
-
 function extractMediaUrls(value, output = []) {
   if (typeof value === "string") {
     if (/^https?:\/\//i.test(value) && /firebasestorage\.googleapis\.com|storage\.googleapis\.com/i.test(value)) {
@@ -795,8 +778,3 @@ Outputs:
 This campaign creates one QA-tagged staging capsule with User A, then probes it as User B.
 `);
 }
-
-module.exports = {
-  requireCrossUserCapsuleIdentity,
-  resolveCrossUserCapsuleIdentity
-};

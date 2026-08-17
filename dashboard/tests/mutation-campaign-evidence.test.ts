@@ -10,7 +10,7 @@ const {
 }: {
   requireCrossUserCapsuleIdentity: (artifact: Record<string, unknown>) => string;
   resolveCrossUserCapsuleIdentity: (artifact: Record<string, unknown>) => string | null;
-} = require("../../scripts/inssa/run-cross-user-campaign.js");
+} = require("../../scripts/inssa/cross-user-identity.js");
 
 test("cross-user terminal certification requires an exact capsule identity", () => {
   assert.throws(
