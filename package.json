@@ -7,6 +7,9 @@
     "node": ">=22 <23"
   },
   "scripts": {
+    "retention:plan": "npm --prefix dashboard run --silent retention:plan --",
+    "test:retention": "npm --prefix dashboard run test:retention",
+    "test:ci:retention-ui": "node dashboard/scripts/test-retention-ui.mjs",
     "test": "playwright test",
     "typecheck": "tsc --noEmit",
     "test:ci:playwright": "playwright test tests/inssa/smoke.spec.ts tests/inssa/inssa-time-capsule-create.spec.ts tests/inssa/us-compose-location-matrix.spec.ts tests/inssa/media-step-capability.spec.ts tests/inssa/fixture-isolation.spec.ts --project=inssa-chrome --workers=1",

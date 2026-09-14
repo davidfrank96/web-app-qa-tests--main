@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { RetentionSummary } from "./retention-summary";
 import { TerminalRunDetailCache, terminalRunVersion } from "../lib/inssa-ops/terminal-run-detail-cache";
 import { summarizeAuthenticationSchedule, workspaceLoadsMonitoringState } from "../lib/monitoring/authentication-schedule";
 import { describeAuthenticationMonitorIncompleteRun } from "../lib/monitoring/authentication-failure";
@@ -2251,6 +2252,7 @@ export function InssaOpsClient({
 
               {activeWorkspace === "operations" ? (
                 <div className="space-y-5">
+                  {currentUser.role === "admin" ? <RetentionSummary /> : null}
                   <section className="workspace-card">
                     <SectionHeader title="Operations" subtitle="Platform health checks and operational diagnostics." />
                     <p className="mt-2 rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
