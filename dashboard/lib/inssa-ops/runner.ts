@@ -1,3 +1,4 @@
+import { recordProcessLiveness } from "./process-liveness";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -14,6 +15,7 @@ import {
 import { startExecutionLeaseHeartbeat } from "./execution-lease";
 import { buildEvidenceMetadataForRun } from "./evidence";
 import { persistEvidenceBundleToDurableStorage } from "./evidence-storage";
+import { assertEvidenceExecutionSafety, type EvidencePublicationOwner } from "./evidence-safety";
 import { validateInssaStagingEnvironment } from "./environment-guard";
 import {
   recordEvidenceUploadFailureNotification,
@@ -162,7 +164,8 @@ export async function executeClaimedInssaJob(
         process.stderr.write(`Unable to persist worker heartbeat failure diagnostic: ${redactInssaLogLine(String(logError))}\n`);
       });
     },
-    onHealthy: (leaseExpiresAt) => {
+    onHealthy: async (leaseExpiresAt) => {
+      await recordProcessLiveness("worker").catch(() => {});
       if (healthyHeartbeatLogged) return;
       healthyHeartbeatLogged = true;
       void store.appendLog(run.id, "system", `Worker heartbeat healthy; lease renewed through ${leaseExpiresAt}.`).catch(() => {});
@@ -179,7 +182,8 @@ export async function executeClaimedInssaJob(
       job.lifecycleArtifact ?? undefined,
       job.executionContext ?? undefined,
       leaseAbort.signal,
-      config.terminationGraceMs
+      config.terminationGraceMs,
+      { jobId: job.id, workerId }
     );
     try {
       await jobStore.complete(
@@ -194,6 +198,10 @@ export async function executeClaimedInssaJob(
   } catch (error) {
     const message = redactInssaLogLine(error instanceof Error ? error.message : String(error));
     await store.appendLog(run.id, "system", `Worker execution failure: ${message}`);
+    if (error instanceof ExecutionLeaseOwnershipError || leaseAbort.signal.aborted) {
+      await store.appendLog(run.id, "system", "EVIDENCE_UNAVAILABLE: lease lost; the current owner or recovery will reconcile the run.");
+      return;
+    }
     await store.updateRun(run.id, {
       completedAt: new Date().toISOString(),
       status: "failed_startup"
@@ -221,7 +229,8 @@ async function executeRun(
   lifecycleArtifact?: ResolvedInssaLifecycleArtifactSelection,
   executionContext?: InssaLiveExecutionContext,
   leaseSignal?: AbortSignal,
-  terminationGraceMs = 10_000
+  terminationGraceMs = 10_000,
+  owner?: EvidencePublicationOwner
 ) {
   const store = getInssaRunStore();
   const repoRoot = getRepoRoot();
@@ -270,6 +279,7 @@ async function executeRun(
     if (terminationState.promise) return terminationState.promise;
     void appendLog("system", `Campaign process-tree termination requested: reason=${reason}.`);
     terminationState.promise = terminateOwnedProcessTree(child, processGroupId, { graceMs: terminationGraceMs });
+    void terminationState.promise.catch(() => {}); // Awaited and classified after child close.
     return terminationState.promise;
   };
   const timeout = setTimeout(() => {
@@ -338,83 +348,110 @@ async function executeRun(
 
   const completedAt = new Date();
   const durationMs = completedAt.getTime() - startedAt.getTime();
-  await store.updateRun(run.id, { status: "indexing_artifacts" });
-  let output = await finalizeRunOutput({ campaignKey: run.campaignKey, completedAt, runId: run.id, startedAt });
-  if (run.commandSnapshot.cleanupRequired) {
-    const cleanup = await writeCleanupManifest(run, output.outputRoot);
-    if (cleanup) {
-      await store.updateRun(run.id, { cleanup });
-      const cleanupRecords = await persistCleanupLedgerForRun(run, cleanup, store);
-      if (cleanupRecords.length > 0) {
-        await recordInssaAuditEvent({
-          campaignKey: run.campaignKey,
-          eventType: "cleanup_deferred",
-          metadata: {
-            objectCount: cleanupRecords.length,
-            objectPaths: cleanupRecords.map((record) => record.objectPath),
-            reasonCode: cleanup.reasonCode
-          },
-          runId: run.id,
-          status: cleanup.status
-        });
-      }
-      if (cleanup.createdCapsuleIds.length === 0) {
-        await recordInssaAuditEvent({
-          campaignKey: run.campaignKey,
-          eventType: "cleanup_investigation_required",
-          metadata: {
-            finalActionPerformed: cleanup.finalActionPerformed,
-            reason: "Mutation campaign completed without a captured capsule ID."
-          },
-          runId: run.id,
-          status: "failed_cleanup_identity"
-        });
-      }
+  const assertOwned = async () => {
+    if (!owner) throw new Error("Evidence publication requires execution ownership.");
+    assertEvidenceExecutionSafety({
+      job: await getInssaExecutionJobStore().getByRunId(run.id), owner, runId: run.id,
+      leaseLost: leaseLost || Boolean(leaseSignal?.aborted), processAlive: false
+    });
+  };
+  const assertSafe = async () => {
+    await assertOwned();
+    if (terminationFailure || isOwnedProcessTreeAlive(child, processGroupId)) {
+      throw new Error("EVIDENCE_UNAVAILABLE: campaign process tree is not stable.");
     }
-    output = await finalizeRunOutput({ campaignKey: run.campaignKey, completedAt, runId: run.id, startedAt });
-  }
-  const artifacts = await indexArtifactsForRun({
-    completedAtMs: completedAt.getTime(),
-    outputRoot: output.outputRoot,
-    runId: run.id,
-    startedAtMs: startedAt.getTime()
-  });
-  await store.replaceRunArtifacts(run.id, artifacts);
-  await appendLog("system", `Indexed ${artifacts.length} immutable artifact metadata records.`);
-  await appendLog("system", `Run manifest: ${output.manifestPath}`);
-
-  try {
-    const evidence = buildEvidenceMetadataForRun({ ...run, completedAt: completedAt.toISOString() }, artifacts);
-    await store.replaceRunEvidence(run.id, evidence.bundle, evidence.items);
-    await appendLog(
-      "system",
-      evidence.bundle
-        ? `Indexed evidence bundle ${evidence.bundle.id} with ${evidence.items.length} evidence item metadata records.`
-        : "No evidence bundle was created because this run did not produce artifacts."
-    );
-    if (evidence.bundle && exit.code === 0 && !timedOut && !leaseLost) {
-      try {
-        const storageResult = await persistEvidenceBundleToDurableStorage(evidence.bundle, evidence.items);
-        await store.replaceRunEvidence(run.id, storageResult.bundle, storageResult.items);
-        await appendLog("system", `Evidence durable storage ${storageResult.status}: ${storageResult.message}`);
-        if (storageResult.status === "failed") {
-          warningSeen = true;
-          await recordEvidenceUploadFailureNotification(run, evidence.bundle.id, storageResult.message);
+  };
+  await assertOwned();
+  if (terminationFailure || isOwnedProcessTreeAlive(child, processGroupId)) {
+    terminationFailure ||= "Owned process tree remains alive.";
+    await appendLog("system", "EVIDENCE_UNAVAILABLE: process tree is not stable; indexing and upload were withheld.");
+  } else {
+    await assertSafe();
+    await store.updateRun(run.id, { status: "indexing_artifacts" });
+    let output = await finalizeRunOutput({ campaignKey: run.campaignKey, completedAt, runId: run.id, startedAt });
+    if (run.commandSnapshot.cleanupRequired) {
+      const cleanup = await writeCleanupManifest(run, output.outputRoot);
+      if (cleanup) {
+        await store.updateRun(run.id, { cleanup });
+        const cleanupRecords = await persistCleanupLedgerForRun(run, cleanup, store);
+        if (cleanupRecords.length > 0) {
+          await recordInssaAuditEvent({
+            campaignKey: run.campaignKey,
+            eventType: "cleanup_deferred",
+            metadata: {
+              objectCount: cleanupRecords.length,
+              objectPaths: cleanupRecords.map((record) => record.objectPath),
+              reasonCode: cleanup.reasonCode
+            },
+            runId: run.id,
+            status: cleanup.status
+          });
         }
-      } catch (error) {
-        warningSeen = true;
-        const message = redactInssaLogLine(error instanceof Error ? error.message : String(error));
-        await recordEvidenceUploadFailureNotification(run, evidence.bundle.id, message);
-        await appendLog("system", `Evidence durable storage warning: ${message}`);
+        if (cleanup.createdCapsuleIds.length === 0) {
+          await recordInssaAuditEvent({
+            campaignKey: run.campaignKey,
+            eventType: "cleanup_investigation_required",
+            metadata: {
+              finalActionPerformed: cleanup.finalActionPerformed,
+              reason: "Mutation campaign completed without a captured capsule ID."
+            },
+            runId: run.id,
+            status: "failed_cleanup_identity"
+          });
+        }
       }
+      output = await finalizeRunOutput({ campaignKey: run.campaignKey, completedAt, runId: run.id, startedAt });
     }
-  } catch (error) {
-    warningSeen = true;
-    await appendLog(
-      "system",
-      `Evidence metadata indexing warning: ${redactInssaLogLine(error instanceof Error ? error.message : String(error))}`
-    );
+    const artifacts = await indexArtifactsForRun({
+      completedAtMs: completedAt.getTime(),
+      outputRoot: output.outputRoot,
+      runId: run.id,
+      startedAtMs: startedAt.getTime()
+    });
+    await assertSafe();
+    await store.replaceRunArtifacts(run.id, artifacts);
+    await appendLog("system", `Indexed ${artifacts.length} immutable artifact metadata records.`);
+    await appendLog("system", `Run manifest: ${output.manifestPath}`);
+
+    try {
+      const evidence = buildEvidenceMetadataForRun({ ...run, completedAt: completedAt.toISOString() }, artifacts);
+      await assertSafe();
+      await store.replaceRunEvidence(run.id, evidence.bundle, evidence.items, owner);
+      await appendLog(
+        "system",
+        evidence.bundle
+          ? `Indexed evidence bundle ${evidence.bundle.id} with ${evidence.items.length} evidence item metadata records.`
+          : "No evidence bundle was created because this run did not produce artifacts."
+      );
+      if (evidence.bundle) {
+        try {
+          const storageResult = await persistEvidenceBundleToDurableStorage(evidence.bundle, evidence.items, { assertSafe, signal: leaseSignal });
+          await assertSafe();
+          await store.replaceRunEvidence(run.id, storageResult.bundle, storageResult.items, owner);
+          await appendLog("system", `Evidence durable storage ${storageResult.status}: ${storageResult.message}`);
+          if (storageResult.status === "failed") {
+            warningSeen = true;
+            await recordEvidenceUploadFailureNotification(run, evidence.bundle.id, storageResult.message);
+          }
+        } catch (error) {
+          if (error instanceof ExecutionLeaseOwnershipError || leaseSignal?.aborted) throw error;
+          warningSeen = true;
+          const message = redactInssaLogLine(error instanceof Error ? error.message : String(error));
+          await recordEvidenceUploadFailureNotification(run, evidence.bundle.id, message);
+          await appendLog("system", `Evidence durable storage warning: ${message}`);
+        }
+      }
+    } catch (error) {
+      if (error instanceof ExecutionLeaseOwnershipError || leaseSignal?.aborted) throw error;
+      warningSeen = true;
+      await appendLog(
+        "system",
+        `Evidence metadata indexing warning: ${redactInssaLogLine(error instanceof Error ? error.message : String(error))}`
+      );
+    }
+
   }
+  await assertOwned();
 
   const finalStatus = determineExecutionFinalStatus({
     exitCode: exit.code,

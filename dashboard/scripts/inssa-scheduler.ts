@@ -1,3 +1,4 @@
+import { recordProcessLiveness } from "../lib/inssa-ops/process-liveness";
 import { loadEnvConfig } from "@next/env";
 import { evaluateSchedulerOnce } from "../lib/monitoring/scheduler";
 import { getSchedulerStore } from "../lib/monitoring/scheduler-store";
@@ -26,6 +27,7 @@ async function main() {
   try {
     do {
       const result = await evaluateSchedulerOnce({ schedulerId, schedulerStore: store });
+      if (!result.errors.length) await recordProcessLiveness("scheduler").catch(() => {});
       process.stdout.write(
         `Scheduler evaluation: definitions=${result.definitionsEvaluated}, queued=${result.jobsQueued}, errors=${result.errors.length}\n`
       );

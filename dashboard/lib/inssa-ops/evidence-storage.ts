@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import { validateEvidenceManifest } from "./evidence-integrity";
+import { ExecutionLeaseOwnershipError } from "./execution-job-store";
+import type { EvidencePublicationGuard } from "./evidence-safety";
 import { getRepoRoot } from "./paths";
 import type { InssaEvidenceBundleRecord, InssaEvidenceItemRecord } from "./types";
 
@@ -31,7 +34,7 @@ type UploadVerification = {
 type SupabaseStorageAdminClient = {
   storage: {
     createBucket(bucketName: string, options: { public: boolean }): Promise<{ error: { message: string } | null }>;
-    getBucket(bucketName: string): Promise<{ error: { message: string } | null }>;
+    getBucket(bucketName: string): Promise<{ data: { public: boolean } | null; error: { message: string } | null }>;
   };
 };
 
@@ -46,10 +49,13 @@ type SupabaseEvidenceBucket = {
 
 export async function persistEvidenceBundleToDurableStorage(
   bundle: InssaEvidenceBundleRecord,
-  items: InssaEvidenceItemRecord[]
+  items: InssaEvidenceItemRecord[],
+  guard?: EvidencePublicationGuard
 ): Promise<InssaEvidenceStorageResult> {
   try {
     const config = readEvidenceStorageConfig();
+    validateEvidenceManifest(bundle.runId, bundle, items);
+    await guard?.assertSafe();
     if (config.provider === "local") {
       return {
         bundle: markBundleLocalOnly(bundle),
@@ -58,13 +64,14 @@ export async function persistEvidenceBundleToDurableStorage(
         status: "local_only"
       };
     }
-    return await uploadBundleToSupabase(config, bundle, items);
+    return await uploadBundleToSupabase(config, bundle, items, guard);
   } catch (error) {
+    if (error instanceof ExecutionLeaseOwnershipError || guard?.signal?.aborted) throw error;
     const message = error instanceof Error ? error.message : String(error);
     return {
       bundle: markBundleUploadFailed(bundle, message),
       items: items.map((item) => markItemUploadFailed(item, message)),
-      message: `Durable evidence upload failed; local filesystem evidence remains available. ${message}`,
+      message: `Durable evidence upload failed; source availability is not guaranteed. ${message}`,
       status: "failed"
     };
   }
@@ -132,13 +139,24 @@ function readEvidenceStorageConfig(): EvidenceStorageConfig {
 async function uploadBundleToSupabase(
   config: Extract<EvidenceStorageConfig, { provider: "supabase" }>,
   bundle: InssaEvidenceBundleRecord,
-  items: InssaEvidenceItemRecord[]
+  items: InssaEvidenceItemRecord[],
+  guard?: EvidencePublicationGuard
 ): Promise<InssaEvidenceStorageResult> {
-  const repoRoot = getRepoRoot();
+  const repoRoot = await fs.realpath(getRepoRoot());
+  // Validate every source before the first Storage mutation; never publish a partial manifest.
+  for (const item of items) {
+    await guard?.assertSafe();
+    await readVerifiedSource(repoRoot, item);
+  }
   const client = createClient(config.supabaseUrl, config.serviceRoleKey, {
-    auth: {
-      persistSession: false
-    }
+    auth: { persistSession: false },
+    global: { fetch: async (input, init) => {
+      await guard?.assertSafe();
+      const signals = [AbortSignal.timeout(60_000)];
+      if (guard?.signal) signals.push(guard.signal);
+      if (init?.signal) signals.push(init.signal);
+      return fetch(input, { ...init, signal: AbortSignal.any(signals) });
+    } }
   });
   const bucket = client.storage.from(config.bucket);
   const uploadedAt = new Date().toISOString();
@@ -147,14 +165,13 @@ async function uploadBundleToSupabase(
   const checksumManifest: Record<string, string> = {};
   let totalBytes = 0;
 
+  await guard?.assertSafe();
   await ensureSupabaseBucket(client, config.bucket);
 
   for (const item of items) {
     const localRelativePath = normalizeRelativeEvidencePath(item.relativePath);
-    const absolutePath = path.join(repoRoot, localRelativePath);
-    assertInsideRepo(repoRoot, absolutePath);
-
-    const body = await fs.readFile(absolutePath);
+    const body = await readVerifiedSource(repoRoot, item);
+    await guard?.assertSafe();
     const storageKey = `${storagePrefix}/${localRelativePath}`;
     const upload = await bucket.upload(storageKey, body, {
       contentType: item.contentType,
@@ -214,6 +231,7 @@ async function uploadBundleToSupabase(
 async function ensureSupabaseBucket(client: SupabaseStorageAdminClient, bucketName: string) {
   const existing = await client.storage.getBucket(bucketName);
   if (!existing.error) {
+    if (existing.data?.public !== false) throw new Error("Evidence requires a verified private Storage bucket.");
     return;
   }
 
@@ -316,4 +334,11 @@ function markItemUploadFailed(item: InssaEvidenceItemRecord, message: string): I
     uploadStatus: "failed",
     uploadedAt: null
   };
+}
+
+export async function readVerifiedSource(repoRoot: string, item: InssaEvidenceItemRecord): Promise<Buffer> {
+  const absolute = await fs.realpath(path.resolve(repoRoot, normalizeRelativeEvidencePath(item.relativePath)));
+  assertInsideRepo(repoRoot, absolute);
+  if (!(await fs.stat(absolute)).isFile()) throw new Error("Evidence source is not a regular file.");
+  return verifyEvidenceItemBytes(item, await fs.readFile(absolute));
 }

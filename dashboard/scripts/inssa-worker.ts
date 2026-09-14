@@ -1,3 +1,4 @@
+import { recordProcessLiveness } from "../lib/inssa-ops/process-liveness";
 import { loadEnvConfig } from "@next/env";
 import { getInssaExecutionJobStore } from "../lib/inssa-ops/execution-job-store";
 import { reconcileTerminalExecutionJobRun } from "../lib/inssa-ops/execution-recovery";
@@ -39,6 +40,7 @@ async function main() {
     }
     if (recovered.length > 0) process.stdout.write(`Recovered ${recovered.length} abandoned execution job(s).\n`);
     const job = await store.claimNext({ leaseMs: EXECUTION_CONFIG.leaseMs, workerId });
+    await recordProcessLiveness("worker").catch(() => {});
     if (job) {
       process.stdout.write(`Claimed execution job ${job.id} for run ${job.runId} (attempt ${job.attempt}).\n`);
       await executeClaimedInssaJob(job, workerId, EXECUTION_CONFIG).catch((error) => {

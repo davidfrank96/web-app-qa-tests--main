@@ -1,5 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { validateEvidenceManifest, validateEvidenceReplacement } from "./evidence-integrity";
+import { assertEvidenceExecutionSafety, type EvidencePublicationOwner } from "./evidence-safety";
+import { getInssaExecutionJobStore } from "./execution-job-store";
 import { withLocalFileLock } from "./local-file-lock";
 import { getLocalRunLogDirectory, getLocalRunStorePath } from "./paths";
 import type {
@@ -59,7 +62,8 @@ export type InssaRunStore = {
   replaceRunEvidence(
     runId: string,
     bundle: InssaEvidenceBundleRecord | null,
-    items: InssaEvidenceItemRecord[]
+    items: InssaEvidenceItemRecord[],
+    owner?: EvidencePublicationOwner
   ): Promise<{
     bundle: InssaEvidenceBundleRecord | null;
     items: InssaEvidenceItemRecord[];
@@ -267,12 +271,19 @@ class LocalJsonRunStore implements InssaRunStore {
     });
   }
 
-  async replaceRunEvidence(runId: string, bundle: InssaEvidenceBundleRecord | null, items: InssaEvidenceItemRecord[]) {
+  async replaceRunEvidence(runId: string, bundle: InssaEvidenceBundleRecord | null, items: InssaEvidenceItemRecord[], owner?: EvidencePublicationOwner) {
+    validateEvidenceManifest(runId, bundle, items);
     return this.withWrite(async (snapshot) => {
+      if (owner) assertEvidenceExecutionSafety({ job: await getInssaExecutionJobStore().getByRunId(runId),
+        owner, runId, leaseLost: false, processAlive: false });
+      const existing = { bundles: snapshot.evidenceBundles.filter((record) => record.runId === runId),
+        items: snapshot.evidenceItems.filter((record) => record.runId === runId) };
+      validateEvidenceReplacement(existing, bundle, items);
       snapshot.evidenceBundles = snapshot.evidenceBundles.filter((record) => record.runId !== runId);
       snapshot.evidenceItems = snapshot.evidenceItems.filter((record) => record.runId !== runId);
       if (bundle) snapshot.evidenceBundles.push(bundle);
-      snapshot.evidenceItems.push(...items);
+      snapshot.evidenceItems.push(...items.map((item) => ({ ...item,
+        metadata: existing.items.find((old) => old.id === item.id)?.metadata ?? item.metadata })));
       return { bundle, items };
     });
   }
@@ -601,28 +612,27 @@ class SupabaseRunStore implements InssaRunStore {
     return records;
   }
 
-  async replaceRunEvidence(runId: string, bundle: InssaEvidenceBundleRecord | null, items: InssaEvidenceItemRecord[]) {
-    await this.request(`evidence_items?run_id=eq.${encodeURIComponent(runId)}`, {
-      method: "DELETE"
-    });
-    await this.request(`evidence_bundles?run_id=eq.${encodeURIComponent(runId)}`, {
-      method: "DELETE"
-    });
-
-    if (bundle) {
-      await this.request("evidence_bundles", {
-        body: JSON.stringify(toSupabaseEvidenceBundle(bundle)),
-        method: "POST"
-      });
+  async replaceRunEvidence(runId: string, bundle: InssaEvidenceBundleRecord | null, items: InssaEvidenceItemRecord[], owner?: EvidencePublicationOwner) {
+    validateEvidenceManifest(runId, bundle, items);
+    // Repeating identical immutable records also handles a commit whose HTTP acknowledgement was lost.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.request("rpc/publish_inssa_evidence", {
+          body: JSON.stringify({
+            p_run_id: runId,
+            p_bundle: bundle ? toSupabaseEvidenceBundle(bundle) : null,
+            p_items: items.map(toSupabaseEvidenceItem),
+            p_job_id: owner?.jobId ?? null,
+            p_worker_id: owner?.workerId ?? null
+          }),
+          method: "POST",
+          signal: AbortSignal.timeout(30_000)
+        });
+        break;
+      } catch (error) {
+        if (attempt >= 1) throw error;
+      }
     }
-
-    if (items.length > 0) {
-      await this.request("evidence_items", {
-        body: JSON.stringify(items.map(toSupabaseEvidenceItem)),
-        method: "POST"
-      });
-    }
-
     return { bundle, items };
   }
 

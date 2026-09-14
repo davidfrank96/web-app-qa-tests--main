@@ -97,7 +97,7 @@ async function collectFiles(
     files.push({
       absolutePath,
       modifiedAtMs: stat.mtimeMs,
-      relativePath: path.relative(repoRoot, absolutePath),
+      relativePath: path.relative(repoRoot, absolutePath).split(path.sep).join("/"),
       size: stat.size
     });
   }

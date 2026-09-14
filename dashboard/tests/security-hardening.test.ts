@@ -253,20 +253,27 @@ test("health endpoint is cheap, sanitized, and tied to the dashboard supervisor"
     await fs.mkdir(lockRoot, { recursive: true });
     await fs.writeFile(
       path.join(lockRoot, "owner.json"),
-      JSON.stringify({ mode: "start", pid: process.pid }),
+      JSON.stringify({ mode: "start", pid: process.pid, token: "health-fixture-owner" }),
       "utf8"
     );
+    for (const role of ["worker", "scheduler"]) await fs.writeFile(path.join(repoRoot, "dashboard/.data", `${role}-liveness.json`),
+      JSON.stringify({ at: new Date().toISOString(), pid: process.pid, ownerToken: "health-fixture-owner" }));
     const response = await getHealth();
     const body = await response.json() as Record<string, unknown>;
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.deepEqual(Object.keys(body).sort(), [
+      "evidenceProvider",
       "metadataBackend",
+      "platformInfrastructure",
+      "scheduler",
       "status",
+      "supabase",
       "supervisor",
       "timestamp",
       "uptimeSeconds",
-      "web"
+      "web",
+      "worker"
     ]);
     assert.equal(JSON.stringify(body).includes(repoRoot), false);
   } finally {
