@@ -1,3 +1,4 @@
+import { readCleanupLedgerSnapshot } from "./cleanup-ledger";
 import type { InssaAuthenticatedUser } from "./security";
 import type { InssaRunStore } from "./run-store";
 import {
@@ -70,7 +71,7 @@ export async function evaluateMutationCampaignReadiness(
   });
   const [runs, ledger] = await Promise.all([
     dependencies.store.listRuns(),
-    dependencies.store.listCleanupLedger()
+    readCleanupLedgerSnapshot(dependencies.repoRoot, dependencies.store)
   ]);
   const correlation = correlateMutationCampaign(command.key, runs, ledger);
   const unresolved = ledger.filter((record) => record.status !== "completed");

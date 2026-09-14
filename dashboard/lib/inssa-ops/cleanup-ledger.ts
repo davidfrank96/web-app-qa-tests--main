@@ -44,13 +44,29 @@ export function resolveCleanupPolicy(
   };
 }
 
-export async function synchronizeConfiguredCleanupLedger(
+export async function initializeConfiguredCleanupLedger(
   repoRoot = getRepoRoot(),
   store: InssaRunStore = getInssaRunStore()
 ) {
   const records = await readConfiguredCleanupLedger(repoRoot);
-  for (const record of records) await store.upsertCleanupLedger(record);
+  await store.initializeCleanupLedger(records);
   return records;
+}
+
+/** Fresh read-only view. Configured unresolved objects remain conservatively
+ * visible before startup finishes; durable records, including resolutions, win.
+ */
+export async function readCleanupLedgerSnapshot(
+  repoRoot = getRepoRoot(),
+  store: InssaRunStore | null = getInssaRunStore()
+) {
+  const [configured, durable] = await Promise.all([
+    readConfiguredCleanupLedger(repoRoot),
+    store ? store.listCleanupLedger() : Promise.resolve([])
+  ]);
+  const identity = (record: InssaCleanupLedgerRecord) => JSON.stringify([record.originatingRunId, record.objectType, record.objectId]);
+  const durableIdentities = new Set(durable.map(identity));
+  return [...durable, ...configured.filter((record) => !durableIdentities.has(identity(record)))];
 }
 
 export async function persistCleanupLedgerForRun(
@@ -128,9 +144,8 @@ export async function evaluateCleanupGate(input: {
     return fail("qa-account", "Every account used by this campaign must be explicitly marked as a dedicated QA account.", policy, []);
   }
 
-  if (store) await synchronizeConfiguredCleanupLedger(repoRoot, store);
   const [ledger, runs, manifests] = await Promise.all([
-    store ? store.listCleanupLedger() : readConfiguredCleanupLedger(repoRoot),
+    readCleanupLedgerSnapshot(repoRoot, store),
     store ? store.listRuns() : Promise.resolve([]),
     readCleanupManifests(repoRoot)
   ]);

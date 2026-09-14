@@ -1,0 +1,79 @@
+{
+  "scope": "Wave 2 only: worker idle backoff, terminal detail cache, read-only cleanup GET",
+  "baseCommit": "332d357846cea1115a709fd999ce6d34e2228d20",
+  "wave1Status": "Operationally complete with known observations",
+  "workerBefore": {
+    "source": "approved QA Supabase pg_stat_statements; both samples had zero active jobs",
+    "samples": [
+      {
+        "at": "2026-09-14T20:25:58.860663Z",
+        "claimCalls": 2780499,
+        "recoveryCalls": 2780567,
+        "cleanupUpsertCalls": 8773,
+        "activeJobs": 0,
+        "cleanupFingerprint": "8e7580135bb1ebf5a4f0ecdd3bbfc545"
+      },
+      {
+        "at": "2026-09-14T20:30:53.132934Z",
+        "claimCalls": 2780772,
+        "recoveryCalls": 2780840,
+        "cleanupUpsertCalls": 8860,
+        "activeJobs": 0
+      }
+    ],
+    "elapsedSeconds": 294.272271,
+    "reads": 546,
+    "readsPerMinute": 111.32547381604977
+  },
+  "browser": {
+    "before": {
+      "source": "origin/main",
+      "method": "real Chromium, 60.1 seconds wall clock",
+      "elapsedMs": 60101,
+      "detailRequests": 16,
+      "listRequests": 4
+    },
+    "after": {
+      "source": "working-tree",
+      "method": "real Chromium, 60.1 seconds wall clock",
+      "elapsedMs": 60101,
+      "detailRequests": 0,
+      "listRequests": 4
+    },
+    "note": "Actual component served by isolated loopback fixtures. Wall-clock HTTP request counts after first detail load; not a production HAR."
+  },
+  "workerLatency": {
+    "method": "actual worker process, durable local job store, queue inserted immediately after maximum idle wait started",
+    "idleCapMs": 10000,
+    "claimedAfterMs": 10002,
+    "allowance": "10 seconds idle wait plus recovery/claim database and scheduling latency; network outages do not have a bounded wall-clock claim time."
+  },
+  "cleanupLocal": {
+    "actualGetRequests": 3,
+    "persistentWrites": 0,
+    "newerManualResolutionPreserved": true,
+    "freshPreflightObservedLaterUnsafeState": true
+  },
+  "hostedAfter": null,
+  "workerResourcesBefore": {
+    "at": "2026-09-14T20:47:45.652Z",
+    "end": "2026-09-14T20:48:45.663Z",
+    "pid": 64,
+    "startTicks": 21358,
+    "endTicks": 21395,
+    "ticksPerSecond": 100,
+    "rssKiB": 225572,
+    "cpuPercentOfOneCore": 0.6165536318341637,
+    "method": "/proc worker process counters, 60-second idle sample. RSS is a snapshot, not an equal-age memory benchmark."
+  },
+  "cleanupViewingBefore": {
+    "source": "Supabase pg_stat_statements tracked cleanup upsert query 2740875390597929796; authenticated Overview idle, zero active jobs",
+    "startAt": "2026-09-14T20:52:12.347501Z",
+    "endAt": "2026-09-14T20:53:28.838631Z",
+    "startCalls": 9466,
+    "endCalls": 9501,
+    "upserts": 35,
+    "elapsedSeconds": 76.49113,
+    "callsPerMinute": 27.454163639627236
+  }
+}

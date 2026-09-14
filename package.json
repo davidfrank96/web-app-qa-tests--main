@@ -62,7 +62,8 @@
     "test:ui": "playwright test --ui",
     "report": "playwright show-report",
     "install:browsers": "playwright install",
-    "codegen": "playwright codegen"
+    "codegen": "playwright codegen",
+    "test:ci:dashboard-polling": "node dashboard/scripts/test-run-detail-polling.mjs"
   },
   "devDependencies": {
     "@playwright/test": "latest",

@@ -1,4 +1,6 @@
 import { recordProcessLiveness } from "../lib/inssa-ops/process-liveness";
+import { initializeConfiguredCleanupLedger } from "../lib/inssa-ops/cleanup-ledger";
+import { MAX_WORKER_IDLE_MS, WorkerIdleBackoff } from "../lib/inssa-ops/worker-idle-backoff";
 import { loadEnvConfig } from "@next/env";
 import { getInssaExecutionJobStore } from "../lib/inssa-ops/execution-job-store";
 import { reconcileTerminalExecutionJobRun } from "../lib/inssa-ops/execution-recovery";
@@ -23,6 +25,9 @@ void main().catch((error) => {
 
 async function main() {
   const store = getInssaExecutionJobStore();
+  await initializeConfiguredCleanupLedger();
+  const idleBackoff = new WorkerIdleBackoff(POLL_MS);
+  let reportedMaxIdle = false;
   await recordWorkerRestartedNotification(workerId);
   process.stdout.write(`INSSA execution worker started: ${workerId}\n`);
   process.stdout.write(
@@ -38,16 +43,27 @@ async function main() {
       await recordJobRecoveryNotifications(job);
       await reconcileTerminalExecutionJobRun(job);
     }
-    if (recovered.length > 0) process.stdout.write(`Recovered ${recovered.length} abandoned execution job(s).\n`);
+    if (recovered.length > 0) {
+      idleBackoff.reset();
+      reportedMaxIdle = false;
+      process.stdout.write(`Recovered ${recovered.length} abandoned execution job(s).\n`);
+    }
     const job = await store.claimNext({ leaseMs: EXECUTION_CONFIG.leaseMs, workerId });
     await recordProcessLiveness("worker").catch(() => {});
     if (job) {
+      idleBackoff.reset();
+      reportedMaxIdle = false;
       process.stdout.write(`Claimed execution job ${job.id} for run ${job.runId} (attempt ${job.attempt}).\n`);
       await executeClaimedInssaJob(job, workerId, EXECUTION_CONFIG).catch((error) => {
         process.stderr.write(`Execution job ${job.id} failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
       });
     } else if (!runOnce && !stopping) {
-      await delay(POLL_MS);
+      const waitMs = idleBackoff.nextDelay();
+      if (waitMs === MAX_WORKER_IDLE_MS && !reportedMaxIdle) {
+        process.stdout.write(`Worker idle backoff reached ${MAX_WORKER_IDLE_MS}ms.\n`);
+        reportedMaxIdle = true;
+      }
+      await delay(waitMs);
     }
   } while (!runOnce && !stopping);
 

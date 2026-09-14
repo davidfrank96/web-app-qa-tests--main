@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { TerminalRunDetailCache, terminalRunVersion } from "../lib/inssa-ops/terminal-run-detail-cache";
 import { summarizeAuthenticationSchedule, workspaceLoadsMonitoringState } from "../lib/monitoring/authentication-schedule";
 import { describeAuthenticationMonitorIncompleteRun } from "../lib/monitoring/authentication-failure";
 import {
@@ -33,6 +34,7 @@ type CampaignDefinition = {
 };
 
 type RunRecord = {
+  updatedAt?: string;
   campaignKey: string;
   completedAt: string | null;
   createdAt: string;
@@ -204,6 +206,7 @@ type EvidenceItemRecord = {
 };
 
 type EvidenceByRun = Record<string, { bundles: EvidenceBundleRecord[]; items: EvidenceItemRecord[] }>;
+type RunDetail = { run: RunRecord; logs: RunLogRecord[]; artifacts: ArtifactRecord[]; evidence: EvidenceByRun[string] };
 type CampaignCategory = "Artifact Validation" | "Lifecycle" | "Operations" | "Safe Tests" | "Security" | "SIEM";
 type ProductKey = "Future" | "INSSA" | "KBean" | "Localman";
 type ThemeMode = "dark" | "light";
@@ -546,6 +549,13 @@ export function InssaOpsClient({
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const authenticationMonitoringRequestSequence = useRef(0);
+  const runDetailCache = useRef(new TerminalRunDetailCache<RunDetail>());
+  const runDetailRequestSequence = useRef(0);
+  const selectedRunIdRef = useRef(selectedRunId);
+  selectedRunIdRef.current = selectedRunId;
+  const selectedRunSummary = runs.find((run) => run.id === selectedRunId);
+  const selectedRunVersion = terminalRunVersion(selectedRunSummary);
+  const selectedRunIsActive = !selectedRunVersion;
   const hasActiveRuns = runs.some((run) => ACTIVE_STATUSES.has(run.status));
   const reportArchiveRunSignature = runs
     .slice(0, 40)
@@ -572,7 +582,7 @@ export function InssaOpsClient({
       if (document.hidden) return;
       void refreshRuns();
       if (activeWorkspace === "lifecycle" || activeWorkspace === "overview") void refreshCleanupLedger();
-      if (workspaceLoadsRunDetail && selectedRunId) void refreshRunDetail(selectedRunId);
+      if (workspaceLoadsRunDetail && selectedRunId && selectedRunIsActive) void refreshRunDetail(selectedRunId);
     };
     const interval = window.setInterval(() => {
       refresh();
@@ -583,7 +593,7 @@ export function InssaOpsClient({
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [activeWorkspace, hasActiveRuns, selectedRunId, sessionExpired, workspaceLoadsRunDetail]);
+  }, [activeWorkspace, hasActiveRuns, selectedRunId, selectedRunIsActive, sessionExpired, workspaceLoadsRunDetail]);
 
   useEffect(() => {
     if (sessionExpired || activeWorkspace !== "reports") return;
@@ -669,15 +679,15 @@ export function InssaOpsClient({
   }, [activeWorkspace, latestAuthenticationMonitoringReportId, latestAuthenticationMonitoringRun?.id, latestAuthenticationMonitoringRun?.status, sessionExpired]);
 
   useEffect(() => {
+    runDetailRequestSequence.current += 1;
     if (sessionExpired || !workspaceLoadsRunDetail) return;
+    setSelectedRun(null);
+    setLogs([]);
+    setArtifacts([]);
     if (selectedRunId) {
       void refreshRunDetail(selectedRunId);
-    } else {
-      setSelectedRun(null);
-      setLogs([]);
-      setArtifacts([]);
     }
-  }, [selectedRunId, sessionExpired, workspaceLoadsRunDetail]);
+  }, [selectedRunId, selectedRunVersion, sessionExpired, workspaceLoadsRunDetail]);
 
   const overview = useMemo(() => {
     return {
@@ -869,7 +879,7 @@ export function InssaOpsClient({
   const canStartRuns = currentUser.role === "operator" || currentUser.role === "admin";
   const approvalCampaign = campaignDefinitions.find((campaign) => campaign.key === approvalCampaignKey) ?? null;
   const revealLaterArtifacts = usableLifecycleArtifacts.filter((artifact) => artifact.artifactType === "reveal-later");
-  const executionRun = selectedRun ?? runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
+  const executionRun = (selectedRun?.id === selectedRunId ? selectedRun : null) ?? runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
   const executionCampaign = executionRun
     ? campaignDefinitions.find((campaign) => campaign.key === executionRun.campaignKey) ?? null
     : null;
@@ -1107,76 +1117,52 @@ export function InssaOpsClient({
     }
   }
 
-  async function refreshRunDetail(runId: string) {
-    let runResponse: Response;
-    let logsResponse: Response;
-    let artifactsResponse: Response;
-    let evidenceResponse: Response;
-
+  async function refreshRunDetail(runId: string, force = false) {
+    const sequence = ++runDetailRequestSequence.current;
+    const isCurrent = () => sequence === runDetailRequestSequence.current && selectedRunIdRef.current === runId;
+    const summary = runs.find((run) => run.id === runId) ?? {
+      id: runId, status: "queued", createdAt: "", completedAt: null
+    };
+    if (force) runDetailCache.current.invalidate(runId);
     try {
-      [runResponse, logsResponse, artifactsResponse, evidenceResponse] = await Promise.all([
-        apiFetch(`/api/runs/${runId}`, { cache: "no-store" }),
-        apiFetch(`/api/runs/${runId}/logs`, { cache: "no-store" }),
-        apiFetch(`/api/runs/${runId}/artifacts`, { cache: "no-store" }),
-        apiFetch(`/api/runs/${runId}/evidence`, { cache: "no-store" })
-      ]);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      recordApiFailure(`/api/runs/${runId}/*`, "network", message);
-      startTransition(() => {
-        setRunDetailError(message);
-        setSelectedRun(null);
-        setLogs([]);
-        setArtifacts([]);
+      const detail = await runDetailCache.current.load(summary, async () => {
+        const endpoints = ["", "/logs", "/artifacts", "/evidence"].map((suffix) => `/api/runs/${runId}${suffix}`);
+        const bodies = await Promise.all(endpoints.map(async (endpoint) => {
+          const response = await apiFetch(endpoint, { cache: "no-store" });
+          const body = await response.json();
+          if (!response.ok) {
+            const message = body.error ?? response.statusText;
+            recordApiFailure(endpoint, response.status, message);
+            throw new Error(message);
+          }
+          return body;
+        }));
+        return {
+          run: bodies[0].run as RunRecord,
+          logs: (bodies[1].logs ?? []) as RunLogRecord[],
+          artifacts: (bodies[2].artifacts ?? []) as ArtifactRecord[],
+          evidence: { bundles: bodies[3].bundles ?? [], items: bodies[3].items ?? [] }
+        };
       });
-      return;
-    }
-
-    if (runResponse.ok) {
-      const body = (await runResponse.json()) as { run: RunRecord };
+      if (!isCurrent()) return;
       startTransition(() => {
         setRunDetailError("");
-        setSelectedRun(body.run);
+        setSelectedRun(detail.run);
+        setLogs(detail.logs);
+        setArtifacts(detail.artifacts);
+        setEvidenceByRun((current) => ({ ...current, [runId]: detail.evidence }));
       });
-    } else {
-      const body = await readJsonResponse(runResponse);
-      const message = body.error ?? runResponse.statusText;
-      recordApiFailure(`/api/runs/${runId}`, runResponse.status, message);
+    } catch (error) {
+      if (!isCurrent()) return;
+      const message = error instanceof Error ? error.message : String(error);
+      recordApiFailure(`/api/runs/${runId}/*`, "detail", message);
       startTransition(() => {
         setRunDetailError(message);
         setSelectedRun(null);
         setLogs([]);
         setArtifacts([]);
+        setEvidenceByRun((current) => ({ ...current, [runId]: { bundles: [], items: [] } }));
       });
-    }
-    if (logsResponse.ok) {
-      const body = (await logsResponse.json()) as { logs: RunLogRecord[] };
-      startTransition(() => setLogs(body.logs));
-    } else {
-      const body = await readJsonResponse(logsResponse);
-      recordApiFailure(`/api/runs/${runId}/logs`, logsResponse.status, body.error ?? logsResponse.statusText);
-    }
-    if (artifactsResponse.ok) {
-      const body = (await artifactsResponse.json()) as { artifacts: ArtifactRecord[] };
-      startTransition(() => setArtifacts(body.artifacts));
-    } else {
-      const body = await readJsonResponse(artifactsResponse);
-      recordApiFailure(`/api/runs/${runId}/artifacts`, artifactsResponse.status, body.error ?? artifactsResponse.statusText);
-    }
-    if (evidenceResponse.ok) {
-      const body = (await evidenceResponse.json()) as { bundles: EvidenceBundleRecord[]; items: EvidenceItemRecord[] };
-      startTransition(() =>
-        setEvidenceByRun((current) => ({
-          ...current,
-          [runId]: {
-            bundles: body.bundles ?? [],
-            items: body.items ?? []
-          }
-        }))
-      );
-    } else {
-      const body = await readJsonResponse(evidenceResponse);
-      recordApiFailure(`/api/runs/${runId}/evidence`, evidenceResponse.status, body.error ?? evidenceResponse.statusText);
     }
   }
 
@@ -1345,7 +1331,7 @@ export function InssaOpsClient({
       return;
     }
     await refreshRuns();
-    await refreshRunDetail(run.id);
+    await refreshRunDetail(run.id, true);
   }
 
   function recordApiFailure(endpoint: string, status: number | string, message: string) {
@@ -1423,6 +1409,11 @@ export function InssaOpsClient({
                 <h1 className="mt-2 text-2xl font-semibold tracking-[-0.04em] md:text-3xl">{workspaceCopy.title}</h1>
                 <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">{workspaceCopy.subtitle}</p>
               </div>
+              {workspaceLoadsRunDetail && selectedRunId ? (
+                <button className="shrink-0 rounded-xl border border-slate-700 px-4 py-2 text-sm font-semibold hover:border-cyan-400" onClick={() => void refreshRunDetail(selectedRunId, true)} type="button">
+                  Refresh run details
+                </button>
+              ) : null}
               {message ? <p className="workspace-message">{message}</p> : null}
             </div>
 

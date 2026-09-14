@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInssaApiUser } from "../../../lib/inssa-ops/api-guard";
-import { synchronizeConfiguredCleanupLedger } from "../../../lib/inssa-ops/cleanup-ledger";
+import { readCleanupLedgerSnapshot } from "../../../lib/inssa-ops/cleanup-ledger";
 import { listInssaPhase1Commands } from "../../../lib/inssa-ops/command-registry";
 import { getInssaExecutionJobStore } from "../../../lib/inssa-ops/execution-job-store";
 import { dashboardWorkerIsHealthy, isGovernedLiveCampaign } from "../../../lib/inssa-ops/live-campaigns";
@@ -16,8 +16,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const store = getInssaRunStore();
-    await synchronizeConfiguredCleanupLedger(undefined, store);
-    const records = await store.listCleanupLedger();
+    const records = await readCleanupLedgerSnapshot(undefined, store);
     const activeJob = await getInssaExecutionJobStore().getActive();
     const workerHealthy = await dashboardWorkerIsHealthy();
     const readiness = [];
