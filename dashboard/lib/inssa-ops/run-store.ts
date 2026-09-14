@@ -618,11 +618,16 @@ class SupabaseRunStore implements InssaRunStore {
     for (let attempt = 0; ; attempt++) {
       try {
         await this.request("rpc/publish_inssa_evidence", {
-      body: JSON.stringify({ p_run_id: runId, p_bundle: bundle ? toSupabaseEvidenceBundle(bundle) : null,
-        p_items: items.map(toSupabaseEvidenceItem), p_job_id: owner?.jobId ?? null, p_worker_id: owner?.workerId ?? null }),
-      method: "POST",
-      signal: AbortSignal.timeout(30_000)
-    });
+          body: JSON.stringify({
+            p_run_id: runId,
+            p_bundle: bundle ? toSupabaseEvidenceBundle(bundle) : null,
+            p_items: items.map(toSupabaseEvidenceItem),
+            p_job_id: owner?.jobId ?? null,
+            p_worker_id: owner?.workerId ?? null
+          }),
+          method: "POST",
+          signal: AbortSignal.timeout(30_000)
+        });
         break;
       } catch (error) {
         if (attempt >= 1) throw error;
