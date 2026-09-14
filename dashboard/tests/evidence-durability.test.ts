@@ -48,6 +48,8 @@ async function fixture(t: test.TestContext) {
   const store = getInssaRunStore(), jobs = getInssaExecutionJobStore();
   async function createRun(mode: "pass" | "fail" | "timeout" = "pass") {
     await fs.writeFile(path.join(root, "fixture.cjs"), `const fs=require('fs'),path=require('path');fs.writeFileSync(path.join(process.env.INSSA_RUN_OUTPUT_DIR,'result.json'),JSON.stringify({fixture:true,mode:${JSON.stringify(mode)}}));${mode === "timeout" ? "setInterval(()=>{},1000)" : `process.exit(${mode === "fail" ? 1 : 0})`}`);
+    if (mode === "fail") await fs.writeFile(path.join(root, "fixture.cjs"),
+      await fs.readFile(new URL("../../scripts/evidence-failure-fixture.cjs", import.meta.url)));
     const run = await store.createRun({ campaignKey: "test_inssa_safe", requestedBy: "evidence-fixture",
       commandSnapshot: { key: "test_inssa_safe", displayName: "Controlled evidence fixture", npmScript: "fixture", commandType: "campaign",
         mutatesStaging: false, phase1Enabled: true, producesFindings: false, producesReports: true, riskLevel: "safe",
@@ -67,7 +69,8 @@ for (const [mode, expected] of [["pass", "passed"], ["fail", "failed"], ["timeou
     assert.equal((await f.store.getRun(run.id))?.status, expected);
     const evidence = await f.store.getEvidence(run.id);
     assert.equal(evidence.bundles.length, 1); assert.equal(evidence.bundles[0].uploadStatus, "uploaded");
-    assert.ok(evidence.items.length >= 2); assert.equal(evidence.bundles[0].itemCount, evidence.items.length);
+    assert.ok(evidence.items.length >= 2);
+    if (mode === "fail") assert.ok(evidence.items.some((item) => item.fileName === "controlled-failure.json")); assert.equal(evidence.bundles[0].itemCount, evidence.items.length);
     for (const item of evidence.items) assert.ok((await downloadEvidenceItemFromDurableStorage(item)).length);
     const retry = await persistEvidenceBundleToDurableStorage(evidence.bundles[0], evidence.items);
     assert.equal(retry.status, "uploaded");
