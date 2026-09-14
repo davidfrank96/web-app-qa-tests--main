@@ -14,7 +14,7 @@ async function main() {
     commandSnapshot: { key: "stabilization_evidence_fixture", displayName: "Controlled evidence failure fixture",
       npmScript: "test:fixture:evidence-failure", commandType: "healthcheck", mutatesStaging: false, phase1Enabled: false,
       producesFindings: false, producesReports: true, riskLevel: "safe", timeoutMs: 30_000,
-      targetEnvironment: "staging", operatorDescription: "Expected exit 1; writes one owned evidence file; zero product requests." } });
+      targetEnvironment: "staging", operatorDescription: "Expected exit 1; writes owned JSON and HTML evidence; zero product requests." } });
   try { await jobs.enqueue({ campaignKey: run.campaignKey, runId: run.id, idempotencyKey: run.id, maxAttempts: 1 }); }
   catch (error) { await store.updateRun(run.id,{status:"failed_startup",completedAt:new Date().toISOString()}); throw error; }
   console.log(JSON.stringify({ runId: run.id, expectedStatus: "failed", expectedEvidence: "uploaded", productRequests: 0 }));

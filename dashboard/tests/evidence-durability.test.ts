@@ -70,7 +70,11 @@ for (const [mode, expected] of [["pass", "passed"], ["fail", "failed"], ["timeou
     const evidence = await f.store.getEvidence(run.id);
     assert.equal(evidence.bundles.length, 1); assert.equal(evidence.bundles[0].uploadStatus, "uploaded");
     assert.ok(evidence.items.length >= 2);
-    if (mode === "fail") assert.ok(evidence.items.some((item) => item.fileName === "controlled-failure.json")); assert.equal(evidence.bundles[0].itemCount, evidence.items.length);
+    if (mode === "fail") {
+      assert.ok(evidence.items.some((item) => item.fileName === "controlled-failure.json"));
+      assert.ok(evidence.items.some((item) => item.fileName === "controlled-failure.html" && item.itemType === "Lifecycle Report"));
+    }
+    assert.equal(evidence.bundles[0].itemCount, evidence.items.length);
     for (const item of evidence.items) assert.ok((await downloadEvidenceItemFromDurableStorage(item)).length);
     const retry = await persistEvidenceBundleToDurableStorage(evidence.bundles[0], evidence.items);
     assert.equal(retry.status, "uploaded");
