@@ -1,3 +1,4 @@
+import { recordProcessLiveness } from "./process-liveness";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -163,7 +164,8 @@ export async function executeClaimedInssaJob(
         process.stderr.write(`Unable to persist worker heartbeat failure diagnostic: ${redactInssaLogLine(String(logError))}\n`);
       });
     },
-    onHealthy: (leaseExpiresAt) => {
+    onHealthy: async (leaseExpiresAt) => {
+      await recordProcessLiveness("worker").catch(() => {});
       if (healthyHeartbeatLogged) return;
       healthyHeartbeatLogged = true;
       void store.appendLog(run.id, "system", `Worker heartbeat healthy; lease renewed through ${leaseExpiresAt}.`).catch(() => {});
