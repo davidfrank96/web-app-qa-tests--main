@@ -85,6 +85,19 @@ jobs:
     name: Certified platform subsystems
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: qa_evidence_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: qa-local-fixture
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -94,6 +107,11 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
       - run: npm --prefix dashboard ci
       - run: npm run test:ci:platform
+      - name: Atomic evidence publication fault tests
+        working-directory: dashboard
+        env:
+          EVIDENCE_TEST_DATABASE_URL: postgresql://postgres:qa-local-fixture@127.0.0.1:5432/qa_evidence_test
+        run: node scripts/test-evidence-database.mjs
 
   security-regression:
     name: Ingestion and SIEM security
