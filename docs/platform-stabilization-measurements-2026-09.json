@@ -1,0 +1,2649 @@
+{
+  "schemaVersion": 1,
+  "auditDate": "2026-09-14",
+  "classification": "STABILIZATION BASELINE PARTIALLY BLOCKED",
+  "applicationChanges": false,
+  "deploymentChanges": false,
+  "retentionDeletionEnabled": false,
+  "provenance": {
+    "repository": "davidfrank96/web-app-qa-tests--main",
+    "branch": "fix/governed-mutation-readiness",
+    "localHead": "481a6146c0661118c84b0b25c76d52fa3c1eb11b",
+    "remoteMain": "2c289bc2ed4a3308122784bc5ece6fed4a452fea",
+    "sourceTreesIdentical": true,
+    "doAppId": "25bef95b-e762-4675-b850-65794c62aa10",
+    "doDeploymentId": "6101d465-b82a-419b-a1cd-ec9815b2147a",
+    "deployedShortShaObserved": "2c289bc",
+    "supabaseProject": "qdrhzdulhlkjhckosdrv",
+    "dataInventoryObservedAt": "2026-09-14T11:33:59.289061+00:00",
+    "metadataExportMethod": "Read-only REST pagination, 500 rows per page; SQL consistency and Storage metadata joins",
+    "limitations": [
+      "No authenticated HAR or interactive/hydration timing",
+      "No fresh complete dashboard session lifecycle",
+      "No per-process CPU/RAM or Chromium peak",
+      "No complete evidence UI trace/report navigation certification",
+      "No certified retention evaluator or durable hold model",
+      "No new release or after-optimization measurements"
+    ]
+  },
+  "versions": {
+    "localNode": "22.23.2",
+    "rootTypeScript": "6.0.3",
+    "next": "15.5.22",
+    "react": "19.2.5",
+    "playwright": "1.59.1",
+    "supabaseSsr": "0.12.0",
+    "supabaseJs": "2.108.0"
+  },
+  "databaseInventory": {
+    "rls": [
+      {
+        "rls": true,
+        "table": "run_logs"
+      },
+      {
+        "rls": true,
+        "table": "artifacts"
+      },
+      {
+        "rls": true,
+        "table": "evidence_bundles"
+      },
+      {
+        "rls": true,
+        "table": "evidence_items"
+      },
+      {
+        "rls": true,
+        "table": "campaign_runs"
+      },
+      {
+        "rls": true,
+        "table": "audit_events"
+      },
+      {
+        "rls": true,
+        "table": "execution_jobs"
+      },
+      {
+        "rls": true,
+        "table": "notification_outbox"
+      },
+      {
+        "rls": true,
+        "table": "monitoring_definitions"
+      },
+      {
+        "rls": true,
+        "table": "monitoring_schedule_occurrences"
+      },
+      {
+        "rls": true,
+        "table": "scheduler_runtime_status"
+      },
+      {
+        "rls": true,
+        "table": "cleanup_ledger"
+      },
+      {
+        "rls": true,
+        "table": "auth_rate_limits"
+      }
+    ],
+    "tables": [
+      {
+        "bytes": 155648,
+        "table": "monitoring_schedule_occurrences",
+        "deleted": 0,
+        "updated": 102,
+        "idx_scan": 174701,
+        "inserted": 102,
+        "seq_scan": 63124,
+        "estimated_rows": 102
+      },
+      {
+        "bytes": 32768,
+        "table": "scheduler_runtime_status",
+        "deleted": 0,
+        "updated": 49227,
+        "idx_scan": 49200,
+        "inserted": 1,
+        "seq_scan": 98015,
+        "estimated_rows": 1
+      },
+      {
+        "bytes": 3457024,
+        "table": "audit_events",
+        "deleted": 0,
+        "updated": 0,
+        "idx_scan": 2,
+        "inserted": 7446,
+        "seq_scan": 8,
+        "estimated_rows": 7446
+      },
+      {
+        "bytes": 4464640,
+        "table": "artifacts",
+        "deleted": 0,
+        "updated": 0,
+        "idx_scan": 95997,
+        "inserted": 6378,
+        "seq_scan": 18343,
+        "estimated_rows": 6378
+      },
+      {
+        "bytes": 10895360,
+        "table": "evidence_items",
+        "deleted": 5845,
+        "updated": 10,
+        "idx_scan": 65439,
+        "inserted": 12223,
+        "seq_scan": 18273,
+        "estimated_rows": 6378
+      },
+      {
+        "bytes": 344064,
+        "table": "campaign_runs",
+        "deleted": 0,
+        "updated": 450,
+        "idx_scan": 238594,
+        "inserted": 113,
+        "seq_scan": 15223,
+        "estimated_rows": 113
+      },
+      {
+        "bytes": 5857280,
+        "table": "run_logs",
+        "deleted": 0,
+        "updated": 0,
+        "idx_scan": 27403,
+        "inserted": 13743,
+        "seq_scan": 12975,
+        "estimated_rows": 13681
+      },
+      {
+        "bytes": 368640,
+        "table": "cleanup_ledger",
+        "deleted": 0,
+        "updated": 8322,
+        "idx_scan": 8453,
+        "inserted": 10,
+        "seq_scan": 8624,
+        "estimated_rows": 10
+      },
+      {
+        "bytes": 131072,
+        "table": "monitoring_definitions",
+        "deleted": 0,
+        "updated": 16,
+        "idx_scan": 98076,
+        "inserted": 8,
+        "seq_scan": 118,
+        "estimated_rows": 8
+      },
+      {
+        "bytes": 704512,
+        "table": "notification_outbox",
+        "deleted": 0,
+        "updated": 0,
+        "idx_scan": 1078,
+        "inserted": 512,
+        "seq_scan": 47,
+        "estimated_rows": 512
+      },
+      {
+        "bytes": 843776,
+        "table": "evidence_bundles",
+        "deleted": 96,
+        "updated": 0,
+        "idx_scan": 89569,
+        "inserted": 204,
+        "seq_scan": 6233,
+        "estimated_rows": 108
+      },
+      {
+        "bytes": 204800,
+        "table": "execution_jobs",
+        "deleted": 0,
+        "updated": 2209,
+        "idx_scan": 2488984,
+        "inserted": 113,
+        "seq_scan": 3040372,
+        "estimated_rows": 113
+      },
+      {
+        "bytes": 57344,
+        "table": "auth_rate_limits",
+        "deleted": 6,
+        "updated": 21,
+        "idx_scan": 67,
+        "inserted": 12,
+        "seq_scan": 4,
+        "estimated_rows": 6
+      }
+    ],
+    "buckets": [
+      {
+        "name": "inssa-evidence",
+        "bytes": 1176123366,
+        "public": false,
+        "objects": 5849
+      }
+    ],
+    "migrations": [
+      {
+        "name": "platform_core_persistence",
+        "version": "20260720"
+      },
+      {
+        "name": "execution_foundation",
+        "version": "20260721"
+      },
+      {
+        "name": "notification_outbox",
+        "version": "20260722"
+      },
+      {
+        "name": "monitoring_framework",
+        "version": "20260723"
+      },
+      {
+        "name": "scheduler_trigger",
+        "version": "20260724"
+      },
+      {
+        "name": "authentication_monitoring",
+        "version": "20260725"
+      },
+      {
+        "name": "admin_live_campaigns",
+        "version": "20260802"
+      },
+      {
+        "name": "disable_staging_auth_monitor_schedule",
+        "version": "20260810123743"
+      },
+      {
+        "name": "deferred_cleanup_ledger_version_fix",
+        "version": "20260810174608"
+      },
+      {
+        "name": "execution_job_claim_timestamp_fix",
+        "version": "20260810175709"
+      },
+      {
+        "name": "enable_twice_daily_staging_auth_monitor",
+        "version": "20260814093000"
+      },
+      {
+        "name": "auth_monitor_execution_timeout",
+        "version": "20260814113000"
+      },
+      {
+        "name": "auth_rate_limits",
+        "version": "20260817090000"
+      },
+      {
+        "name": "fix_auth_rate_limit_timestamp",
+        "version": "20260817150000"
+      }
+    ],
+    "observed_at": "2026-09-14T11:33:59.289061+00:00",
+    "database_bytes": 67824787
+  },
+  "consistency": {
+    "observedAt": "2026-09-14T11:33:33.558Z",
+    "runStatuses": {
+      "passed_with_warnings": 96,
+      "failed": 16,
+      "failed_startup": 1
+    },
+    "jobStatuses": {
+      "completed": 96,
+      "failed": 13,
+      "abandoned": 4
+    },
+    "bundleUploads": {
+      "uploaded": 96,
+      "local_only": 12
+    },
+    "itemUploads": {
+      "uploaded": 5845,
+      "local_only": 533
+    },
+    "occurrenceStatuses": {
+      "queued": 102
+    },
+    "cleanupStatuses": {
+      "cleanup_unavailable": 10
+    },
+    "activeRunCount": 0,
+    "terminalJobsActiveRuns": 0,
+    "duplicateOccurrenceKeys": 0,
+    "duplicateJobRunIds": 0,
+    "orphanArtifacts": 0,
+    "orphanItems": 0,
+    "mismatchedBundles": 0,
+    "terminalRunsNoBundle": [
+      {
+        "id": "081dd261-1e41-488b-8bd9-41a386bebbc3",
+        "status": "failed",
+        "campaign": "test_inssa_safe"
+      },
+      {
+        "id": "49ddbc17-73c7-4a5f-9ef6-7ae7447fa9df",
+        "status": "failed_startup",
+        "campaign": "monitor_inssa_auth_staging"
+      },
+      {
+        "id": "7be71a4a-d12d-4d10-9660-deea7544ac72",
+        "status": "failed",
+        "campaign": "test_inssa_safe"
+      },
+      {
+        "id": "99436c6d-0de0-48aa-82f0-be413951709b",
+        "status": "failed",
+        "campaign": "test_inssa_safe"
+      },
+      {
+        "id": "e9d977c0-219b-4356-9fc4-af44f28d38a6",
+        "status": "failed",
+        "campaign": "test_inssa_safe"
+      }
+    ]
+  },
+  "accessAndStatistics": {
+    "privileges": [
+      {
+        "table": "run_logs",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "artifacts",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "evidence_bundles",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "evidence_items",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "campaign_runs",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "audit_events",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "execution_jobs",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "notification_outbox",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "monitoring_definitions",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "monitoring_schedule_occurrences",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "scheduler_runtime_status",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "cleanup_ledger",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      },
+      {
+        "table": "auth_rate_limits",
+        "anon_select": false,
+        "service_select": true,
+        "authenticated_select": false
+      }
+    ],
+    "stats_reset": null,
+    "summary_counts": [
+      {
+        "count": 4,
+        "artifact_type": "Campaign Summary"
+      }
+    ],
+    "rate_limit_rows": 6,
+    "auth_result_projections": 124
+  },
+  "advisors": {
+    "performance": {
+      "lints": [
+        {
+          "name": "unindexed_foreign_keys",
+          "title": "Unindexed foreign keys",
+          "level": "INFO",
+          "facing": "EXTERNAL",
+          "categories": [
+            "PERFORMANCE"
+          ],
+          "description": "Identifies foreign key constraints without a covering index, which can impact database performance.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys",
+          "count": 2,
+          "findings": [
+            {
+              "detail": "Table \\`public.evidence_bundles\\` has a foreign key \\`evidence_bundles_source_artifact_id_fkey\\` without a covering index. This can lead to suboptimal query performance.",
+              "metadata": {
+                "name": "evidence_bundles",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "evidence_bundles_source_artifact_id_fkey",
+                "fkey_columns": [
+                  11
+                ]
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            },
+            {
+              "detail": "Table \\`public.monitoring_schedule_occurrences\\` has a foreign key \\`monitoring_schedule_occurrences_run_id_fkey\\` without a covering index. This can lead to suboptimal query performance.",
+              "metadata": {
+                "name": "monitoring_schedule_occurrences",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "monitoring_schedule_occurrences_run_id_fkey",
+                "fkey_columns": [
+                  8
+                ]
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            }
+          ]
+        },
+        {
+          "name": "unused_index",
+          "title": "Unused Index",
+          "level": "INFO",
+          "facing": "EXTERNAL",
+          "categories": [
+            "PERFORMANCE"
+          ],
+          "description": "Detects if an index has never been used and may be a candidate for removal.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index",
+          "count": 11,
+          "findings": [
+            {
+              "detail": "Index \\`audit_events_type_idx\\` on table \\`public.audit_events\\` has not been used",
+              "metadata": {
+                "name": "audit_events",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            },
+            {
+              "detail": "Index \\`evidence_bundles_upload_idx\\` on table \\`public.evidence_bundles\\` has not been used",
+              "metadata": {
+                "name": "evidence_bundles",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            },
+            {
+              "detail": "Index \\`evidence_items_artifact_idx\\` on table \\`public.evidence_items\\` has not been used",
+              "metadata": {
+                "name": "evidence_items",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            },
+            {
+              "detail": "Index \\`evidence_items_type_idx\\` on table \\`public.evidence_items\\` has not been used",
+              "metadata": {
+                "name": "evidence_items",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            },
+            {
+              "detail": "Index \\`notification_outbox_status_idx\\` on table \\`public.notification_outbox\\` has not been used",
+              "metadata": {
+                "name": "notification_outbox",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            },
+            {
+              "detail": "Index \\`notification_outbox_severity_idx\\` on table \\`public.notification_outbox\\` has not been used",
+              "metadata": {
+                "name": "notification_outbox",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            },
+            {
+              "detail": "Index \\`notification_outbox_campaign_idx\\` on table \\`public.notification_outbox\\` has not been used",
+              "metadata": {
+                "name": "notification_outbox",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            },
+            {
+              "detail": "Index \\`notification_outbox_product_environment_idx\\` on table \\`public.notification_outbox\\` has not been used",
+              "metadata": {
+                "name": "notification_outbox",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            },
+            {
+              "detail": "Index \\`monitoring_definitions_product_idx\\` on table \\`public.monitoring_definitions\\` has not been used",
+              "metadata": {
+                "name": "monitoring_definitions",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            },
+            {
+              "detail": "Index \\`cleanup_ledger_status_idx\\` on table \\`public.cleanup_ledger\\` has not been used",
+              "metadata": {
+                "name": "cleanup_ledger",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            },
+            {
+              "detail": "Index \\`auth_rate_limits_blocked_idx\\` on table \\`public.auth_rate_limits\\` has not been used",
+              "metadata": {
+                "name": "auth_rate_limits",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:00.970Z"
+            }
+          ]
+        }
+      ]
+    },
+    "security": {
+      "lints": [
+        {
+          "name": "rls_enabled_no_policy",
+          "title": "RLS Enabled No Policy",
+          "level": "INFO",
+          "facing": "EXTERNAL",
+          "categories": [
+            "SECURITY"
+          ],
+          "description": "Detects cases where row level security (RLS) has been enabled on a table but no RLS policies have been created.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy",
+          "count": 13,
+          "findings": [
+            {
+              "detail": "Table \\`public.artifacts\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "artifacts",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.audit_events\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "audit_events",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.auth_rate_limits\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "auth_rate_limits",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.campaign_runs\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "campaign_runs",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.cleanup_ledger\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "cleanup_ledger",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.evidence_bundles\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "evidence_bundles",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.evidence_items\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "evidence_items",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.execution_jobs\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "execution_jobs",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.monitoring_definitions\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "monitoring_definitions",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.monitoring_schedule_occurrences\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "monitoring_schedule_occurrences",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.notification_outbox\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "notification_outbox",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.run_logs\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "run_logs",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            },
+            {
+              "detail": "Table \\`public.scheduler_runtime_status\\` has RLS enabled, but no policies exist",
+              "metadata": {
+                "name": "scheduler_runtime_status",
+                "type": "table",
+                "schema": "public"
+              },
+              "observed_at": "2026-09-14T11:34:01.146Z"
+            }
+          ]
+        },
+        {
+          "name": "auth_leaked_password_protection",
+          "title": "Leaked Password Protection Disabled",
+          "level": "WARN",
+          "facing": "EXTERNAL",
+          "categories": [
+            "SECURITY"
+          ],
+          "description": "Leaked password protection is currently disabled.",
+          "remediation": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection",
+          "count": 1,
+          "findings": [
+            {
+              "detail": "Supabase Auth prevents the use of compromised passwords by checking against HaveIBeenPwned.org. Enable this feature to enhance security.",
+              "metadata": {
+                "type": "auth",
+                "entity": "Auth"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "queryStatistics": {
+    "resetAt": null,
+    "interpretation": "Cumulative SQL execution time; not HTTP response latency or daily volume",
+    "queries": [
+      {
+        "queryid": "-883418542908768468",
+        "calls": 2751699,
+        "total_ms": "117323.07",
+        "mean_ms": "0.043",
+        "max_ms": "12.263",
+        "query": "WITH pgrst_source AS ( SELECT \"public\".\"execution_jobs\".* FROM \"public\".\"execution_jobs\" WHERE  \"public\".\"execution_jobs\".\"status\" = ANY ($1)  AND  \"public\".\"execution_jobs\".\"lease_expires_at\" < $2   LIMIT $3 OFFSET $4 )  SELECT $5::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t), $6) AS bod"
+      },
+      {
+        "queryid": "-7848365189230219927",
+        "calls": 83350,
+        "total_ms": "87018.99",
+        "mean_ms": "1.044",
+        "max_ms": "66.149",
+        "query": "WITH pgrst_source AS ( SELECT \"public\".\"evidence_items\".* FROM \"public\".\"evidence_items\" WHERE  \"public\".\"evidence_items\".\"run_id\" = $1  ORDER BY \"public\".\"evidence_items\".\"relative_path\" ASC  LIMIT $2 OFFSET $3 )  SELECT $4::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t), $5) AS body, null"
+      },
+      {
+        "queryid": "8531179292464037170",
+        "calls": 2751631,
+        "total_ms": "76816.00",
+        "mean_ms": "0.028",
+        "max_ms": "16.089",
+        "query": "WITH pgrst_source AS ( SELECT \"public\".\"execution_jobs\".* FROM \"public\".\"execution_jobs\" WHERE  \"public\".\"execution_jobs\".\"status\" = $1  ORDER BY \"public\".\"execution_jobs\".\"created_at\" ASC  LIMIT $2 OFFSET $3 )  SELECT $4::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t), $5) AS body, nullif("
+      },
+      {
+        "queryid": "-453558246252661636",
+        "calls": 83350,
+        "total_ms": "16488.39",
+        "mean_ms": "0.198",
+        "max_ms": "37.200",
+        "query": "WITH pgrst_source AS ( SELECT \"public\".\"evidence_bundles\".* FROM \"public\".\"evidence_bundles\" WHERE  \"public\".\"evidence_bundles\".\"run_id\" = $1  ORDER BY \"public\".\"evidence_bundles\".\"created_at\" DESC  LIMIT $2 OFFSET $3 )  SELECT $4::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t), $5) AS body"
+      },
+      {
+        "queryid": "2393379620631666898",
+        "calls": 13737,
+        "total_ms": "9531.40",
+        "mean_ms": "0.694",
+        "max_ms": "120.099",
+        "query": "WITH pgrst_source AS (INSERT INTO \"public\".\"run_logs\"(\"created_at\", \"id\", \"message\", \"run_id\", \"sequence\", \"stream\") SELECT \"pgrst_body\".\"created_at\", \"pgrst_body\".\"id\", \"pgrst_body\".\"message\", \"pgrst_body\".\"run_id\", \"pgrst_body\".\"sequence\", \"pgrst_body\".\"stream\" FROM (SELECT $1 AS json_data) pgrst_payload, LATERAL (SELECT \"created_at\", \"id\", \"mess"
+      },
+      {
+        "queryid": "-1194444470629201774",
+        "calls": 8385,
+        "total_ms": "9499.59",
+        "mean_ms": "1.133",
+        "max_ms": "168.614",
+        "query": "WITH pgrst_source AS ( SELECT \"public\".\"run_logs\".* FROM \"public\".\"run_logs\" WHERE  \"public\".\"run_logs\".\"run_id\" = $1  ORDER BY \"public\".\"run_logs\".\"sequence\" ASC  LIMIT $2 OFFSET $3 )  SELECT $4::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t), $5) AS body, nullif(current_setting($6, $7), $"
+      },
+      {
+        "queryid": "2740875390597929796",
+        "calls": 8336,
+        "total_ms": "8789.86",
+        "mean_ms": "1.054",
+        "max_ms": "78.661",
+        "query": "WITH pgrst_source AS (INSERT INTO \"public\".\"cleanup_ledger\"(\"affected_users\", \"campaign_key\", \"created_at\", \"dedicated_qa_account\", \"deferred_at\", \"environment\", \"evidence_paths\", \"id\", \"notes\", \"object_id\", \"object_path\", \"object_type\", \"originating_run_id\", \"owner_account\", \"product\", \"reason_code\", \"resolved_at\", \"retention_until\", \"safely_accou"
+      },
+      {
+        "queryid": "3416975469037242826",
+        "calls": 9124,
+        "total_ms": "8572.54",
+        "mean_ms": "0.940",
+        "max_ms": "213.850",
+        "query": "WITH pgrst_source AS ( SELECT \"public\".\"run_logs\".\"id\" FROM \"public\".\"run_logs\"   LIMIT $1 OFFSET $2 ) , pgrst_source_count AS (SELECT $3  FROM \"public\".\"run_logs\") SELECT (SELECT pg_catalog.count(*) FROM pgrst_source_count) AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t), $4) AS body, nullif(curre"
+      },
+      {
+        "queryid": "-6103023111588184801",
+        "calls": 204,
+        "total_ms": "7868.20",
+        "mean_ms": "38.570",
+        "max_ms": "136.190",
+        "query": "WITH pgrst_source AS (INSERT INTO \"public\".\"evidence_items\"(\"artifact_id\", \"bundle_id\", \"campaign_key\", \"content_type\", \"created_at\", \"file_name\", \"id\", \"item_type\", \"metadata\", \"relative_path\", \"render_inline\", \"retention_class\", \"run_id\", \"sensitive\", \"sha256\", \"size_bytes\", \"storage_backend\", \"storage_key\", \"upload_error\", \"upload_status\", \"uplo"
+      },
+      {
+        "queryid": "7066695460489221644",
+        "calls": 8636,
+        "total_ms": "4004.25",
+        "mean_ms": "0.464",
+        "max_ms": "65.124",
+        "query": "WITH pgrst_source AS ( SELECT \"public\".\"cleanup_ledger\".* FROM \"public\".\"cleanup_ledger\"  ORDER BY \"public\".\"cleanup_ledger\".\"created_at\" DESC  LIMIT $1 OFFSET $2 )  SELECT $3::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t), $4) AS body, nullif(current_setting($5, $6), $7) AS response_heade"
+      },
+      {
+        "queryid": "7576457994966161046",
+        "calls": 7812,
+        "total_ms": "2339.79",
+        "mean_ms": "0.300",
+        "max_ms": "14.281",
+        "query": "WITH pgrst_source AS (SELECT \"pgrst_call\".* FROM \"public\".\"recover_inssa_execution_job_records\"() pgrst_call) SELECT $3::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t), $4) AS body, nullif(current_setting($5, $6), $7) AS response_headers, nullif(current_setting($8, $9), $10) AS response_sta"
+      },
+      {
+        "queryid": "-6382795417941140751",
+        "calls": 1867,
+        "total_ms": "1680.17",
+        "mean_ms": "0.900",
+        "max_ms": "92.947",
+        "query": "WITH pgrst_source AS (UPDATE \"public\".\"execution_jobs\" SET \"heartbeat_at\" = \"pgrst_body\".\"heartbeat_at\", \"lease_expires_at\" = \"pgrst_body\".\"lease_expires_at\", \"updated_at\" = \"pgrst_body\".\"updated_at\" FROM (SELECT $1 AS json_data) pgrst_payload, LATERAL (SELECT \"heartbeat_at\", \"lease_expires_at\", \"updated_at\" FROM json_to_record(pgrst_payload.json_d"
+      }
+    ]
+  },
+  "workerIdleSample": {
+    "first": {
+      "at": "2026-09-14T11:52:21.665556Z",
+      "claim": 2752549,
+      "recovery": 2752617
+    },
+    "second": {
+      "at": "2026-09-14T11:56:37.606444Z",
+      "claim": 2752786,
+      "recovery": 2752854
+    },
+    "seconds": 255.941,
+    "totalReadDelta": 474,
+    "readsPerMinute": 111.11935953989396
+  },
+  "schedulerVerification": {
+    "observedAt": "2026-09-14T11:58:11.136796Z",
+    "running": true,
+    "heartbeatAt": "2026-09-14T11:57:32.299Z",
+    "lastError": null,
+    "definitionsEvaluated": 3,
+    "jobsQueued": 102,
+    "startedAt": "2026-09-14T10:30:02.107Z"
+  },
+  "storage": {
+    "bucketBytes": 1176123366,
+    "bucketObjects": 5849,
+    "declaredEvidenceBytes": 1519445181,
+    "uploadedReferencedBytes": 1175016016,
+    "localOnlyDeclaredBytes": 344429165,
+    "bundles": 108,
+    "items": 6378,
+    "averageDeclaredBundleBytes": 14068936.861111112,
+    "uploadedMissingObjects": 0,
+    "uploadedSizeMismatches": 0,
+    "unreferencedObjectCount": 4,
+    "unreferencedObjectBytes": 1107350,
+    "duplicateWithinRunHashBytes": 528146250,
+    "duplicateBytesAreNotApprovedForDeletion": true,
+    "dailyBucketGrowth": [
+      {
+        "day": "2026-07-13",
+        "bytes": 1107350,
+        "objects": 4
+      },
+      {
+        "day": "2026-08-10",
+        "bytes": 1111254,
+        "objects": 6
+      },
+      {
+        "day": "2026-08-11",
+        "bytes": 31764430,
+        "objects": 167
+      },
+      {
+        "day": "2026-08-12",
+        "bytes": 23884426,
+        "objects": 108
+      },
+      {
+        "day": "2026-08-13",
+        "bytes": 16613128,
+        "objects": 85
+      },
+      {
+        "day": "2026-08-14",
+        "bytes": 39954791,
+        "objects": 192
+      },
+      {
+        "day": "2026-08-15",
+        "bytes": 32133768,
+        "objects": 167
+      },
+      {
+        "day": "2026-08-16",
+        "bytes": 40020675,
+        "objects": 191
+      },
+      {
+        "day": "2026-08-17",
+        "bytes": 32444003,
+        "objects": 169
+      },
+      {
+        "day": "2026-08-18",
+        "bytes": 31465241,
+        "objects": 164
+      },
+      {
+        "day": "2026-08-19",
+        "bytes": 39520462,
+        "objects": 191
+      },
+      {
+        "day": "2026-08-20",
+        "bytes": 31355191,
+        "objects": 167
+      },
+      {
+        "day": "2026-08-21",
+        "bytes": 45762901,
+        "objects": 199
+      },
+      {
+        "day": "2026-08-22",
+        "bytes": 32144337,
+        "objects": 167
+      },
+      {
+        "day": "2026-08-23",
+        "bytes": 39371600,
+        "objects": 191
+      },
+      {
+        "day": "2026-08-24",
+        "bytes": 39947380,
+        "objects": 191
+      },
+      {
+        "day": "2026-08-25",
+        "bytes": 16590825,
+        "objects": 82
+      },
+      {
+        "day": "2026-08-26",
+        "bytes": 31645611,
+        "objects": 167
+      },
+      {
+        "day": "2026-08-27",
+        "bytes": 38994401,
+        "objects": 191
+      },
+      {
+        "day": "2026-08-28",
+        "bytes": 31710924,
+        "objects": 167
+      },
+      {
+        "day": "2026-08-29",
+        "bytes": 40189797,
+        "objects": 191
+      },
+      {
+        "day": "2026-08-30",
+        "bytes": 40111726,
+        "objects": 191
+      },
+      {
+        "day": "2026-08-31",
+        "bytes": 31739544,
+        "objects": 164
+      },
+      {
+        "day": "2026-09-01",
+        "bytes": 42079705,
+        "objects": 191
+      },
+      {
+        "day": "2026-09-02",
+        "bytes": 39337602,
+        "objects": 191
+      },
+      {
+        "day": "2026-09-03",
+        "bytes": 31988354,
+        "objects": 164
+      },
+      {
+        "day": "2026-09-04",
+        "bytes": 31748271,
+        "objects": 167
+      },
+      {
+        "day": "2026-09-05",
+        "bytes": 31610433,
+        "objects": 164
+      },
+      {
+        "day": "2026-09-06",
+        "bytes": 32453914,
+        "objects": 164
+      },
+      {
+        "day": "2026-09-07",
+        "bytes": 31855066,
+        "objects": 167
+      },
+      {
+        "day": "2026-09-08",
+        "bytes": 31789580,
+        "objects": 164
+      },
+      {
+        "day": "2026-09-09",
+        "bytes": 31880193,
+        "objects": 167
+      },
+      {
+        "day": "2026-09-10",
+        "bytes": 40886831,
+        "objects": 191
+      },
+      {
+        "day": "2026-09-11",
+        "bytes": 41772056,
+        "objects": 191
+      },
+      {
+        "day": "2026-09-12",
+        "bytes": 32001348,
+        "objects": 167
+      },
+      {
+        "day": "2026-09-13",
+        "bytes": 31825577,
+        "objects": 167
+      },
+      {
+        "day": "2026-09-14",
+        "bytes": 15310671,
+        "objects": 82
+      }
+    ],
+    "complete7DayWindow": {
+      "from": "2026-09-07T00:00:00.000Z",
+      "toExclusive": "2026-09-14T00:00:00.000Z"
+    },
+    "meanDailyNewStorageBytes": 34572950.14285714,
+    "projected30DayAddedBytes": 1037188504.2857143,
+    "retentionClasses": [
+      {
+        "retentionClass": "short-lived",
+        "itemCount": 6324,
+        "itemBytes": 1508691069,
+        "averageItemBytes": 238565.95018975332,
+        "oldestItemAt": "2026-08-10T17:59:53.063+00:00",
+        "oldestItemAgeDays": 34.732024733796294,
+        "bundleCountByBundleClass": 105,
+        "bundleBytesByBundleClass": 1454072169,
+        "averageBundleBytesByBundleClass": 13848306.371428572,
+        "largestBundleBytesByBundleClass": 89739944,
+        "newItemBytesPerDayComplete7Days": 34572950.14285714,
+        "newUploadedItemBytesPerDayComplete7Days": 34572950.14285714
+      },
+      {
+        "retentionClass": "default",
+        "itemCount": 0,
+        "itemBytes": 0,
+        "averageItemBytes": null,
+        "oldestItemAt": null,
+        "oldestItemAgeDays": null,
+        "bundleCountByBundleClass": 0,
+        "bundleBytesByBundleClass": 0,
+        "averageBundleBytesByBundleClass": null,
+        "largestBundleBytesByBundleClass": null,
+        "newItemBytesPerDayComplete7Days": 0,
+        "newUploadedItemBytesPerDayComplete7Days": 0
+      },
+      {
+        "retentionClass": "security-evidence",
+        "itemCount": 25,
+        "itemBytes": 1954363,
+        "averageItemBytes": 78174.52,
+        "oldestItemAt": "2026-08-17T09:32:25.075+00:00",
+        "oldestItemAgeDays": 28.084432002314816,
+        "bundleCountByBundleClass": 2,
+        "bundleBytesByBundleClass": 38316317,
+        "averageBundleBytesByBundleClass": 19158158.5,
+        "largestBundleBytesByBundleClass": 38311944,
+        "newItemBytesPerDayComplete7Days": 0,
+        "newUploadedItemBytesPerDayComplete7Days": 0
+      },
+      {
+        "retentionClass": "cleanup-evidence",
+        "itemCount": 29,
+        "itemBytes": 8799749,
+        "averageItemBytes": 303439.6206896552,
+        "oldestItemAt": "2026-08-17T10:33:17.919+00:00",
+        "oldestItemAgeDays": 28.042153715277777,
+        "bundleCountByBundleClass": 1,
+        "bundleBytesByBundleClass": 27056695,
+        "averageBundleBytesByBundleClass": 27056695,
+        "largestBundleBytesByBundleClass": 27056695,
+        "newItemBytesPerDayComplete7Days": 0,
+        "newUploadedItemBytesPerDayComplete7Days": 0
+      },
+      {
+        "retentionClass": "siem-metadata",
+        "itemCount": 0,
+        "itemBytes": 0,
+        "averageItemBytes": null,
+        "oldestItemAt": null,
+        "oldestItemAgeDays": null,
+        "bundleCountByBundleClass": 0,
+        "bundleBytesByBundleClass": 0,
+        "averageBundleBytesByBundleClass": null,
+        "largestBundleBytesByBundleClass": null,
+        "newItemBytesPerDayComplete7Days": 0,
+        "newUploadedItemBytesPerDayComplete7Days": 0
+      }
+    ],
+    "checksumSample": {
+      "observedAt": "2026-09-14T11:57:39.974Z",
+      "method": "Read-only direct Storage GET; three recent small objects; not a full bucket rehash or dashboard authorization test",
+      "results": [
+        {
+          "itemId": "a6ded2b5-56ba-49c2-b4ef-cad3d6b0f9e4",
+          "runId": "c396fc6a-40c6-4848-93c3-db7cf1984b10",
+          "status": 200,
+          "sizeBytes": 24842,
+          "expectedSizeBytes": 24842,
+          "checksumMatches": true,
+          "type": "JSON Artifact"
+        },
+        {
+          "itemId": "eba88938-6411-4819-9c04-e5582bbb3ff8",
+          "runId": "c396fc6a-40c6-4848-93c3-db7cf1984b10",
+          "status": 200,
+          "sizeBytes": 2939,
+          "expectedSizeBytes": 2939,
+          "checksumMatches": true,
+          "type": "JSON Artifact"
+        },
+        {
+          "itemId": "c822c725-e139-4fb1-b112-48dd93b3f423",
+          "runId": "c396fc6a-40c6-4848-93c3-db7cf1984b10",
+          "status": 200,
+          "sizeBytes": 2939,
+          "expectedSizeBytes": 2939,
+          "checksumMatches": true,
+          "type": "JSON Artifact"
+        }
+      ]
+    }
+  },
+  "logs": {
+    "dailyMessageBytes": [
+      {
+        "day": "2026-08-10",
+        "bytes": 269361,
+        "count": 1021
+      },
+      {
+        "day": "2026-08-11",
+        "bytes": 66256,
+        "count": 312
+      },
+      {
+        "day": "2026-08-12",
+        "bytes": 109762,
+        "count": 419
+      },
+      {
+        "day": "2026-08-13",
+        "bytes": 49356,
+        "count": 200
+      },
+      {
+        "day": "2026-08-14",
+        "bytes": 88346,
+        "count": 406
+      },
+      {
+        "day": "2026-08-15",
+        "bytes": 66461,
+        "count": 328
+      },
+      {
+        "day": "2026-08-16",
+        "bytes": 87721,
+        "count": 392
+      },
+      {
+        "day": "2026-08-17",
+        "bytes": 131591,
+        "count": 681
+      },
+      {
+        "day": "2026-08-18",
+        "bytes": 65862,
+        "count": 363
+      },
+      {
+        "day": "2026-08-19",
+        "bytes": 84763,
+        "count": 386
+      },
+      {
+        "day": "2026-08-20",
+        "bytes": 66455,
+        "count": 328
+      },
+      {
+        "day": "2026-08-21",
+        "bytes": 89024,
+        "count": 413
+      },
+      {
+        "day": "2026-08-22",
+        "bytes": 66189,
+        "count": 328
+      },
+      {
+        "day": "2026-08-23",
+        "bytes": 78711,
+        "count": 374
+      },
+      {
+        "day": "2026-08-24",
+        "bytes": 75606,
+        "count": 368
+      },
+      {
+        "day": "2026-08-25",
+        "bytes": 95902,
+        "count": 501
+      },
+      {
+        "day": "2026-08-26",
+        "bytes": 66716,
+        "count": 328
+      },
+      {
+        "day": "2026-08-27",
+        "bytes": 90418,
+        "count": 398
+      },
+      {
+        "day": "2026-08-28",
+        "bytes": 66458,
+        "count": 328
+      },
+      {
+        "day": "2026-08-29",
+        "bytes": 74470,
+        "count": 363
+      },
+      {
+        "day": "2026-08-30",
+        "bytes": 75539,
+        "count": 367
+      },
+      {
+        "day": "2026-08-31",
+        "bytes": 89599,
+        "count": 413
+      },
+      {
+        "day": "2026-09-01",
+        "bytes": 81816,
+        "count": 380
+      },
+      {
+        "day": "2026-09-02",
+        "bytes": 75608,
+        "count": 368
+      },
+      {
+        "day": "2026-09-03",
+        "bytes": 69005,
+        "count": 372
+      },
+      {
+        "day": "2026-09-04",
+        "bytes": 66464,
+        "count": 328
+      },
+      {
+        "day": "2026-09-05",
+        "bytes": 80913,
+        "count": 394
+      },
+      {
+        "day": "2026-09-06",
+        "bytes": 34884,
+        "count": 251
+      },
+      {
+        "day": "2026-09-07",
+        "bytes": 66727,
+        "count": 328
+      },
+      {
+        "day": "2026-09-08",
+        "bytes": 34885,
+        "count": 251
+      },
+      {
+        "day": "2026-09-09",
+        "bytes": 66455,
+        "count": 328
+      },
+      {
+        "day": "2026-09-10",
+        "bytes": 78695,
+        "count": 374
+      },
+      {
+        "day": "2026-09-11",
+        "bytes": 87710,
+        "count": 392
+      },
+      {
+        "day": "2026-09-12",
+        "bytes": 66723,
+        "count": 328
+      },
+      {
+        "day": "2026-09-13",
+        "bytes": 66454,
+        "count": 328
+      },
+      {
+        "day": "2026-09-14",
+        "bytes": 75612,
+        "count": 298
+      }
+    ],
+    "largestRunLogSamples": [
+      {
+        "run_id": "7be71a4a-d12d-4d10-9660-deea7544ac72",
+        "log_count": 422,
+        "message_bytes": 105030
+      },
+      {
+        "run_id": "93474ac4-ec94-469a-a582-be0ec7aa626c",
+        "log_count": 231,
+        "message_bytes": 51419
+      },
+      {
+        "run_id": "7ca4c882-ddd4-4b28-bad5-9a7096be4b5f",
+        "log_count": 210,
+        "message_bytes": 56678
+      },
+      {
+        "run_id": "6f745e40-491e-4921-ba9b-0c4cc0fb9b25",
+        "log_count": 189,
+        "message_bytes": 47644
+      },
+      {
+        "run_id": "29ba5d74-400e-4e51-8c73-cb9210654416",
+        "log_count": 178,
+        "message_bytes": 58472
+      },
+      {
+        "run_id": "6dc1177e-c4ba-45c0-b425-2ab14b9df530",
+        "log_count": 174,
+        "message_bytes": 48242
+      },
+      {
+        "run_id": "bff631bd-aa28-439f-9040-66d6f0815238",
+        "log_count": 173,
+        "message_bytes": 55269
+      },
+      {
+        "run_id": "f68dbcd5-39c8-49a7-ac63-bcc6a252fcb9",
+        "log_count": 173,
+        "message_bytes": 55608
+      },
+      {
+        "run_id": "cc3fba50-6fa6-4ebc-8a6b-8f64e89697bc",
+        "log_count": 171,
+        "message_bytes": 22347
+      },
+      {
+        "run_id": "5b7ee9da-3d98-44bf-8519-f8d73f41d466",
+        "log_count": 158,
+        "message_bytes": 56403
+      }
+    ]
+  },
+  "notifications": {
+    "statusSeverityCounts": [
+      {
+        "count": 96,
+        "oldest": "2026-08-10T17:59:58.812+00:00",
+        "status": "pending",
+        "severity": "low"
+      },
+      {
+        "count": 23,
+        "oldest": "2026-08-10T20:48:37.638+00:00",
+        "status": "pending",
+        "severity": "high"
+      },
+      {
+        "count": 1,
+        "oldest": "2026-08-10T21:17:10.68+00:00",
+        "status": "pending",
+        "severity": "medium"
+      },
+      {
+        "count": 388,
+        "oldest": "2026-08-10T17:56:38.021+00:00",
+        "status": "pending",
+        "severity": "informational"
+      },
+      {
+        "count": 4,
+        "oldest": "2026-08-10T21:35:27.537+00:00",
+        "status": "pending",
+        "severity": "critical"
+      }
+    ],
+    "allAttemptsZero": true,
+    "terminalIntents": 0,
+    "journalOnly": true
+  },
+  "retentionProjection": {
+    "asOf": "2026-09-14T11:34:00.000Z",
+    "certification": "NOT CERTIFIED; age-only projection",
+    "scanned": 108,
+    "ageQualifiedBundles": 14,
+    "ageQualifiedObjects": 643,
+    "ageQualifiedBytes": 129631709,
+    "notAgeQualifiedOrProtectedBundles": 94,
+    "failedBundleProtected": 12,
+    "securityBundlesProtected": 2,
+    "cleanupBundlesProtected": 1,
+    "protectionCategoriesOverlap": true,
+    "certifiedEligibleBundles": null,
+    "certifiedReclaimableBytes": null,
+    "destructiveExecutionEnabled": false,
+    "candidates": [
+      {
+        "bundleId": "1bec94f2-27ea-4329-89d4-8ed792ea5dcd",
+        "runId": "2b6afc37-8ecf-49c3-8bcd-27e46ff3cc4e",
+        "campaign": "monitor_inssa_auth_staging",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-13T11:02:32.314+00:00",
+        "ageOnlyExpiryAt": "2026-09-12T11:02:32.314Z",
+        "bytes": 16057449,
+        "objectCount": 82,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "1ca8e627-0ae9-4b06-875e-a764fe81c085",
+        "runId": "2c8be65d-a27f-43eb-ba04-b53db1873870",
+        "campaign": "test_inssa_safe",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-12T02:06:26.019+00:00",
+        "ageOnlyExpiryAt": "2026-09-11T02:06:26.019Z",
+        "bytes": 8009026,
+        "objectCount": 27,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "228cc001-5dc9-420e-a3f7-9312f8760c15",
+        "runId": "934a2d1e-6749-48f4-ab71-d50d9accf634",
+        "campaign": "test_inssa_safe",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-10T23:57:03.674+00:00",
+        "ageOnlyExpiryAt": "2026-09-09T23:57:03.674Z",
+        "bytes": 555659,
+        "objectCount": 3,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "295dd68d-c63e-4a98-95a1-250932f5167b",
+        "runId": "90767d5c-331a-42b5-9c4e-970444f6b267",
+        "campaign": "monitor_inssa_auth_staging",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-11T22:17:22.967+00:00",
+        "ageOnlyExpiryAt": "2026-09-10T22:17:22.967Z",
+        "bytes": 15727393,
+        "objectCount": 82,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "2ae6ab20-874b-4536-831a-24b27ed13b6b",
+        "runId": "b2d7d90e-9560-41fe-a48f-c9ce633b15f4",
+        "campaign": "monitor_inssa_auth_staging",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-12T11:02:04.277+00:00",
+        "ageOnlyExpiryAt": "2026-09-11T11:02:04.277Z",
+        "bytes": 15875400,
+        "objectCount": 81,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "4e50062f-c1e7-4180-8a36-5c9aac03cd06",
+        "runId": "7b00e32d-0f5e-4a8b-8d70-f8adf6539c7e",
+        "campaign": "test_inssa_safe",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-11T02:06:46.252+00:00",
+        "ageOnlyExpiryAt": "2026-09-10T02:06:46.252Z",
+        "bytes": 555631,
+        "objectCount": 3,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "7fc46f22-15dc-45b9-901e-023c63729c01",
+        "runId": "5af33036-1369-4520-8b9f-72d1b0fe8dec",
+        "campaign": "test_inssa_safe",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-14T02:07:23.233+00:00",
+        "ageOnlyExpiryAt": "2026-09-13T02:07:23.233Z",
+        "bytes": 8114246,
+        "objectCount": 27,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "8bea68ea-f3ac-42cd-a367-55135524d01e",
+        "runId": "332b7dd2-8669-4f8c-85d5-82afb90981e6",
+        "campaign": "monitor_inssa_auth_staging",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-14T17:02:46.565+00:00",
+        "ageOnlyExpiryAt": "2026-09-13T17:02:46.565Z",
+        "bytes": 15816675,
+        "objectCount": 82,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "97da3dd0-d873-4766-8b24-4dcabc5c79c5",
+        "runId": "e0c2e5a0-0ce3-4451-af96-44ddc81179fa",
+        "campaign": "monitor_inssa_auth_staging",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-15T11:02:24.578+00:00",
+        "ageOnlyExpiryAt": "2026-09-14T11:02:24.578Z",
+        "bytes": 15747413,
+        "objectCount": 82,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "a3b3034c-10c5-45db-9c1e-b94d31a2ed5b",
+        "runId": "a98a6acd-fae8-46d3-a363-3bf25cc1f0de",
+        "campaign": "test_inssa_safe",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-15T02:05:53.889+00:00",
+        "ageOnlyExpiryAt": "2026-09-14T02:05:53.889Z",
+        "bytes": 556267,
+        "objectCount": 3,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "d4d9d221-51b8-4daa-ace3-2d50ec86f19e",
+        "runId": "5258e797-3f24-45b4-b3b9-28c074a42a54",
+        "campaign": "test_inssa_safe",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-13T02:06:19.886+00:00",
+        "ageOnlyExpiryAt": "2026-09-12T02:06:19.886Z",
+        "bytes": 555679,
+        "objectCount": 3,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "de82201d-cade-465e-ae3e-c9dab25bc676",
+        "runId": "708b4ce9-35e4-4672-8a3c-ef75042c8e4d",
+        "campaign": "test_inssa_safe",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-10T17:59:53.622+00:00",
+        "ageOnlyExpiryAt": "2026-09-09T17:59:53.622Z",
+        "bytes": 555595,
+        "objectCount": 3,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "edf572d0-b079-45a3-8339-abcd4f9adee8",
+        "runId": "b3173f6c-de92-4922-96c3-ba369e596ae1",
+        "campaign": "monitor_inssa_auth_staging",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-14T12:21:17.586+00:00",
+        "ageOnlyExpiryAt": "2026-09-13T12:21:17.586Z",
+        "bytes": 16023870,
+        "objectCount": 83,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      },
+      {
+        "bundleId": "f320f8a8-1879-4648-97f8-0ebfb3d9e8ed",
+        "runId": "a59937b6-d2a4-492d-bb33-63651bebbb29",
+        "campaign": "monitor_inssa_auth_staging",
+        "runStatus": "passed_with_warnings",
+        "retentionClasses": [
+          "short-lived"
+        ],
+        "bundleCreatedAt": "2026-08-11T22:13:13.916+00:00",
+        "ageOnlyExpiryAt": "2026-09-10T22:13:13.916Z",
+        "bytes": 15481406,
+        "objectCount": 82,
+        "ageQualified": true,
+        "reason": "Uploaded routine successful evidence older than 30 days in snapshot; no stronger classified rule found",
+        "holdStatus": "UNKNOWN: durable admin/legal/security/incident hold model absent",
+        "deletionAuthorized": false
+      }
+    ]
+  },
+  "publicHttp": {
+    "method": "20 sequential requests per route from local Mac; includes network overhead; sample p99 is sample maximum",
+    "samples": [
+      {
+        "path": "/login",
+        "n": 20,
+        "p50Ms": 153.82637499999987,
+        "p95Ms": 318.2349999999999,
+        "empiricalP99Ms": 461.099208,
+        "bodyBytes": 7343,
+        "statuses": [
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200
+        ]
+      },
+      {
+        "path": "/api/health",
+        "n": 20,
+        "p50Ms": 97.7997089999999,
+        "p95Ms": 163.45458299999973,
+        "empiricalP99Ms": 169.5332499999995,
+        "bodyBytes": 141,
+        "statuses": [
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200
+        ]
+      }
+    ]
+  },
+  "buildSizes": {
+    "source": "Next production build report, not live network transfer",
+    "dashboardFirstLoadKb": 134,
+    "routeKb": 31.1,
+    "sharedKb": 102,
+    "loginFirstLoadKb": 104,
+    "largestReportedSharedChunkKb": 54.2
+  },
+  "tests": [
+    {
+      "name": "root-typescript",
+      "args": [
+        "run",
+        "typecheck"
+      ],
+      "code": 0,
+      "seconds": 1.53,
+      "auditArtifact": "root-typescript"
+    },
+    {
+      "name": "dashboard-typescript",
+      "args": [
+        "--prefix",
+        "dashboard",
+        "run",
+        "typecheck"
+      ],
+      "code": 0,
+      "seconds": 0.984,
+      "auditArtifact": "dashboard-typescript"
+    },
+    {
+      "name": "platform-tests",
+      "args": [
+        "run",
+        "test:ci:platform"
+      ],
+      "code": 1,
+      "seconds": 9.214,
+      "auditArtifact": "platform-tests"
+    },
+    {
+      "name": "platform-tests-unrestricted",
+      "code": 0,
+      "seconds": 8.789,
+      "auditArtifact": "platform-tests-unrestricted"
+    },
+    {
+      "name": "security-tests",
+      "args": [
+        "run",
+        "test:ci:security"
+      ],
+      "code": 1,
+      "seconds": 0.343,
+      "auditArtifact": "security-tests"
+    },
+    {
+      "name": "security-tests-unrestricted",
+      "code": 0,
+      "seconds": 0.296,
+      "auditArtifact": "security-tests-unrestricted"
+    },
+    {
+      "name": "production-build",
+      "args": [
+        "run",
+        "dashboard:build"
+      ],
+      "code": 0,
+      "seconds": 11.436,
+      "auditArtifact": "production-build"
+    },
+    {
+      "name": "runtime-doctor",
+      "args": [
+        "run",
+        "dashboard:doctor"
+      ],
+      "code": 0,
+      "seconds": 0.243,
+      "auditArtifact": "runtime-doctor"
+    },
+    {
+      "name": "root-audit",
+      "code": 0,
+      "seconds": 0.403,
+      "summary": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0,
+          "total": 0
+        },
+        "dependencies": {
+          "prod": 1,
+          "dev": 8,
+          "optional": 1,
+          "peer": 0,
+          "peerOptional": 0,
+          "total": 8
+        }
+      },
+      "auditArtifact": "root-audit"
+    },
+    {
+      "name": "dashboard-audit",
+      "code": 1,
+      "seconds": 1.546,
+      "summary": {
+        "vulnerabilities": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 1,
+          "critical": 1,
+          "total": 2
+        },
+        "dependencies": {
+          "prod": 21,
+          "dev": 112,
+          "optional": 66,
+          "peer": 9,
+          "peerOptional": 0,
+          "total": 175
+        }
+      },
+      "auditArtifact": "dashboard-audit"
+    },
+    {
+      "name": "secret-scan",
+      "args": [
+        "run",
+        "security:secret-scan"
+      ],
+      "code": 0,
+      "seconds": 0.405,
+      "auditArtifact": "secret-scan"
+    },
+    {
+      "name": "playwright-qa",
+      "code": 0,
+      "seconds": 56.669,
+      "auditArtifact": "playwright-qa"
+    }
+  ],
+  "dependencyAudit": {
+    "auditReportVersion": 2,
+    "vulnerabilities": {
+      "next": {
+        "name": "next",
+        "severity": "critical",
+        "isDirect": true,
+        "via": [
+          {
+            "source": 1193677,
+            "name": "next",
+            "dependency": "next",
+            "title": "Next.js: Unauthenticated Remote Code Execution on windows-hosted servers",
+            "url": "https://github.com/advisories/GHSA-p293-qw3h-jr36",
+            "severity": "critical",
+            "cwe": [
+              "CWE-22"
+            ],
+            "cvss": {
+              "score": 9,
+              "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H"
+            },
+            "range": ">=13.4.0 <15.5.24"
+          },
+          {
+            "source": 1193733,
+            "name": "next",
+            "dependency": "next",
+            "title": "Next.js: Unauthenticated Remote Code Execution in Image Optimization API when AVIF files are used",
+            "url": "https://github.com/advisories/GHSA-2xp9-vwfh-vxw4",
+            "severity": "critical",
+            "cwe": [
+              "CWE-1395"
+            ],
+            "cvss": {
+              "score": 0,
+              "vectorString": null
+            },
+            "range": ">=10.0.0 <15.5.24"
+          },
+          "sharp"
+        ],
+        "effects": [],
+        "range": "9.5.6-canary.0 - 15.5.23 || 15.6.0-canary.0 - 16.3.0-preview.10",
+        "nodes": [
+          "node_modules/next"
+        ],
+        "fixAvailable": {
+          "name": "next",
+          "version": "15.5.25",
+          "isSemVerMajor": false
+        }
+      },
+      "sharp": {
+        "name": "sharp",
+        "severity": "high",
+        "isDirect": false,
+        "via": [
+          {
+            "source": 1193725,
+            "name": "sharp",
+            "dependency": "sharp",
+            "title": "sharp: Vulnerabilities in libheif: GHSA-g89c-p67h-r497 and GHSA-2jg2-4ch7-h545",
+            "url": "https://github.com/advisories/GHSA-rgj7-g3m4-5g8c",
+            "severity": "high",
+            "cwe": [
+              "CWE-122"
+            ],
+            "cvss": {
+              "score": 0,
+              "vectorString": null
+            },
+            "range": "<0.35.4"
+          }
+        ],
+        "effects": [
+          "next"
+        ],
+        "range": "<0.35.4",
+        "nodes": [
+          "node_modules/sharp"
+        ],
+        "fixAvailable": {
+          "name": "next",
+          "version": "15.5.25",
+          "isSemVerMajor": false
+        }
+      }
+    },
+    "metadata": {
+      "vulnerabilities": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 1,
+        "critical": 1,
+        "total": 2
+      },
+      "dependencies": {
+        "prod": 21,
+        "dev": 112,
+        "optional": 66,
+        "peer": 9,
+        "peerOptional": 0,
+        "total": 175
+      }
+    }
+  },
+  "historicalCiJobs": [
+    {
+      "id": 95356427366,
+      "name": "Repository integrity",
+      "conclusion": "success",
+      "seconds": 9,
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Run npm ci",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Validate workflow-safe test discovery",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "name": "Check patch integrity",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Scan tracked files for credential material",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ]
+    },
+    {
+      "id": 95356427435,
+      "name": "Ingestion and SIEM security",
+      "conclusion": "success",
+      "seconds": 10,
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "name": "Run npm ci",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "name": "Run npm run test:ci:security",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ]
+    },
+    {
+      "id": 95356427447,
+      "name": "Root TypeScript",
+      "conclusion": "success",
+      "seconds": 13,
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "name": "Run npm ci",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Run npm run typecheck",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ]
+    },
+    {
+      "id": 95356427475,
+      "name": "Production dependency audit",
+      "conclusion": "success",
+      "seconds": 16,
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "name": "Run npm ci",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Run npm --prefix dashboard ci",
+          "conclusion": "success",
+          "seconds": 7
+        },
+        {
+          "name": "Root production audit",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Dashboard production audit",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ]
+    },
+    {
+      "id": 95356427502,
+      "name": "Certified platform subsystems",
+      "conclusion": "success",
+      "seconds": 30,
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "name": "Run npm --prefix dashboard ci",
+          "conclusion": "success",
+          "seconds": 8
+        },
+        {
+          "name": "Run npm run test:ci:platform",
+          "conclusion": "success",
+          "seconds": 12
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ]
+    },
+    {
+      "id": 95356427556,
+      "name": "Dashboard build and runtime",
+      "conclusion": "success",
+      "seconds": 39,
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "name": "Run npm ci",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "name": "Run npm --prefix dashboard ci",
+          "conclusion": "success",
+          "seconds": 5
+        },
+        {
+          "name": "Run npm --prefix dashboard run typecheck",
+          "conclusion": "success",
+          "seconds": 3
+        },
+        {
+          "name": "Clean production build",
+          "conclusion": "success",
+          "seconds": 18
+        },
+        {
+          "name": "Runtime Doctor",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ]
+    },
+    {
+      "id": 95356592491,
+      "name": "Playwright QA Gate",
+      "conclusion": "success",
+      "seconds": 3,
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Enforce mandatory QA conclusions",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ]
+    },
+    {
+      "id": 95356427015,
+      "name": "test",
+      "conclusion": "success",
+      "seconds": 80,
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success",
+          "seconds": 1
+        },
+        {
+          "name": "Checkout",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "name": "Setup Node",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "name": "Install dependencies",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "name": "Install Playwright Chromium",
+          "conclusion": "success",
+          "seconds": 21
+        },
+        {
+          "name": "Verify approved suite discovery",
+          "conclusion": "success",
+          "seconds": 2
+        },
+        {
+          "name": "Run approved non-destructive Playwright suite",
+          "conclusion": "success",
+          "seconds": 46
+        },
+        {
+          "name": "Upload sanitized Playwright evidence",
+          "conclusion": "skipped",
+          "seconds": 0
+        },
+        {
+          "name": "Post Setup Node",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Post Checkout",
+          "conclusion": "success",
+          "seconds": 0
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success",
+          "seconds": 0
+        }
+      ]
+    }
+  ],
+  "apiInventory": [
+    {
+      "route": "/api/artifacts/[id]/bundle/[[...relativePath]]",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/artifacts/[id]/bundle/[[...relativePath]]/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/artifacts/[id]/file",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/artifacts/[id]/file/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/artifacts/[id]",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/artifacts/[id]/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/auth/magic-link",
+      "methods": [
+        "POST"
+      ],
+      "source": "dashboard/app/api/auth/magic-link/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/auth/password",
+      "methods": [
+        "POST"
+      ],
+      "source": "dashboard/app/api/auth/password/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/campaign-approvals",
+      "methods": [
+        "POST"
+      ],
+      "source": "dashboard/app/api/campaign-approvals/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/campaign-definitions",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/campaign-definitions/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/cleanup-ledger",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/cleanup-ledger/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/health",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/health/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/lifecycle-artifacts",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/lifecycle-artifacts/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/localman-results",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/localman-results/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/monitoring-definitions/[id]",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/monitoring-definitions/[id]/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/monitoring-definitions",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/monitoring-definitions/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/notifications/[id]",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/notifications/[id]/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/notifications",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/notifications/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/runs/[id]/artifacts",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/runs/[id]/artifacts/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/runs/[id]/authentication-monitoring-result",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/runs/[id]/authentication-monitoring-result/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/runs/[id]/cleanup",
+      "methods": [
+        "POST"
+      ],
+      "source": "dashboard/app/api/runs/[id]/cleanup/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/runs/[id]/evidence",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/runs/[id]/evidence/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/runs/[id]/logs",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/runs/[id]/logs/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/runs/[id]",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/runs/[id]/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/runs",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "source": "dashboard/app/api/runs/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    },
+    {
+      "route": "/api/scheduler/status",
+      "methods": [
+        "GET"
+      ],
+      "source": "dashboard/app/api/scheduler/status/route.ts",
+      "measurementStatus": "Authenticated latency, payload and observed browser frequency not captured; source-derived hot-path counts are in report"
+    }
+  ]
+}

@@ -1,0 +1,143 @@
+{
+  "checkedAt": "2026-09-14T12:40:00Z",
+  "targetAppId": "25bef95b-e762-4675-b850-65794c62aa10",
+  "projectId": "qdrhzdulhlkjhckosdrv",
+  "method": "Read-only realpath, original source size and SHA-256 checks in the live DigitalOcean container; all 533 files returned ENOENT. No rerun/backfill/deletion.",
+  "historicalBundles": [
+    {
+      "bundleId": "026d32df-7732-4898-b352-de152797f05e",
+      "runId": "5a5649de-02e0-4422-ab9f-3c944f874446",
+      "expectedItems": 67,
+      "declaredBytes": 27056695,
+      "verifiedPresent": 0,
+      "missing": 67,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    },
+    {
+      "bundleId": "240d5af4-bd70-4bee-9492-74ddb5595eb7",
+      "runId": "26d574a4-7898-4e2b-a099-c244dadeada5",
+      "expectedItems": 34,
+      "declaredBytes": 14224440,
+      "verifiedPresent": 0,
+      "missing": 34,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    },
+    {
+      "bundleId": "68f09ebb-566e-4861-b964-4580cdc8f263",
+      "runId": "29ba5d74-400e-4e51-8c73-cb9210654416",
+      "expectedItems": 34,
+      "declaredBytes": 15089066,
+      "verifiedPresent": 0,
+      "missing": 34,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    },
+    {
+      "bundleId": "7bcd4edf-8957-47bf-998f-6ae5de7bcb71",
+      "runId": "6b48dc5e-68e0-411d-8b64-915d878a9a84",
+      "expectedItems": 27,
+      "declaredBytes": 38311944,
+      "verifiedPresent": 0,
+      "missing": 27,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    },
+    {
+      "bundleId": "87cbc766-11fd-4fa9-af5e-268486fcf097",
+      "runId": "1900ceec-7e4b-48cd-8909-9c21092cda8a",
+      "expectedItems": 35,
+      "declaredBytes": 14450763,
+      "verifiedPresent": 0,
+      "missing": 35,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    },
+    {
+      "bundleId": "a0b8c9a1-8a4b-4501-82ce-7f4596df7d16",
+      "runId": "93474ac4-ec94-469a-a582-be0ec7aa626c",
+      "expectedItems": 39,
+      "declaredBytes": 2006678,
+      "verifiedPresent": 0,
+      "missing": 39,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    },
+    {
+      "bundleId": "aaaad1e8-2992-4d5a-9b51-96f698e3c5a1",
+      "runId": "6dc1177e-c4ba-45c0-b425-2ab14b9df530",
+      "expectedItems": 47,
+      "declaredBytes": 89739944,
+      "verifiedPresent": 0,
+      "missing": 47,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    },
+    {
+      "bundleId": "ac94d3b9-ffa1-423b-871c-5163decab0ae",
+      "runId": "fe08274a-dd99-47b8-a0b3-df4de3cc0dea",
+      "expectedItems": 35,
+      "declaredBytes": 14632555,
+      "verifiedPresent": 0,
+      "missing": 35,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    },
+    {
+      "bundleId": "cab9319d-f417-416c-90cd-0cdcfa731457",
+      "runId": "7ca4c882-ddd4-4b28-bad5-9a7096be4b5f",
+      "expectedItems": 49,
+      "declaredBytes": 29258947,
+      "verifiedPresent": 0,
+      "missing": 49,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    },
+    {
+      "bundleId": "ce07c612-2359-4903-bd71-b87f33901a30",
+      "runId": "f68dbcd5-39c8-49a7-ac63-bcc6a252fcb9",
+      "expectedItems": 34,
+      "declaredBytes": 14648254,
+      "verifiedPresent": 0,
+      "missing": 34,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    },
+    {
+      "bundleId": "f1a81f1b-2e68-4148-8250-159a0d1661a0",
+      "runId": "cc3fba50-6fa6-4ebc-8a6b-8f64e89697bc",
+      "expectedItems": 88,
+      "declaredBytes": 30424062,
+      "verifiedPresent": 0,
+      "missing": 88,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    },
+    {
+      "bundleId": "f5368429-f98d-41e3-9508-ffe5687fd0b9",
+      "runId": "6f745e40-491e-4921-ba9b-0c4cc0fb9b25",
+      "expectedItems": 44,
+      "declaredBytes": 54585817,
+      "verifiedPresent": 0,
+      "missing": 44,
+      "invalid": 0,
+      "errors": 0,
+      "classification": "SOURCE_BYTES_GONE"
+    }
+  ],
+  "recoverable": 0,
+  "sourceBytesGone": 12,
+  "backfilled": 0
+}
