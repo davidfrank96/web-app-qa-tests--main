@@ -6,6 +6,8 @@
     "node": ">=22 <23"
   },
   "scripts": {
+    "retention:plan": "node --import tsx scripts/retention-plan.ts",
+    "test:retention": "node --import tsx --test tests/retention*.test.ts",
     "typecheck": "tsc --noEmit",
     "doctor": "node scripts/dashboard-runtime.mjs",
     "clean": "node scripts/dashboard-runtime.mjs --clean",

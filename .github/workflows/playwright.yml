@@ -43,6 +43,8 @@ jobs:
 
       - name: Verify active and terminal dashboard polling
         run: npm run test:ci:dashboard-polling
+      - name: Verify admin retention dry-run workspace
+        run: npm run test:ci:retention-ui
 
       - name: Verify approved suite discovery
         run: npm run test:ci:playwright:list

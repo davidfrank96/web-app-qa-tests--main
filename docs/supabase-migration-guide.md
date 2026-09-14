@@ -17,6 +17,9 @@
 | 11 | `20260814093000_enable_twice_daily_staging_auth_monitor.sql` | Preserves the staging midday definition, enables a distinct staging evening definition, and keeps both production Authentication Monitoring definitions disabled |
 | 12 | `20260814113000_auth_monitor_execution_timeout.sql` | Gives all Authentication Monitoring definitions the certified six-minute execution envelope without changing schedules or enabling production monitoring |
 | 13 | `20260817090000_auth_rate_limits.sql` | Durable authentication throttling, service-role-only atomic consume RPC, and removal of public execution from the RLS event-trigger helper |
+| 14 | `20260817150000_fix_auth_rate_limit_timestamp.sql` | Corrects throttle timestamp handling |
+| 15 | `20260914131916_atomic_evidence_publication.sql` | Atomic evidence metadata publication, immutable evidence checks and retry safety |
+| 16 | `20260914222746_evidence_retention_dry_run.sql` | Durable policy/holds and service-only read-only retention inventory RPCs; no evidence deletion |
 
 Dependencies flow only forward. No later migration recreates or replaces an earlier subsystem's function.
 
