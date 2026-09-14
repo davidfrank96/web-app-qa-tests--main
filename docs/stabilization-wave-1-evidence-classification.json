@@ -139,5 +139,13 @@
   ],
   "recoverable": 0,
   "sourceBytesGone": 12,
-  "backfilled": 0
+  "backfilled": 0,
+  "metadataReconciliation": {
+    "recordedAt": "2026-09-14T13:26:55.131Z",
+    "bundles": 12,
+    "items": 533,
+    "state": "EVIDENCE_UNAVAILABLE_AFTER_EPHEMERAL_RUN",
+    "atomicRpc": true,
+    "immutableMetadataPreserved": true
+  }
 }
