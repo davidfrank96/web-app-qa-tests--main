@@ -57,6 +57,7 @@ export type InssaRunStore = {
   getRun(id: string): Promise<InssaRunRecord | null>;
   listRuns(): Promise<InssaRunRecord[]>;
   listCleanupLedger(): Promise<InssaCleanupLedgerRecord[]>;
+  initializeCleanupLedger(records: InssaCleanupLedgerRecord[]): Promise<void>;
   replaceRunCleanupLedger(runId: string, records: InssaCleanupLedgerRecord[]): Promise<InssaCleanupLedgerRecord[]>;
   replaceRunArtifacts(runId: string, artifacts: InssaArtifactRecord[]): Promise<InssaArtifactRecord[]>;
   replaceRunEvidence(
@@ -312,6 +313,16 @@ class LocalJsonRunStore implements InssaRunStore {
       };
       snapshot.runs[index] = updated;
       return updated;
+    });
+  }
+
+  async initializeCleanupLedger(records: InssaCleanupLedgerRecord[]) {
+    if (!records.length) return;
+    await this.withWrite(async (snapshot) => {
+      for (const record of records) {
+        if (!snapshot.cleanupLedger.some((item) => item.originatingRunId === record.originatingRunId &&
+          item.objectType === record.objectType && item.objectId === record.objectId)) snapshot.cleanupLedger.push(record);
+      }
     });
   }
 
@@ -662,6 +673,15 @@ class SupabaseRunStore implements InssaRunStore {
       method: "PATCH"
     });
     return updated;
+  }
+
+  async initializeCleanupLedger(records: InssaCleanupLedgerRecord[]) {
+    if (!records.length) return;
+    await this.request("cleanup_ledger?on_conflict=originating_run_id,object_type,object_id", {
+      body: JSON.stringify(records.map(toSupabaseCleanupLedger)),
+      headers: { prefer: "resolution=ignore-duplicates,return=minimal" },
+      method: "POST"
+    });
   }
 
   async upsertCleanupLedger(record: InssaCleanupLedgerRecord) {
