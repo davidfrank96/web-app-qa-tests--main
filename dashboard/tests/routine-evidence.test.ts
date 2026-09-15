@@ -55,3 +55,11 @@ test("password failure, provider timeout, missing summary and incomplete report 
   const timeout = authSummary(); timeout.checks["google-oauth"].status = "timed_out"; assert.equal(routineEvidenceDecision(i, report(true), timeout), false);
   assert.equal(routineEvidenceDecision(i, report(true), null), false); const bad = report(true); bad.errors.push("infrastructure" as never); assert.equal(routineEvidenceDecision(i, bad, authSummary()), false);
 });
+
+test("the exact hosted npm configuration notice is retained as metadata; every other warning keeps full diagnostics", () => {
+  const i = input();
+  i.warningLines = i.stderrLines = ["npm warn config production Use `--omit=dev` instead."];
+  assert.equal(routineEvidenceDecision(i, report(), null), true);
+  i.stderrLines = ["npm warn config production unexpected failure"];
+  assert.equal(routineEvidenceDecision(i, report(), null), false);
+});
