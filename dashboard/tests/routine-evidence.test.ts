@@ -12,6 +12,7 @@ import { validateEvidenceManifest } from "../lib/inssa-ops/evidence-integrity";
 import { parseAuthenticationMonitoringSummary } from "../lib/monitoring/authentication-result";
 import { resolveAuthenticationMonitoringResult } from "../lib/monitoring/authentication-result-store";
 import { getInssaPhase1Command } from "../lib/inssa-ops/command-registry";
+import { getInssaRunStore } from "../lib/inssa-ops/run-store";
 const stamp = "2026-09-15T00:00:00Z";
 function report(auth = false) { return { errors: [], stats: { flaky: 0, skipped: 0, unexpected: auth ? 2 : 0, expected: 1 }, suites: [{ specs:
   (auth ? ["Username & Password", "Google OAuth", "Apple Sign-In"] : ["Safe assertion"]).map((title, i) => ({ title, file: "fixture.spec.ts", tests: [
@@ -23,13 +24,19 @@ function input(auth = false): RoutineEvidenceInput { const run = fixture().runs[
 for (const auth of [false, true]) test(`${auth ? "known Authentication Monitoring" : "Safe Suite"} success publishes a valid lightweight bundle with no heavy copies`, async (t) => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "routine-evidence-")); const before = process.env.INSSA_QA_REPO_ROOT; process.env.INSSA_QA_REPO_ROOT = temp;
   t.after(async () => { if (before === undefined) delete process.env.INSSA_QA_REPO_ROOT; else process.env.INSSA_QA_REPO_ROOT = before; await fs.rm(temp, { recursive: true, force: true }); });
-  const root = path.join(temp, "run-output/run-1"); await fs.mkdir(path.join(root, "playwright-report/data"), { recursive: true });
+  const i = input(auth);
+  const store = getInssaRunStore();
+  const created = await store.createRun({ campaignKey: i.run.campaignKey, commandSnapshot: i.run.commandSnapshot, requestedBy: "routine-evidence-test" });
+  i.run = (await store.getRun(created.id))!;
+  assert.equal(i.run.cleanup?.status, "not_required");
+  const summary = authSummary(); summary.runId = i.run.id;
+  const root = path.join(temp, "run-output", i.run.id); await fs.mkdir(path.join(root, "playwright-report/data"), { recursive: true });
   await fs.writeFile(path.join(root, "playwright-results.json"), JSON.stringify(report(auth)));
   await fs.writeFile(path.join(root, "playwright-report/index.html"), Buffer.alloc(2_000_000, "H"));
   await fs.writeFile(path.join(root, "playwright-report/data/trace.zip"), Buffer.alloc(200_000));
-  if (auth) { await fs.mkdir(path.join(root, "authentication-monitoring")); await fs.writeFile(path.join(root, "authentication-monitoring/authentication-monitoring-summary.json"), JSON.stringify(authSummary())); }
-  const i = input(auth), result = await reduceRoutineEvidence(i); assert.ok(result); assert.ok(result.beforeBytes > 2_000_000); assert.ok(result.summaryBytes < 10_000);
-  assert.deepEqual(await fs.readdir(path.dirname(root)), ["run-1"], "no staging or backup copy remains");
+  if (auth) { await fs.mkdir(path.join(root, "authentication-monitoring")); await fs.writeFile(path.join(root, "authentication-monitoring/authentication-monitoring-summary.json"), JSON.stringify(summary)); }
+  const result = await reduceRoutineEvidence(i); assert.ok(result); assert.ok(result.beforeBytes > 2_000_000); assert.ok(result.summaryBytes < 10_000);
+  assert.deepEqual(await fs.readdir(path.dirname(root)), [i.run.id], "no staging or backup copy remains");
   const finalized = await finalizeRunOutput({ runId: i.run.id, campaignKey: i.run.campaignKey, startedAt: new Date(stamp), completedAt: new Date(stamp), skipLegacyCopy: true });
   const artifacts = await indexArtifactsForRun({ runId: i.run.id, outputRoot: root, startedAtMs: Date.parse(stamp), completedAtMs: Date.parse(stamp) });
   const evidence = buildEvidenceMetadataForRun(i.run, artifacts); assert.ok(evidence.bundle); validateEvidenceManifest(i.run.id, evidence.bundle, evidence.items);
@@ -62,4 +69,15 @@ test("the exact hosted npm configuration notice is retained as metadata; every o
   assert.equal(routineEvidenceDecision(i, report(), null), true);
   i.stderrLines = ["npm warn config production unexpected failure"];
   assert.equal(routineEvidenceDecision(i, report(), null), false);
+});
+
+test("nonempty or unresolved cleanup manifests cannot select lightweight mode even when marked not required", () => {
+  const empty: NonNullable<RoutineEvidenceInput["run"]["cleanup"]> = { affectedUsers: [], automaticCleanupAvailable: false, confirmedAt: null, confirmedBy: null, createdArtifactIds: [],
+    createdCapsuleIds: [], createdMediaIds: [], finalActionPerformed: false, instructions: [], lifecycleState: null, runId: "run-1", schemaVersion: 1, status: "not_required" };
+  for (const patch of [{ status: "pending" }, { status: "completed" }, { createdMediaIds: ["media-1"] }, { affectedUsers: ["user-1"] },
+    { retentionUntil: stamp }, { evidencePaths: ["cleanup.json"] }, { unexpectedData: true }, { finalActionPerformed: true },
+    { runId: "another-run" }, { schemaVersion: 2 }, { relatedDefectId: "defect-1" }, { cleanupResult: "completed" }]) {
+    const i = input(); i.run.cleanup = { ...empty, ...patch } as NonNullable<typeof i.run.cleanup>;
+    assert.equal(routineEvidenceDecision(i, report(), null), false, JSON.stringify(patch));
+  }
 });
