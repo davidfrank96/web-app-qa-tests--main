@@ -742,6 +742,9 @@ export function InssaOpsClient({
   }, [monitoringDefinitions]);
 
   const playwrightReport = artifacts.find((artifact) => artifact.artifactType === "Playwright Report");
+  const selectedRunExpiredBundle = selectedRun
+    ? evidenceByRun[selectedRun.id]?.bundles.find((bundle) => bundle.status === "expired")
+    : undefined;
   const reportRenderCommands = campaignDefinitions.filter((campaign) => campaign.commandType === "report_render");
   const safeCommands = selectCommands(campaignDefinitions, SAFE_COMMAND_KEYS);
   const securityCommands = selectCommands(campaignDefinitions, SECURITY_COMMAND_KEYS);
@@ -1170,6 +1173,11 @@ export function InssaOpsClient({
 
   async function refreshReportArchive(runList: RunRecord[]) {
     const recentRuns = runList.slice(0, 40);
+    // Preserve the historical run chosen in Runs when opening its evidence details.
+    const selectedHistoricalRun = runList.find((run) => run.id === selectedRunIdRef.current);
+    if (selectedHistoricalRun && !recentRuns.some((run) => run.id === selectedHistoricalRun.id)) {
+      recentRuns.push(selectedHistoricalRun);
+    }
     const artifactLists = await Promise.all(
       recentRuns.map(async (run) => {
         const endpoint = `/api/runs/${run.id}/artifacts`;
@@ -2413,6 +2421,18 @@ export function InssaOpsClient({
                         </div>
 
                         <aside className="run-artifact-sidebar">
+                          {selectedRunExpiredBundle ? (
+                            <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4" aria-label="Expired run evidence">
+                              <h3 className="font-semibold">Evidence expired under retention policy</h3>
+                              <p className="mt-3 text-sm text-slate-400">Run results and logs are preserved. Stored artifacts were permanently deleted after verification.</p>
+                              <button className="mt-3 rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" type="button" onClick={() => {
+                                setSelectedEvidenceBundleId(selectedRunExpiredBundle.id);
+                                setEvidenceBundleSearch(selectedRun.id);
+                                setEvidenceBundleTypeFilter("all");
+                                setActiveWorkspace("reports");
+                              }}>View retention details</button>
+                            </section>
+                          ) : <>
                           <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
                             <h3 className="font-semibold">Playwright Report</h3>
                             {playwrightReport ? (
@@ -2458,6 +2478,7 @@ export function InssaOpsClient({
                               )}
                             </div>
                           </div>
+                          </>}
                         </aside>
                       </div>
                     ) : runDetailError ? (

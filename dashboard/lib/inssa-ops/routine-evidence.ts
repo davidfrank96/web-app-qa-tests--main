@@ -16,13 +16,24 @@ const EXPECTED_RUNTIME_NOTICE = "npm warn config production Use `--omit=dev` ins
 const METHODS = { "Username & Password": "username-password", "Google OAuth": "google-oauth", "Apple Sign-In": "apple-sign-in" } as const;
 function specs(suites: Suite[]): Spec[] { return suites.flatMap((suite) => [...(suite.specs ?? []), ...specs(suite.suites ?? [])]); }
 
+function hasCleanupActivity(run: InssaRunRecord) {
+  const cleanup = run.cleanup;
+  if (!cleanup) return false;
+  if (cleanup.status !== "not_required" || cleanup.runId !== run.id || cleanup.schemaVersion !== 1) return true;
+  // The run store supplies an empty manifest even for read-only runs. Only that
+  // inert default is safe: any recorded activity or protection keeps diagnostics.
+  return Object.entries(cleanup).some(([key, value]) =>
+    !["status", "runId", "schemaVersion"].includes(key) &&
+    value != null && value !== false && !(Array.isArray(value) && value.length === 0));
+}
+
 export function routineEvidenceDecision(input: RoutineEvidenceInput, report: Report, auth: AuthenticationMonitoringSummary | null) {
   const warningLines = input.warningLines.filter((line) => line.trim() !== EXPECTED_RUNTIME_NOTICE);
   const stderrLines = input.stderrLines.filter((line) => line.trim() !== EXPECTED_RUNTIME_NOTICE);
   const command = input.run.commandSnapshot;
   const known = getInssaPhase1Command(input.run.campaignKey);
   if (!known || command.key !== input.run.campaignKey || command.npmScript !== known.npmScript || command.riskLevel !== known.riskLevel) return false;
-  if (input.exitCode !== 0 || input.interrupted || command.mutatesStaging || command.cleanupRequired || command.requiresSecondaryAccount || input.run.cleanup ||
+  if (input.exitCode !== 0 || input.interrupted || command.mutatesStaging || command.cleanupRequired || command.requiresSecondaryAccount || hasCleanupActivity(input.run) ||
       !["test_inssa_safe", "monitor_inssa_auth_staging", "monitor_inssa_auth_production"].includes(input.run.campaignKey)) return false;
   if (!report || !Array.isArray(report.suites) || !Array.isArray(report.errors) || report.errors.length || !report.stats ||
       report.stats.flaky !== 0 || report.stats.skipped !== 0 || stderrLines.length) return false;
