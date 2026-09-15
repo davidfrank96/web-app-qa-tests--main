@@ -12,29 +12,32 @@ type Report = { suites: Suite[]; errors: unknown[]; stats: { flaky: number; skip
 export type RoutineEvidenceInput = {
   run: InssaRunRecord; exitCode: number | null; interrupted: boolean; warningLines: string[]; stderrLines: string[];
 };
+const EXPECTED_RUNTIME_NOTICE = "npm warn config production Use `--omit=dev` instead.";
 const METHODS = { "Username & Password": "username-password", "Google OAuth": "google-oauth", "Apple Sign-In": "apple-sign-in" } as const;
 function specs(suites: Suite[]): Spec[] { return suites.flatMap((suite) => [...(suite.specs ?? []), ...specs(suite.suites ?? [])]); }
 
 export function routineEvidenceDecision(input: RoutineEvidenceInput, report: Report, auth: AuthenticationMonitoringSummary | null) {
+  const warningLines = input.warningLines.filter((line) => line.trim() !== EXPECTED_RUNTIME_NOTICE);
+  const stderrLines = input.stderrLines.filter((line) => line.trim() !== EXPECTED_RUNTIME_NOTICE);
   const command = input.run.commandSnapshot;
   const known = getInssaPhase1Command(input.run.campaignKey);
   if (!known || command.key !== input.run.campaignKey || command.npmScript !== known.npmScript || command.riskLevel !== known.riskLevel) return false;
   if (input.exitCode !== 0 || input.interrupted || command.mutatesStaging || command.cleanupRequired || command.requiresSecondaryAccount || input.run.cleanup ||
       !["test_inssa_safe", "monitor_inssa_auth_staging", "monitor_inssa_auth_production"].includes(input.run.campaignKey)) return false;
   if (!report || !Array.isArray(report.suites) || !Array.isArray(report.errors) || report.errors.length || !report.stats ||
-      report.stats.flaky !== 0 || report.stats.skipped !== 0 || input.stderrLines.length) return false;
+      report.stats.flaky !== 0 || report.stats.skipped !== 0 || stderrLines.length) return false;
   const all = specs(report.suites);
   if (!all.length || !Number.isInteger(report.stats.expected) || !Number.isInteger(report.stats.unexpected) ||
       report.stats.expected + report.stats.unexpected !== all.reduce((n, s) => n + s.tests.length, 0) || all.some((s) => !s.tests.length || s.tests.some((t) => t.results.length !== 1 || t.results[0].retry !== 0 || !Number.isFinite(t.results[0].duration) || t.results[0].duration < 0 ||
       !["passed", "failed"].includes(t.results[0].status) || !["expected", "unexpected"].includes(t.status)))) return false;
-  if (input.run.campaignKey === "test_inssa_safe") return input.warningLines.length === 0 && report.stats.unexpected === 0 &&
+  if (input.run.campaignKey === "test_inssa_safe") return warningLines.length === 0 && report.stats.unexpected === 0 &&
     all.every((s) => s.tests.every((t) => t.status === "expected" && t.results[0].status === "passed"));
   if (!auth || auth.runId !== input.run.id || auth.environment !== (input.run.campaignKey.endsWith("_production") ? "production" : "staging") || !["passed", "degraded"].includes(auth.overallStatus) ||
       auth.checks["username-password"].status !== "passed" || !["passed", "blocked_external"].includes(auth.checks["google-oauth"].status) ||
       !["passed", "missing_configuration"].includes(auth.checks["apple-sign-in"].status) || all.length !== 3) return false;
   const expectedWarning = `WARNING: Authentication monitoring ${auth.environment}: overall=degraded, checks=` +
     Object.values(METHODS).map((method) => `${method}:${auth.checks[method].status}`).join(",");
-  if (input.warningLines.some((line) => line.trim() !== expectedWarning)) return false;
+  if (warningLines.some((line) => line.trim() !== expectedWarning)) return false;
   return new Set(all.map((s) => s.title)).size === 3 && all.every((s) => {
     const method = METHODS[s.title as keyof typeof METHODS]; if (!method || s.tests.length !== 1) return false;
     const expectedPass = auth.checks[method].status === "passed";
@@ -57,7 +60,7 @@ export async function reduceRoutineEvidence(input: RoutineEvidenceInput) {
   // Symlinks or files outside the expected output layout indicate an unrecognized producer.
   if (files.some((file) => !/^(playwright-report\/|test-results\/|authentication-monitoring\/|evidence-manifest\.json$|playwright-results\.json$)/.test(file))) return null;
   const beforeBytes = (await Promise.all(files.map(async (file) => (await fs.stat(path.join(root, file))).size))).reduce((a, b) => a + b, 0);
-  const results = { schemaVersion: 1, runId: input.run.id, campaignKey: input.run.campaignKey, stats: report.stats,
+  const results = { schemaVersion: 1, runId: input.run.id, campaignKey: input.run.campaignKey, stats: report.stats, notices: input.warningLines,
     tests: specs(report.suites).map((s) => ({ title: s.title, file: s.file, results: s.tests.map((t) => ({ outcome: t.status, status: t.results[0].status, retry: t.results[0].retry, duration: t.results[0].duration })) })) };
   const output = new Map<string, string>();
   output.set("run-results.json", JSON.stringify(results, null, 2) + "\n");
