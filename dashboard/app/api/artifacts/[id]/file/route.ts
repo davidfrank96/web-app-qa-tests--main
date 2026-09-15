@@ -45,6 +45,10 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     return NextResponse.json({ error: `Artifact not found: ${id}` }, { status: 404 });
   }
 
+  if ((await store.getEvidence(artifact.runId)).bundles.some((bundle) => bundle.status === "expired")) {
+    return NextResponse.json({ error: "Evidence expired under retention policy" }, { status: 410 });
+  }
+
   if (isPlaywrightReportArtifact(artifact)) {
     return new NextResponse(null, {
       headers: {

@@ -22,9 +22,10 @@ export default defineConfig({
     timeout: 8_000
   },
   outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR,
-  reporter: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR
-    ? [["html", { outputFolder: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR }], ["list"]]
-    : [["html"], ["list"]],
+  reporter: [
+    ["html", process.env.PLAYWRIGHT_HTML_OUTPUT_DIR ? { outputFolder: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR } : {}], ["list"],
+    ...(process.env.PLAYWRIGHT_JSON_OUTPUT_FILE ? [["json", { outputFile: process.env.PLAYWRIGHT_JSON_OUTPUT_FILE }] as [string, { outputFile: string }]] : [])
+  ],
   use: {
     trace: "retain-on-failure",
     screenshot: mutationRecording ? "on" : "only-on-failure",

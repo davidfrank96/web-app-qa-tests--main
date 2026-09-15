@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getInssaPhase1Command } from "../lib/inssa-ops/command-registry";
-import { evaluateRetention, RETENTION_POLICY_VERSION } from "../lib/inssa-ops/retention";
+import { evaluateRetention, RETENTION_POLICY_V1 as RETENTION_POLICY_VERSION } from "../lib/inssa-ops/retention";
 import { createRetentionReader, readRetentionSnapshot, RETENTION_RESOURCES } from "../lib/inssa-ops/retention-store";
 import type { RetentionHold, RetentionSnapshot } from "../lib/inssa-ops/retention-types";
 import type { InssaCleanupLedgerRecord, InssaRunStatus } from "../lib/inssa-ops/types";
@@ -11,7 +11,7 @@ const ago = (days: number) => new Date(Date.parse(AS_OF) - days * 86_400_000).to
 function fixture(days = 31, status: InssaRunStatus = "passed"): RetentionSnapshot {
   const createdAt = ago(days), hash = "a".repeat(64);
   return {
-    revision: "fixture-revision", consistent: true, holds: [], cleanup: [],
+    revision: "fixture-revision", consistent: true, holds: [], cleanup: [], deletions: [],
     policies: [{ id: RETENTION_POLICY_VERSION, mode: "dry_run_only", effectiveAt: "2026-09-14T00:00:00Z",
       routineDays: 30, failureDays: 90, securityDays: 90, postCleanupDays: 30 }],
     runs: [{ id: "run-1", campaignKey: "test_inssa_safe", commandSnapshot: getInssaPhase1Command("test_inssa_safe")!,

@@ -158,6 +158,11 @@ async function uploadBundleToSupabase(
       return fetch(input, { ...init, signal: AbortSignal.any(signals) });
     } }
   });
+  if (process.env.INSSA_OPS_METADATA_STORE === "supabase") {
+    const previous = await client.from("evidence_bundles").select("status").eq("run_id", bundle.runId);
+    if (previous.error) throw new Error("Evidence expiry state could not be checked.");
+    if (previous.data.some((row) => row.status === "expired")) throw new Error("Evidence expired under retention policy; publication is forbidden.");
+  }
   const bucket = client.storage.from(config.bucket);
   const uploadedAt = new Date().toISOString();
   const storagePrefix = buildStoragePrefix(bundle);

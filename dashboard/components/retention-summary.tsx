@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import type { RetentionPlan } from "../lib/inssa-ops/retention-types";
+import type { RetentionHealth, RetentionPlan } from "../lib/inssa-ops/retention-types";
 
 export function RetentionSummary() {
-  const [plan, setPlan] = useState<RetentionPlan | null>(null);
+  const [plan, setPlan] = useState<(RetentionPlan & { maintenance?: RetentionHealth }) | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function refresh() {
@@ -19,7 +19,15 @@ export function RetentionSummary() {
   }
   const size = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
   const summary = plan?.summary;
+  const maintenance = plan?.maintenance;
+  const last = maintenance?.lastExecution;
+  const nextExpiry = plan?.bundles.filter((b) => b.eligibilityReason === "PROTECTED" && b.expiryAt).map((b) => b.expiryAt!).sort()[0];
   const cards = summary ? [
+    ["Retention status", maintenance ? `${maintenance.status} · ${maintenance.enabled ? "Daily cleanup enabled" : "Daily cleanup disabled"}` : "Status unavailable"],
+    ["Last retention run", last ? `${String(last.status)} · ${new Date(String(last.started_at)).toLocaleString()}` : "No execution yet"],
+    ["Bytes reclaimed last run", size(Number(last?.bytes_reclaimed ?? 0))],
+    ["Total reclaimed", size(maintenance?.totalReclaimed ?? 0)],
+    ["Next eligible estimate", summary.eligibleBundles ? `${summary.eligibleBundles} bundles eligible now` : nextExpiry ? new Date(nextExpiry).toLocaleString() : "No known expiry"],
     ["Total evidence storage", `${size(summary.totalEvidenceStorageBytes)}${summary.storageSizeComplete ? "" : " (incomplete inventory)"}`],
     ["Eligible under current policy", `${summary.eligibleBundles} bundles`],
     ["Protected by holds", `${summary.protectedByHolds} bundles · ${summary.activeHolds} active holds`],
@@ -32,7 +40,7 @@ export function RetentionSummary() {
   return <section className="workspace-card" aria-label="Evidence retention">
     <div className="flex items-center justify-between gap-3">
       <div><h2 className="text-lg font-semibold text-slate-100">Evidence retention</h2>
-        <p className="mt-1 text-sm text-slate-400">DRY RUN ONLY · Whole-bundle eligibility under the current policy.</p></div>
+        <p className="mt-1 text-sm text-slate-400">Daily maintenance at 01:30 Europe/Dublin · The assessment below is read-only.</p></div>
       <button type="button" className="rounded-xl border border-slate-600 px-4 py-2 text-sm text-slate-100 disabled:opacity-50"
         disabled={busy} onClick={() => void refresh()}>{busy ? "Planning…" : plan ? "Refresh" : "Dry Run"}</button>
     </div>

@@ -158,6 +158,7 @@ type MutationReadinessRecord = {
 };
 
 type EvidenceBundleRecord = {
+  retentionTombstone?: import("../lib/inssa-ops/retention-types").RetentionTombstone | null;
   bundleType: string;
   campaignKey: string;
   checksumManifest: Record<string, string>;
@@ -3748,6 +3749,17 @@ function EvidenceWorkspace({
               </div>
             </div>
 
+            {selectedBundle.status === "expired" ? <section className="evidence-panel" aria-label="Expired evidence">
+              <h3 className="text-lg font-semibold">Evidence expired under retention policy</h3>
+              <p className="mt-2 text-sm text-slate-400">The files were permanently deleted after their retention period. Run and provider results remain available.</p>
+              {selectedBundle.retentionTombstone ? <dl className="mt-4 space-y-3 text-sm text-slate-300">
+                <Metadata label="Deleted at" value={formatDate(selectedBundle.retentionTombstone.deletedAt)} />
+                <Metadata label="Policy" value={selectedBundle.retentionTombstone.policyVersion} />
+                <Metadata label="Original objects" value={String(selectedBundle.retentionTombstone.originalObjectCount)} />
+                <Metadata label="Original size" value={formatBytes(selectedBundle.retentionTombstone.originalByteCount)} />
+                <Metadata label="Verification" value={selectedBundle.retentionTombstone.verificationStatus} />
+              </dl> : null}
+            </section> : <>
             <div className="evidence-chain">
               {[
                 { label: "Campaign", value: selectedBundle.campaignKey },
@@ -3952,6 +3964,7 @@ function EvidenceWorkspace({
                 </section>
               </aside>
             </div>
+            </>}
           </>
         ) : (
           <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-8 text-center">
@@ -4044,7 +4057,7 @@ function EvidencePreview({
 function EvidenceHealthBadge({ bundle, items }: { bundle: EvidenceBundleRecord; items: EvidenceItemRecord[] }) {
   const failed = bundle.uploadStatus === "failed" || items.some((item) => item.uploadStatus === "failed");
   const uploaded = bundle.uploadStatus === "uploaded";
-  const label = failed ? "attention" : uploaded ? "verified" : "local";
+  const label = bundle.status === "expired" ? "expired" : failed ? "attention" : uploaded ? "verified" : "local";
   const className = failed
     ? "bg-rose-300/15 text-rose-200 ring-rose-300/20"
     : uploaded
@@ -4083,6 +4096,7 @@ function RelatedEvidenceRow({
 }
 
 function evidenceIntegrityLabel(bundle: EvidenceBundleRecord, items: EvidenceItemRecord[]) {
+  if (bundle.status === "expired") return "Deletion verified";
   if (bundle.uploadStatus === "failed" || items.some((item) => item.uploadStatus === "failed")) return "needs review";
   if (bundle.uploadStatus === "uploaded" && items.every((item) => item.uploadStatus === "uploaded")) return "verified";
   if (Object.keys(bundle.checksumManifest ?? {}).length > 0) return "checksummed";

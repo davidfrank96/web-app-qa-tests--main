@@ -2,7 +2,7 @@ import type { InssaCleanupLedgerRecord, InssaEvidenceBundleRecord, InssaEvidence
 
 export type RetentionPolicy = {
   id: string;
-  mode: "dry_run_only";
+  mode: "dry_run_only" | "enforced";
   effectiveAt: string;
   routineDays: number;
   failureDays: number;
@@ -35,6 +35,7 @@ export type RetentionSnapshot = {
   items: InssaEvidenceItemRecord[];
   cleanup: InssaCleanupLedgerRecord[];
   objects: RetentionObject[];
+  deletions: RetentionDeletion[];
 };
 export type RetentionDecision = {
   bundleId: string;
@@ -54,6 +55,8 @@ export type RetentionPlan = {
   mode: "DRY RUN ONLY";
   planId: string;
   policyVersion: string;
+  routineDays: number;
+  comparisonOnly: boolean;
   asOf: string;
   snapshotRevision: string;
   reviewReasons: string[];
@@ -81,4 +84,28 @@ export type RetentionPlan = {
     oldestEligibleBundle: { bundleId: string; createdAt: string } | null;
   };
   bundles: RetentionDecision[];
+};
+
+export type RetentionDeletion = {
+  id: string;
+  bundleId: string;
+  runId: string;
+  campaignKey: string;
+  sourceSignature: string;
+  expectedObjects: RetentionObject[];
+  policyVersion: string;
+  retentionPlanId: string;
+  status: "deleting" | "RETENTION_PARTIAL_FAILURE" | "deleted";
+  originalObjectCount: number;
+  originalByteCount: number;
+};
+export type RetentionTombstone = {
+  authenticationMonitoringResult?: import("../monitoring/authentication-result").AuthenticationMonitoringSummary | null;
+  runId: string; bundleId: string; campaignKey: string;
+  originalObjectCount: number; originalByteCount: number; deletedAt: string;
+  policyVersion: string; retentionPlanId: string; deletionReason: string; verificationStatus: "ABSENCE_VERIFIED";
+};
+export type RetentionHealth = {
+  status: "HEALTHY" | "SKIPPED_ACTIVE_EXECUTION" | "PARTIAL_FAILURE" | "FAILED" | "STALE";
+  enabled: boolean; schedule: string; lastExecution: Record<string, unknown> | null; totalReclaimed: number;
 };

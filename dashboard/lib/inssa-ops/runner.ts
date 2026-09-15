@@ -1,3 +1,4 @@
+import { reduceRoutineEvidence } from "./routine-evidence";
 import { recordProcessLiveness } from "./process-liveness";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -237,6 +238,8 @@ async function executeRun(
   const startedAt = new Date();
   const outputRoot = await prepareRunOutput(run.id);
   let stderrSeen = false;
+  const warningLines: string[] = [];
+  const stderrLines: string[] = [];
   let warningSeen = false;
   let timedOut = false;
   let leaseLost = false;
@@ -296,14 +299,15 @@ async function executeRun(
 
   child.stdout.on("data", (chunk: Buffer) => {
     for (const line of splitLines(chunk)) {
-      if (/warn|warning/i.test(line)) warningSeen = true;
+      if (/warn|warning/i.test(line)) { warningSeen = true; warningLines.push(line); }
       void appendLog("stdout", redactInssaLogLine(line));
     }
   });
   child.stderr.on("data", (chunk: Buffer) => {
     stderrSeen = true;
     for (const line of splitLines(chunk)) {
-      if (/warn|warning/i.test(line)) warningSeen = true;
+      if (/warn|warning/i.test(line)) { warningSeen = true; warningLines.push(line); }
+      stderrLines.push(line);
       void appendLog("stderr", redactInssaLogLine(line));
     }
   });
@@ -401,6 +405,13 @@ async function executeRun(
         }
       }
       output = await finalizeRunOutput({ campaignKey: run.campaignKey, completedAt, runId: run.id, startedAt });
+    }
+    await assertSafe();
+    const footprint = await reduceRoutineEvidence({ run, exitCode: exit.code,
+      interrupted: timedOut || leaseLost || Boolean(startupError) || Boolean(terminationFailure) || Boolean(exit.signal), warningLines, stderrLines });
+    if (footprint) {
+      output = await finalizeRunOutput({ campaignKey: run.campaignKey, completedAt, runId: run.id, startedAt, skipLegacyCopy: true });
+      await appendLog("system", `Routine evidence reduced before publication: ${JSON.stringify(footprint)}`);
     }
     const artifacts = await indexArtifactsForRun({
       completedAtMs: completedAt.getTime(),
