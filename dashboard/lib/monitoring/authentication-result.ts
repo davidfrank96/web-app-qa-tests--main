@@ -58,7 +58,7 @@ export type AuthenticationMonitoringResultResponse = {
     bundleId: string | null;
     reportArtifactId: string | null;
     summaryEvidenceItemId: string | null;
-    uploadStatus: "failed" | "local_only" | "missing" | "uploaded";
+    uploadStatus: "failed" | "local_only" | "missing" | "uploaded" | "expired";
   };
   reason: string | null;
   result: AuthenticationMonitoringSummary | null;
@@ -155,6 +155,7 @@ export function authenticationEvidencePresentation(input: {
   runStatus: string;
   uploadStatus: string | null;
 }) {
+  if (input.uploadStatus === "expired") return { label: "Evidence expired under retention policy", state: "expired" as const };
   if (input.uploadStatus === "failed") {
     return { label: "Evidence Upload Failed", state: "failed" as const };
   }

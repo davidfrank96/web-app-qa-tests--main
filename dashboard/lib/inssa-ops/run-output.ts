@@ -26,12 +26,14 @@ export function buildRunOutputEnvironment(runId: string) {
   const outputRoot = getRunOutputRoot(runId);
   return {
     INSSA_RUN_OUTPUT_DIR: outputRoot,
+    PLAYWRIGHT_JSON_OUTPUT_FILE: path.join(outputRoot, "playwright-results.json"),
     PLAYWRIGHT_HTML_OUTPUT_DIR: path.join(outputRoot, "playwright-report"),
     PLAYWRIGHT_OUTPUT_DIR: path.join(outputRoot, "test-results")
   };
 }
 
 export async function finalizeRunOutput(input: {
+  skipLegacyCopy?: boolean;
   campaignKey: string;
   completedAt: Date;
   runId: string;
@@ -42,7 +44,7 @@ export async function finalizeRunOutput(input: {
   const sinceMs = input.startedAt.getTime() - 2_000;
   const untilMs = input.completedAt.getTime() + 2_000;
 
-  for (const relativeRoot of LEGACY_OUTPUT_ROOTS) {
+  for (const relativeRoot of input.skipLegacyCopy ? [] : LEGACY_OUTPUT_ROOTS) {
     await copyChangedFiles(
       path.join(repoRoot, relativeRoot),
       path.join(outputRoot, relativeRoot),

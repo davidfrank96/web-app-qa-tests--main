@@ -112,7 +112,7 @@ jobs:
         env:
           EVIDENCE_TEST_DATABASE_URL: postgresql://postgres:qa-local-fixture@127.0.0.1:5432/qa_evidence_test
         run: node scripts/test-evidence-database.mjs
-      - name: Retention read-only schema and pagination tests
+      - name: Retention eligibility, deletion, preservation and pagination tests
         working-directory: dashboard
         env:
           EVIDENCE_TEST_DATABASE_URL: postgresql://postgres:qa-local-fixture@127.0.0.1:5432/qa_evidence_test

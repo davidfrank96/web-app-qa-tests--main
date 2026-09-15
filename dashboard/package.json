@@ -21,7 +21,8 @@
     "persistence:import-operational-state": "node scripts/import-first-deployment-state.mjs",
     "persistence:provision": "node scripts/provision-persistence.mjs",
     "persistence:verify": "node scripts/provision-persistence.mjs --verify-only",
-    "test:execution-foundation": "node --import tsx --test --test-concurrency=1 tests/*.test.ts"
+    "test:execution-foundation": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
+    "retention:execute": "node --import tsx scripts/retention-execute.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

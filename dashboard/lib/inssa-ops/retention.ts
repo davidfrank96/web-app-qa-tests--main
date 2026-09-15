@@ -1,9 +1,18 @@
+import { isAuthenticationMonitoringCampaign, parseAuthenticationMonitoringSummary } from "../monitoring/authentication-result";
 import { createHash } from "node:crypto";
 import { getInssaPhase1Command } from "./command-registry";
 import { validateEvidenceManifest } from "./evidence-integrity";
 import type { RetentionDecision, RetentionHold, RetentionPlan, RetentionSnapshot } from "./retention-types";
 
-export const RETENTION_POLICY_VERSION = "evidence-retention-v1";
+export const RETENTION_POLICY_VERSION = "evidence-retention-v2";
+export const RETENTION_POLICY_V1 = "evidence-retention-v1";
+
+export function retentionSourceSignature(bundle: RetentionSnapshot["bundles"][number], items: RetentionSnapshot["items"]) {
+  const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) :
+    value && typeof value === "object" ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)])) : value;
+  return createHash("sha256").update(JSON.stringify(canonical({ bundle, items: [...items].sort((a, b) => a.id.localeCompare(b.id)) }))).digest("hex");
+}
+
 const DAY = 86_400_000;
 const SUCCESS = new Set(["passed", "passed_with_warnings"]);
 const FAILURE = new Set(["failed", "failed_startup", "timed_out", "cancelled"]);
@@ -24,14 +33,19 @@ function validHold(hold: RetentionHold) {
 }
 
 // No store, filesystem, network or mutation capability is accepted by this evaluator.
-export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string): RetentionPlan {
+export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string, options: { routineDays?: 14 | 21 | 30 } = {}): RetentionPlan {
   const now = timestamp(asOfInput);
   if (!Number.isFinite(now)) throw new Error("A valid asOf timestamp is required.");
   const asOf = new Date(now).toISOString();
-  const policy = snapshot.policies.find((p) => p.id === RETENTION_POLICY_VERSION);
-  const policyKnown = snapshot.policies.length === 1 && policy?.mode === "dry_run_only" &&
-    policy.routineDays === 30 && policy.failureDays === 90 && policy.securityDays === 90 && policy.postCleanupDays === 30 &&
-    timestamp(policy.effectiveAt) <= now;
+  const version = snapshot.policies.some((p) => p.id === RETENTION_POLICY_VERSION) ? RETENTION_POLICY_VERSION : RETENTION_POLICY_V1;
+  const policy = snapshot.policies.find((p) => p.id === version);
+  const routineDays = options.routineDays ?? policy?.routineDays ?? 21;
+  const policyKnown = snapshot.policies.length > 0 && new Set(snapshot.policies.map((p) => p.id)).size === snapshot.policies.length &&
+    snapshot.policies.every((p) => [RETENTION_POLICY_VERSION, RETENTION_POLICY_V1].includes(p.id) &&
+      p.mode === (p.id === RETENTION_POLICY_VERSION ? "enforced" : "dry_run_only") &&
+      p.routineDays === (p.id === RETENTION_POLICY_VERSION ? 21 : 30) &&
+      p.failureDays === 90 && p.securityDays === 90 && p.postCleanupDays === 30 && timestamp(p.effectiveAt) <= now) &&
+    [14, 21, 30].includes(routineDays);
   const holdsKnown = snapshot.holds.every(validHold);
   const reviewReasons = ordered([...(snapshot.consistent ? [] : ["SNAPSHOT_CHANGED"]),
     ...(policyKnown ? [] : ["POLICY_UNKNOWN"]), ...(holdsKnown ? [] : ["HOLD_STATE_UNKNOWN"])]);
@@ -47,6 +61,25 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
     let indefinite = false;
     const items = snapshot.items.filter((item) => item.bundleId === bundle.id);
     const run = runs.get(bundle.runId);
+    // Only a durable, unchanged deletion intent can explain missing objects. This is an in-memory
+    // inventory for the SAME eligibility evaluator, never a reconstruction or Storage write.
+    const pending = snapshot.deletions?.find((d) => d.bundleId === bundle.id && d.status !== "deleted");
+    const bundleObjects = new Map(objects);
+    if (pending) {
+      if (pending.policyVersion !== RETENTION_POLICY_VERSION || pending.sourceSignature !== retentionSourceSignature(bundle, items) ||
+          pending.originalObjectCount !== items.length || pending.originalByteCount !== bundle.totalBytes ||
+          pending.expectedObjects.length !== items.length || new Set(pending.expectedObjects.map((o) => o.name)).size !== items.length ||
+          pending.expectedObjects.some((o) => !items.some((i) => i.storageKey === o.name && i.sizeBytes === o.sizeBytes))) {
+        review.push("DELETION_INTENT_INCONSISTENT");
+      } else {
+        for (const expected of pending.expectedObjects) {
+          const actual = objects.get(expected.name);
+          if (actual && (actual.id !== expected.id || actual.sizeBytes !== expected.sizeBytes ||
+              actual.createdAt !== expected.createdAt || actual.updatedAt !== expected.updatedAt)) review.push("DELETION_OBJECT_CHANGED");
+          if (!actual) bundleObjects.set(expected.name, expected);
+        }
+      }
+    }
     const classes = ordered([bundle.retentionClass, ...items.map((item) => item.retentionClass)]);
     if (!snapshot.consistent) review.push("SNAPSHOT_CHANGED");
     if (!policyKnown) review.push("POLICY_UNKNOWN");
@@ -61,9 +94,16 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
     if (bundle.uploadStatus !== "uploaded" || bundle.storageBackend !== "supabase-storage" || bundle.uploadError ||
         items.some((item) => item.uploadStatus !== "uploaded" || item.uploadError)) review.push("UPLOAD_INCOMPLETE");
     for (const item of items) {
-      const object = objects.get(item.storageKey);
+      const object = bundleObjects.get(item.storageKey);
       if (!object || !Number.isSafeInteger(object.sizeBytes) || object.sizeBytes !== item.sizeBytes ||
           keyCounts.get(item.storageKey) !== 1) review.push("STORAGE_INVENTORY_INCONSISTENT");
+    }
+    if (isAuthenticationMonitoringCampaign(bundle.campaignKey)) {
+      try {
+        const saved = items.find((i) => i.metadata.authenticationMonitoringResult)?.metadata.authenticationMonitoringResult;
+        const result = parseAuthenticationMonitoringSummary(saved);
+        if (result.runId !== bundle.runId || result.environment !== (bundle.campaignKey.endsWith("_production") ? "production" : "staging")) throw new Error("Result association mismatch");
+      } catch { review.push("PROVIDER_RESULT_PRESERVATION_UNCERTAIN"); }
     }
     const command = run?.commandSnapshot;
     const known = command && getInssaPhase1Command(command.key);
@@ -87,11 +127,11 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
       associated.some((row) => row.securitySensitive || row.unexpectedData);
     const anchorValues = [bundle.createdAt, bundle.indexedAt, bundle.uploadedAt, run?.createdAt, run?.completedAt,
       ...items.flatMap((item) => [item.createdAt, item.uploadedAt]),
-      ...items.flatMap((item) => { const object = objects.get(item.storageKey); return object ? [object.createdAt, object.updatedAt] : []; })];
+      ...items.flatMap((item) => { const object = bundleObjects.get(item.storageKey); return object ? [object.createdAt, object.updatedAt] : []; })];
     const times = anchorValues.map(timestamp);
     if (times.some((time) => !Number.isFinite(time) || time > now)) review.push("DATES_INCONSISTENT");
     const anchor = Math.max(...times.filter(Number.isFinite));
-    let expiry = anchor + (FAILURE.has(run?.status ?? "") ? 90 : 30) * DAY;
+    let expiry = anchor + (FAILURE.has(run?.status ?? "") ? 90 : routineDays) * DAY;
     if (FAILURE.has(run?.status ?? "") && expiry > now) protect.push("FAILURE_WINDOW");
     if (SUCCESS.has(run?.status ?? "") && expiry > now) protect.push("ROUTINE_WINDOW");
     if (security) {
@@ -148,7 +188,7 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
   const oldest = [...eligible].sort((a, b) => timestamp(a.createdAt) - timestamp(b.createdAt) || a.bundleId.localeCompare(b.bundleId))[0];
   const unreferenced = snapshot.objects.filter((object) => !keyCounts.has(object.name));
   const result: Omit<RetentionPlan, "planId"> = {
-    mode: "DRY RUN ONLY", policyVersion: policy?.id ?? RETENTION_POLICY_VERSION, asOf,
+    mode: "DRY RUN ONLY", routineDays, comparisonOnly: options.routineDays !== undefined, policyVersion: policy?.id ?? RETENTION_POLICY_VERSION, asOf,
     snapshotRevision: snapshot.revision, reviewReasons, storageDeletionCalls: 0, metadataDeletionCalls: 0,
     summary: {
       bundlesScanned: decisions.length, eligibleBundles: eligible.length, protectedBundles: protectedRows.length,

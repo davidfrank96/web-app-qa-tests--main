@@ -1,5 +1,7 @@
 # Evidence retention — DRY RUN ONLY
 
+> Historical Wave 3 baseline. Current execution policy and controls: [Wave 4 evidence cost control](evidence-cost-control.md).
+
 Policy version: `evidence-retention-v1`, effective 2026-09-14 UTC. The planner reads QA platform metadata and private `inssa-evidence` Storage inventory. It never invokes product APIs or writes evidence, logs, audit events, cleanup records, notifications or monitoring definitions. It has no deletion executor or schedule.
 
 Run from the repository root with the existing dashboard service environment:

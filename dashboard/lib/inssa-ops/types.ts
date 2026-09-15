@@ -290,7 +290,7 @@ export type InssaArtifactRecord = {
   sha256: string;
 };
 
-export type InssaEvidenceBundleStatus = "indexed";
+export type InssaEvidenceBundleStatus = "indexed" | "expired";
 
 export type InssaEvidenceBundleType =
   | "artifact-validation"
@@ -314,6 +314,7 @@ export type InssaEvidenceStorageBackend = "local-filesystem" | "supabase-storage
 export type InssaEvidenceUploadStatus = "local_only" | "uploaded" | "failed";
 
 export type InssaEvidenceBundleRecord = {
+  retentionTombstone?: import("./retention-types").RetentionTombstone | null;
   bundleType: InssaEvidenceBundleType;
   campaignKey: string;
   checksumManifest: Record<string, string>;

@@ -820,6 +820,7 @@ function toSupabaseEvidenceBundle(bundle: InssaEvidenceBundleRecord) {
 
 function fromSupabaseEvidenceBundle(row: Record<string, unknown>): InssaEvidenceBundleRecord {
   return {
+    retentionTombstone: row.retention_tombstone as InssaEvidenceBundleRecord["retentionTombstone"],
     bundleType: row.bundle_type as InssaEvidenceBundleRecord["bundleType"],
     campaignKey: String(row.campaign_key),
     checksumManifest: recordValue(row.checksum_manifest),

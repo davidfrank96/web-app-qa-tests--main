@@ -5,7 +5,7 @@ if (!['127.0.0.1', 'localhost'].includes(url.hostname) || !url.pathname.startsWi
   throw new Error('Retention SQL tests require a disposable localhost qa_evidence_test database.');
 }
 const dir = new URL('../supabase/migrations/', import.meta.url);
-const migrations = readdirSync(dir).filter((name) => /platform_core_persistence|execution_foundation|admin_live_campaigns|deferred_cleanup_ledger_version_fix|evidence_retention_dry_run/.test(name)).sort();
+const migrations = readdirSync(dir).filter((name) => /platform_core_persistence|execution_foundation|admin_live_campaigns|monitoring_framework|deferred_cleanup_ledger_version_fix|evidence_retention_dry_run/.test(name)).sort();
 let sql = `begin;
 do $$ begin
   if not exists(select 1 from pg_roles where rolname='anon') then create role anon; end if;
@@ -18,7 +18,9 @@ grant usage on schema storage to service_role;
 grant select on storage.objects to service_role;
 `;
 for (const migration of migrations) sql += readFileSync(new URL(migration, dir), 'utf8') + '\n';
-sql += readFileSync(new URL('../tests/sql/retention.sql', import.meta.url), 'utf8') + '\nrollback;';
+sql += readFileSync(new URL('../tests/sql/retention.sql', import.meta.url), 'utf8') + '\n';
+sql += readFileSync(new URL('20260914233531_evidence_cost_control.sql', dir), 'utf8') + '\n';
+sql += readFileSync(new URL('../tests/sql/retention-execution.sql', import.meta.url), 'utf8') + '\nrollback;';
 const result = spawnSync('psql', [url.href, '-X', '-v', 'ON_ERROR_STOP=1', '-q'], { input: sql, encoding: 'utf8' });
 process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr || '');
 if (result.error) throw result.error;

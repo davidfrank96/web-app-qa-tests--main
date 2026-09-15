@@ -59,7 +59,7 @@ export async function resolveAuthenticationMonitoringResult(
   run: InssaRunRecord,
   artifacts: InssaArtifactRecord[],
   items: InssaEvidenceItemRecord[],
-  bundle: { id: string; uploadError: string | null; uploadStatus: string } | null,
+  bundle: { id: string; uploadError: string | null; uploadStatus: string; status?: string; retentionTombstone?: import("../inssa-ops/retention-types").RetentionTombstone | null } | null,
   loadDurableItem = downloadEvidenceItemFromDurableStorage
 ): Promise<AuthenticationMonitoringResultResponse> {
   const reportArtifact = artifacts.find((artifact) => artifact.artifactType === "Playwright Report") ?? null;
@@ -70,6 +70,12 @@ export async function resolveAuthenticationMonitoringResult(
     summaryEvidenceItemId: summaryItem?.id ?? null,
     uploadStatus: normalizeUploadStatus(bundle?.uploadStatus)
   };
+
+  if (bundle?.status === "expired" && bundle.retentionTombstone?.authenticationMonitoringResult) {
+    return { ...availableResult(validateForRun(parseAuthenticationMonitoringSummary(bundle.retentionTombstone.authenticationMonitoringResult), run),
+      { ...evidence, uploadStatus: "expired", reportArtifactId: null, summaryEvidenceItemId: null }, "evidence_metadata"),
+      reason: "Evidence expired under retention policy" };
+  }
 
   if (summaryItem?.metadata.authenticationMonitoringResult) {
     try {

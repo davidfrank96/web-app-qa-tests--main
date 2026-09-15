@@ -271,3 +271,17 @@ function evidenceItemFixture(): InssaEvidenceItemRecord {
     uploadedAt: "2026-08-16T17:02:08.108Z"
   };
 }
+
+test("provider result history survives Storage expiry and item pruning without dead download links", async () => {
+  const run = runFixture();
+  const summary = parseAuthenticationMonitoringSummary(summaryFixture());
+  const result = await resolveAuthenticationMonitoringResult(run, [], [], {
+    id: "expired-bundle", status: "expired", uploadStatus: "uploaded", uploadError: null,
+    retentionTombstone: { runId: run.id, bundleId: "expired-bundle", campaignKey: run.campaignKey, originalObjectCount: 82,
+      originalByteCount: 15_000_000, deletedAt: "2026-09-15T00:00:00Z", policyVersion: "evidence-retention-v2", retentionPlanId: "plan",
+      deletionReason: "ELIGIBLE", verificationStatus: "ABSENCE_VERIFIED", authenticationMonitoringResult: summary }
+  }, async () => { throw new Error("Expired files must never be requested"); });
+  assert.equal(result.state, "available"); assert.deepEqual(result.result?.checks, summary.checks);
+  assert.equal(result.evidence.uploadStatus, "expired"); assert.equal(result.evidence.reportArtifactId, null);
+  assert.equal(authenticationEvidencePresentation({ reportArtifactId: null, runStatus: run.status, uploadStatus: "expired" }).label, "Evidence expired under retention policy");
+});
