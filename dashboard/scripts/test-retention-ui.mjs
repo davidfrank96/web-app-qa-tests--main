@@ -9,9 +9,11 @@ const dashboard = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const { build } = createRequire(path.join(dashboard, 'package.json'))('esbuild');
 const expiredRun = { id: 'expired-run', campaignKey: 'test_inssa_safe', status: 'passed', createdAt: '2026-08-10T10:00:00Z', updatedAt: '2026-09-15T00:00:00Z', completedAt: '2026-08-10T10:01:00Z', startedAt: '2026-08-10T10:00:00Z', durationMs: 60000, exitCode: 0, requestedBy: 'fixture' };
 const expiredBundle = { id: 'expired-bundle', runId: expiredRun.id, campaignKey: expiredRun.campaignKey, title: 'Retained run history', bundleType: 'playwright', createdAt: expiredRun.createdAt, indexedAt: expiredRun.completedAt, environment: 'staging', status: 'expired', itemCount: 0, totalBytes: 0, checksumManifest: {}, storageBackend: 'supabase-storage', uploadStatus: 'uploaded', uploadedAt: expiredRun.completedAt, retentionClass: 'short-lived', retentionTombstone: { policyVersion: 'evidence-retention-v2', originalObjectCount: 82, originalByteCount: 15000000, deletedAt: expiredRun.updatedAt, verificationStatus: 'ABSENCE_VERIFIED' } };
+// The real initial cleanup expires runs older than the default 40-run report archive.
+const fixtureRuns = [...Array.from({ length: 40 }, (_, i) => ({ ...expiredRun, id: `recent-${i}`, createdAt: '2026-09-14T10:00:00Z' })), expiredRun];
 const backend = { backend: 'local-json', backendLabel: 'Fixture', counts: { runs: 0, logs: 0, artifacts: 0 }, error: null, storePath: null };
 const bundle = await build({ stdin: { contents: `import React from 'react'; import {createRoot} from 'react-dom/client'; import {InssaOpsClient} from './inssa-ops-client';
-  createRoot(document.getElementById('root')).render(React.createElement(InssaOpsClient, {currentUser:{id:'fixture',email:'fixture@example.test',role:new URLSearchParams(location.search).get('role')},initialCampaignDefinitions:[],initialMetadataBackend:${JSON.stringify(backend)},initialRuns:${JSON.stringify([expiredRun])}}));`,
+  createRoot(document.getElementById('root')).render(React.createElement(InssaOpsClient, {currentUser:{id:'fixture',email:'fixture@example.test',role:new URLSearchParams(location.search).get('role')},initialCampaignDefinitions:[],initialMetadataBackend:${JSON.stringify(backend)},initialRuns:${JSON.stringify(fixtureRuns)}}));`,
   resolveDir: path.join(dashboard, 'components'), loader: 'tsx' }, write: false, bundle: true, platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } });
 let retentionReads = 0, fail = false;
 const summary = { bundlesScanned: 111, eligibleBundles: 14, protectedBundles: 85, reviewRequiredBundles: 12,
@@ -23,8 +25,9 @@ const server = createServer((req, res) => {
   let body = {};
   if (req.url === '/api/retention') { assert.equal(req.method, 'GET'); retentionReads++; res.statusCode = fail ? 503 : 200;
     body = fail ? { error: 'Fixture failure' } : { mode: 'DRY RUN ONLY', policyVersion: 'evidence-retention-v2', maintenance: { status: 'HEALTHY', enabled: true, totalReclaimed: 15000000, lastExecution: { status: 'HEALTHY', started_at: expiredRun.updatedAt, bytes_reclaimed: 15000000 } }, asOf: '2026-09-14T22:00:00Z', reviewReasons: [], summary, bundles: [] }; }
-  else if (req.url === '/api/runs') body = { runs: [expiredRun], metadataBackend: backend };
+  else if (req.url === '/api/runs') body = { runs: fixtureRuns, metadataBackend: backend };
   else if (req.url.startsWith('/api/runs/expired-run')) body = req.url.includes('/evidence') ? { bundles: [expiredBundle], items: [] } : req.url.includes('/artifacts') ? { artifacts: [] } : req.url.includes('/logs') ? { logs: [] } : { run: expiredRun };
+  else if (req.url.startsWith('/api/runs/recent-')) body = req.url.includes('/evidence') ? { bundles: [], items: [] } : req.url.includes('/artifacts') ? { artifacts: [] } : req.url.includes('/logs') ? { logs: [] } : { run: fixtureRuns.find(r => req.url === `/api/runs/${r.id}`) };
   else if (req.url === '/api/campaign-definitions') body = { campaignDefinitions: [] };
   else if (req.url === '/api/cleanup-ledger') body = { records: [], readiness: [] };
   else if (req.url === '/api/lifecycle-artifacts') body = { artifacts: [] };
@@ -52,11 +55,18 @@ try {
   fail = false; await section.getByRole('button',{name:'Dry Run',exact:true}).click(); await section.getByText('14 bundles',{exact:true}).waitFor();
   assert.equal(retentionReads,3);
   await section.getByText('HEALTHY · Daily cleanup enabled', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Reports', exact: true }).click();
+  await page.getByRole('button', { name: 'Runs', exact: true }).click();
+  await page.getByRole('button', { name: /expired-run/ }).click();
+  const runExpiry = page.getByRole('region', { name: 'Expired run evidence' });
+  await runExpiry.getByRole('heading', { name: 'Evidence expired under retention policy' }).waitFor();
+  assert.equal(await page.locator('.run-artifact-sidebar a').count(), 0);
+  const refreshedHistoricalEvidence = page.waitForResponse(response => response.url().endsWith('/api/runs/expired-run/evidence'));
+  await runExpiry.getByRole('button', { name: 'View retention details' }).click();
+  await refreshedHistoricalEvidence;
   const expired = page.getByRole('region', { name: 'Expired evidence' });
   await expired.getByRole('heading', { name: 'Evidence expired under retention policy' }).waitFor();
   assert.equal(await page.locator('.evidence-detail-pane a').count(), 0, 'expired history offers no dead download links');
   await expired.getByText('ABSENCE_VERIFIED', { exact: true }).waitFor();
   assert.deepEqual(errors,[]);
-  console.log('PASS: real Operations admin visibility, explicit GET only, no polling, summary, verified expired history without dead links, maintenance health, single Dry Run/Refresh action, stale-plan clearing and retry');
+  console.log('PASS: real Operations admin visibility, explicit GET only, no polling, summary, verified expired history beyond 40 runs without dead links, historical navigation, maintenance health, single Dry Run/Refresh action, stale-plan clearing and retry');
 } finally { await browser.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
