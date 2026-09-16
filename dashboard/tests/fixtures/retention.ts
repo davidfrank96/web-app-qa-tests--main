@@ -9,7 +9,7 @@ export function fixture(days = 31, status: InssaRunStatus = "passed"): Retention
   return {
     revision: "fixture-revision", consistent: true, holds: [], cleanup: [], deletions: [],
     policies: [{ id: RETENTION_POLICY_VERSION, mode: "enforced", effectiveAt: "2026-09-14T00:00:00Z",
-      routineDays: 21, failureDays: 90, securityDays: 90, postCleanupDays: 30 }],
+      routineDays: 30, warningDays: 60, failureDays: 90, securityDays: 90, postCleanupDays: 30 }],
     runs: [{ id: "run-1", campaignKey: "test_inssa_safe", commandSnapshot: structuredClone(getInssaPhase1Command("test_inssa_safe")!),
       createdAt, completedAt: createdAt, updatedAt: createdAt, startedAt: createdAt, durationMs: 0, exitCode: 0, requestedBy: "fixture", status }],
     bundles: [{ id: "bundle-1", runId: "run-1", campaignKey: "test_inssa_safe", title: "Fixture", product: "INSSA", environment: "staging",

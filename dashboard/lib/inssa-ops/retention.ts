@@ -4,7 +4,8 @@ import { getInssaPhase1Command } from "./command-registry";
 import { validateEvidenceManifest } from "./evidence-integrity";
 import type { RetentionDecision, RetentionHold, RetentionPlan, RetentionSnapshot } from "./retention-types";
 
-export const RETENTION_POLICY_VERSION = "evidence-retention-v2";
+export const RETENTION_POLICY_VERSION = "evidence-retention-v3";
+export const RETENTION_POLICY_V2 = "evidence-retention-v2";
 export const RETENTION_POLICY_V1 = "evidence-retention-v1";
 
 export function retentionSourceSignature(bundle: RetentionSnapshot["bundles"][number], items: RetentionSnapshot["items"]) {
@@ -33,17 +34,19 @@ function validHold(hold: RetentionHold) {
 }
 
 // No store, filesystem, network or mutation capability is accepted by this evaluator.
-export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string, options: { routineDays?: 14 | 21 | 30 } = {}): RetentionPlan {
+export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string, options: { routineDays?: 14 | 21 | 30; legacyV2?: boolean } = {}): RetentionPlan {
   const now = timestamp(asOfInput);
   if (!Number.isFinite(now)) throw new Error("A valid asOf timestamp is required.");
   const asOf = new Date(now).toISOString();
-  const version = snapshot.policies.some((p) => p.id === RETENTION_POLICY_VERSION) ? RETENTION_POLICY_VERSION : RETENTION_POLICY_V1;
+  const version = snapshot.policies.some((p) => p.id === RETENTION_POLICY_VERSION) ? RETENTION_POLICY_VERSION : snapshot.policies.some((p) => p.id === RETENTION_POLICY_V2) ? RETENTION_POLICY_V2 : RETENTION_POLICY_V1;
   const policy = snapshot.policies.find((p) => p.id === version);
-  const routineDays = options.routineDays ?? policy?.routineDays ?? 21;
+  const routineDays = options.legacyV2 ? 21 : options.routineDays ?? policy?.routineDays ?? 30;
+  const warningDays = options.legacyV2 || version !== RETENTION_POLICY_VERSION ? routineDays : policy?.warningDays ?? 60;
   const policyKnown = snapshot.policies.length > 0 && new Set(snapshot.policies.map((p) => p.id)).size === snapshot.policies.length &&
-    snapshot.policies.every((p) => [RETENTION_POLICY_VERSION, RETENTION_POLICY_V1].includes(p.id) &&
-      p.mode === (p.id === RETENTION_POLICY_VERSION ? "enforced" : "dry_run_only") &&
-      p.routineDays === (p.id === RETENTION_POLICY_VERSION ? 21 : 30) &&
+    snapshot.policies.every((p) => [RETENTION_POLICY_VERSION, RETENTION_POLICY_V2, RETENTION_POLICY_V1].includes(p.id) &&
+      p.mode === (p.id === RETENTION_POLICY_V1 ? "dry_run_only" : "enforced") &&
+      p.routineDays === (p.id === RETENTION_POLICY_V2 ? 21 : 30) &&
+      (p.id !== RETENTION_POLICY_VERSION || p.warningDays === 60) &&
       p.failureDays === 90 && p.securityDays === 90 && p.postCleanupDays === 30 && timestamp(p.effectiveAt) <= now) &&
     [14, 21, 30].includes(routineDays);
   const holdsKnown = snapshot.holds.every(validHold);
@@ -131,9 +134,14 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
     const times = anchorValues.map(timestamp);
     if (times.some((time) => !Number.isFinite(time) || time > now)) review.push("DATES_INCONSISTENT");
     const anchor = Math.max(...times.filter(Number.isFinite));
-    let expiry = anchor + (FAILURE.has(run?.status ?? "") ? 90 : routineDays) * DAY;
+    const diagnosticItems = items.filter((item) => item.metadata.executionDiagnostics !== undefined);
+    const diagnostics = diagnosticItems.map((item) => item.metadata.executionDiagnostics as Record<string, unknown> | null);
+    if (diagnostics.some((d) => !d || d.schemaVersion !== 1 || d.state !== "available" ||
+        typeof d.retryUsed !== "boolean" || typeof d.flaky !== "boolean")) review.push("EXECUTION_DIAGNOSTICS_UNKNOWN");
+    const warning = run?.status === "passed_with_warnings" || diagnostics.some((d) => d?.retryUsed === true || d?.flaky === true);
+    let expiry = anchor + (FAILURE.has(run?.status ?? "") ? 90 : warning ? warningDays : routineDays) * DAY;
     if (FAILURE.has(run?.status ?? "") && expiry > now) protect.push("FAILURE_WINDOW");
-    if (SUCCESS.has(run?.status ?? "") && expiry > now) protect.push("ROUTINE_WINDOW");
+    if (SUCCESS.has(run?.status ?? "") && expiry > now) protect.push(warning && warningDays > routineDays ? "WARNING_RETRY_WINDOW" : "ROUTINE_WINDOW");
     if (security) {
       expiry = Math.max(expiry, anchor + 90 * DAY);
       if (anchor + 90 * DAY > now) protect.push("SECURITY_WINDOW");
@@ -188,7 +196,7 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
   const oldest = [...eligible].sort((a, b) => timestamp(a.createdAt) - timestamp(b.createdAt) || a.bundleId.localeCompare(b.bundleId))[0];
   const unreferenced = snapshot.objects.filter((object) => !keyCounts.has(object.name));
   const result: Omit<RetentionPlan, "planId"> = {
-    mode: "DRY RUN ONLY", routineDays, comparisonOnly: options.routineDays !== undefined, policyVersion: policy?.id ?? RETENTION_POLICY_VERSION, asOf,
+    mode: "DRY RUN ONLY", routineDays, warningDays, comparisonOnly: options.routineDays !== undefined || options.legacyV2 === true, policyVersion: policy?.id ?? RETENTION_POLICY_VERSION, asOf,
     snapshotRevision: snapshot.revision, reviewReasons, storageDeletionCalls: 0, metadataDeletionCalls: 0,
     summary: {
       bundlesScanned: decisions.length, eligibleBundles: eligible.length, protectedBundles: protectedRows.length,
@@ -198,6 +206,10 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
       protectedByHolds: count(/^HOLD_/), protectedFailedEvidence: count(/^FAILURE_WINDOW$/),
       protectedSecurityEvidence: count(/^SECURITY_WINDOW$/), protectedFailureOrSecurity: count(/^(FAILURE|SECURITY)_WINDOW$/),
       protectedCleanupEvidence: count(/^(UNRESOLVED_CLEANUP|POST_CLEANUP_WINDOW|CLEANUP_RETENTION_UNTIL)$/),
+      protectedWarningEvidence: count(/^WARNING_RETRY_WINDOW$/),
+      protectedWarningBytes: bytes(retained.filter((r) => r.protectionReasons.includes("WARNING_RETRY_WINDOW"))),
+      protectedFailureOrSecurityBytes: bytes(retained.filter((r) => r.protectionReasons.some((p) => /^(FAILURE|SECURITY)_WINDOW$/.test(p)))),
+      protectedCleanupBytes: bytes(retained.filter((r) => r.protectionReasons.some((p) => /^(UNRESOLVED_CLEANUP|POST_CLEANUP_WINDOW|CLEANUP_RETENTION_UNTIL)$/.test(p)))),
       activeHolds: activeHolds.length, unreferencedObjects: unreferenced.length,
       unreferencedBytes: unreferenced.reduce((sum, o) => sum + (o.sizeBytes ?? 0), 0),
       orphanItems: snapshot.items.filter((item) => !snapshot.bundles.some((b) => b.id === item.bundleId)).length,

@@ -15,16 +15,17 @@ const backend = { backend: 'local-json', backendLabel: 'Fixture', counts: { runs
 const bundle = await build({ stdin: { contents: `import React from 'react'; import {createRoot} from 'react-dom/client'; import {InssaOpsClient} from './inssa-ops-client';
   createRoot(document.getElementById('root')).render(React.createElement(InssaOpsClient, {currentUser:{id:'fixture',email:'fixture@example.test',role:new URLSearchParams(location.search).get('role')},initialCampaignDefinitions:[],initialMetadataBackend:${JSON.stringify(backend)},initialRuns:${JSON.stringify(fixtureRuns)}}));`,
   resolveDir: path.join(dashboard, 'components'), loader: 'tsx' }, write: false, bundle: true, platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } });
-let retentionReads = 0, fail = false;
+let retentionReads = 0, executions = 0, fail = false;
 const summary = { bundlesScanned: 111, eligibleBundles: 14, protectedBundles: 85, reviewRequiredBundles: 12,
-  eligibleBytes: 129631709, totalEvidenceStorageBytes: 1209480568, storageSizeComplete: true, protectedByHolds: 0,
+  eligibleBytes: 129631709, protectedBytes: 900000000, protectedWarningEvidence: 40, protectedWarningBytes: 100000000, protectedFailureOrSecurityBytes: 80000000, totalEvidenceStorageBytes: 1209480568, storageSizeComplete: true, protectedByHolds: 0,
   activeHolds: 0, protectedFailureOrSecurity: 13, oldestEligibleBundle: { bundleId: 'oldest', createdAt: '2026-08-10T17:59:53.622Z' }, unreferencedObjects: 4 };
 const server = createServer((req, res) => {
   if (req.url.startsWith('/?') || req.url === '/') { res.setHeader('content-type','text/html'); res.end('<div id="root"></div><script src="/bundle.js"></script>'); return; }
   if (req.url === '/bundle.js') { res.setHeader('content-type','text/javascript'); res.end(bundle.outputFiles[0].text); return; }
   let body = {};
   if (req.url === '/api/retention') { assert.equal(req.method, 'GET'); retentionReads++; res.statusCode = fail ? 503 : 200;
-    body = fail ? { error: 'Fixture failure' } : { mode: 'DRY RUN ONLY', policyVersion: 'evidence-retention-v2', maintenance: { status: 'HEALTHY', enabled: true, totalReclaimed: 15000000, lastExecution: { status: 'HEALTHY', started_at: expiredRun.updatedAt, bytes_reclaimed: 15000000 } }, asOf: '2026-09-14T22:00:00Z', reviewReasons: [], summary, bundles: [] }; }
+    body = fail ? { error: 'Fixture failure' } : { mode: 'DRY RUN ONLY', policyVersion: 'evidence-retention-v3', executionPreview: { token: 'signed-fixture-token', bundles: 14, objects: 100, bytes: 129631709 }, maintenance: { status: 'HEALTHY', enabled: true, nextScheduledAt: '2026-10-01T00:30:00Z', totalReclaimed: 15000000, lastExecution: { status: 'HEALTHY', started_at: expiredRun.updatedAt, bytes_reclaimed: 15000000 } }, asOf: '2026-09-14T22:00:00Z', reviewReasons: [], summary, bundles: [] }; }
+  else if (req.url === '/api/retention/execute') { assert.equal(req.method, 'POST'); let raw = ''; req.on('data', data => raw += data); req.on('end', () => { const request = JSON.parse(raw); assert.equal(request.confirmation, 'DELETE ELIGIBLE EVIDENCE'); assert.equal(request.token, 'signed-fixture-token'); executions++; res.setHeader('content-type','application/json'); res.end(JSON.stringify({ status: 'HEALTHY' })); }); return; }
   else if (req.url === '/api/runs') body = { runs: fixtureRuns, metadataBackend: backend };
   else if (req.url.startsWith('/api/runs/expired-run')) body = req.url.includes('/evidence') ? { bundles: [expiredBundle], items: [] } : req.url.includes('/artifacts') ? { artifacts: [] } : req.url.includes('/logs') ? { logs: [] } : { run: expiredRun };
   else if (req.url.startsWith('/api/runs/recent-')) body = req.url.includes('/evidence') ? { bundles: [], items: [] } : req.url.includes('/artifacts') ? { artifacts: [] } : req.url.includes('/logs') ? { logs: [] } : { run: fixtureRuns.find(r => req.url === `/api/runs/${r.id}`) };
@@ -47,14 +48,20 @@ try {
   await page.goto(`${origin}/?role=admin`); await page.getByRole('button',{name:'Operations',exact:true}).click();
   const section = page.getByRole('region',{name:'Evidence retention'}); await section.waitFor();
   await page.clock.runFor(60100); assert.equal(retentionReads,0,'no automatic retention polling');
-  await section.getByRole('button',{name:'Dry Run',exact:true}).click(); await section.getByText('14 bundles',{exact:true}).waitFor();
-  assert.equal(retentionReads,1); assert.equal(await section.getByRole('button').count(),1);
+  await section.getByRole('button',{name:'Dry Run',exact:true}).click(); await section.getByText('14 bundles / 129.6 MB',{exact:true}).waitFor();
+  assert.equal(retentionReads,1); assert.equal(await section.getByRole('button').count(),2);
   await page.clock.runFor(60100); assert.equal(retentionReads,1,'completed plan does not poll');
   fail = true; await section.getByRole('button',{name:'Refresh',exact:true}).click(); await section.getByRole('alert').waitFor();
-  assert.equal(await section.getByText('14 bundles',{exact:true}).count(),0,'failed refresh clears old eligibility');
-  fail = false; await section.getByRole('button',{name:'Dry Run',exact:true}).click(); await section.getByText('14 bundles',{exact:true}).waitFor();
+  assert.equal(await section.getByText('14 bundles / 129.6 MB',{exact:true}).count(),0,'failed refresh clears old eligibility');
+  fail = false; await section.getByRole('button',{name:'Dry Run',exact:true}).click(); await section.getByText('14 bundles / 129.6 MB',{exact:true}).waitFor();
   assert.equal(retentionReads,3);
-  await section.getByText('HEALTHY · Daily cleanup enabled', { exact: true }).waitFor();
+  await section.getByText('HEALTHY · Monthly cleanup enabled', { exact: true }).waitFor();
+  await section.getByRole('button', { name: 'Execute Eligible…', exact: true }).click();
+  const confirm = section.getByRole('region', { name: 'Confirm permanent evidence deletion' });
+  assert.equal(await confirm.getByRole('button', { name: 'Confirm deletion' }).isDisabled(), true); assert.equal(executions, 0);
+  await confirm.getByRole('textbox').fill('DELETE ELIGIBLE EVIDENCE');
+  await confirm.getByRole('button', { name: 'Confirm deletion' }).click();
+  await section.getByRole('status').waitFor(); assert.equal(executions, 1);
   await page.getByRole('button', { name: 'Runs', exact: true }).click();
   await page.getByRole('button', { name: /expired-run/ }).click();
   const runExpiry = page.getByRole('region', { name: 'Expired run evidence' });
@@ -68,5 +75,5 @@ try {
   assert.equal(await page.locator('.evidence-detail-pane a').count(), 0, 'expired history offers no dead download links');
   await expired.getByText('ABSENCE_VERIFIED', { exact: true }).waitFor();
   assert.deepEqual(errors,[]);
-  console.log('PASS: real Operations admin visibility, explicit GET only, no polling, summary, verified expired history beyond 40 runs without dead links, historical navigation, maintenance health, single Dry Run/Refresh action, stale-plan clearing and retry');
+  console.log('PASS: real Operations admin visibility, explicit GET only, no polling, summary, verified expired history beyond 40 runs without dead links, historical navigation, maintenance health, monthly schedule and deliberate admin confirmation, stale-plan clearing and retry');
 } finally { await browser.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

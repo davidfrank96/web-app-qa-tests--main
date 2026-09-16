@@ -5,6 +5,7 @@ export type RetentionPolicy = {
   mode: "dry_run_only" | "enforced";
   effectiveAt: string;
   routineDays: number;
+  warningDays?: number;
   failureDays: number;
   securityDays: number;
   postCleanupDays: number;
@@ -56,6 +57,7 @@ export type RetentionPlan = {
   planId: string;
   policyVersion: string;
   routineDays: number;
+  warningDays: number;
   comparisonOnly: boolean;
   asOf: string;
   snapshotRevision: string;
@@ -77,6 +79,10 @@ export type RetentionPlan = {
     protectedSecurityEvidence: number;
     protectedFailureOrSecurity: number;
     protectedCleanupEvidence: number;
+    protectedWarningEvidence: number;
+    protectedWarningBytes: number;
+    protectedFailureOrSecurityBytes: number;
+    protectedCleanupBytes: number;
     activeHolds: number;
     unreferencedObjects: number;
     unreferencedBytes: number;
@@ -107,5 +113,5 @@ export type RetentionTombstone = {
 };
 export type RetentionHealth = {
   status: "HEALTHY" | "SKIPPED_ACTIVE_EXECUTION" | "PARTIAL_FAILURE" | "FAILED" | "STALE";
-  enabled: boolean; schedule: string; lastExecution: Record<string, unknown> | null; totalReclaimed: number;
+  enabled: boolean; schedule: string; nextScheduledAt: string; policyVersion: string; lastExecution: Record<string, unknown> | null; totalReclaimed: number;
 };

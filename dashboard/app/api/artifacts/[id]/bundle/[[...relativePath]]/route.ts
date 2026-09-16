@@ -1,3 +1,4 @@
+import { restoreLegacyRoutineReport } from "../../../../../../lib/inssa-ops/investigation-report";
 import fs from "node:fs/promises";
 import { NextRequest, NextResponse } from "next/server";
 import { requireInssaApiUser } from "../../../../../../lib/inssa-ops/api-guard";
@@ -76,6 +77,8 @@ export async function GET(
       throw error;
     }
   }
+
+  if (logical.contentType.startsWith("text/html") && file.includes("<p>Routine evidence summary</p><pre>")) file = restoreLegacyRoutineReport(file, await store.getRun(artifact.runId));
 
   if (isRedactableContentType(logical.contentType)) {
     file = Buffer.from(redactInssaTextOutput(file), "utf8");

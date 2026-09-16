@@ -29,7 +29,7 @@ export function createRetentionExecutorIO(signal?: AbortSignal): RetentionExecut
   const bucket = client.storage.from("inssa-evidence");
   return {
     snapshot: () => readRetentionSnapshot(reader),
-    claim: (id, owner, automatic) => rpc("retention_claim_occurrence", { p_id: id, p_owner: owner, p_automatic: automatic }),
+    claim: (id, owner, automatic, schedulerStartedAt) => rpc("retention_claim_occurrence", { p_id: id, p_owner: owner, p_automatic: automatic, p_scheduler_started_at: schedulerStartedAt ?? null }),
     heartbeat: (id, owner) => rpc("retention_heartbeat", { p_occurrence: id, p_owner: owner }),
     reserve: (i) => rpc("retention_reserve_bundle", { p_occurrence: i.occurrence, p_owner: i.owner, p_revision: i.snapshot.revision,
       p_bundle: i.bundleId, p_signature: i.signature, p_plan: i.planId, p_objects: i.objects }),

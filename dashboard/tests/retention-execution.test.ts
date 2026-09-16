@@ -18,7 +18,7 @@ function harness(snapshot = fixture()) {
       const bundle = snapshot.bundles.find((b) => b.id === i.bundleId)!;
       snapshot.deletions = snapshot.deletions.filter((d) => d.bundleId !== i.bundleId);
       snapshot.deletions.push({ id: i.bundleId, bundleId: i.bundleId, runId: bundle.runId, campaignKey: bundle.campaignKey,
-        sourceSignature: i.signature, expectedObjects: i.objects, policyVersion: "evidence-retention-v2", retentionPlanId: i.planId,
+        sourceSignature: i.signature, expectedObjects: i.objects, policyVersion: "evidence-retention-v3", retentionPlanId: i.planId,
         status: "deleting", originalByteCount: bundle.totalBytes, originalObjectCount: bundle.itemCount });
       return { status: "RESERVED", remaining: i.objects.filter((o) => snapshot.objects.some((s) => s.name === o.name)) };
     },
@@ -41,19 +41,19 @@ function twoObjects(s: RetentionSnapshot) {
   s.objects.push({ ...s.objects[0], id: "object-2", name: "fixture/two.json" });
   s.bundles[0].checksumManifest["two.json"] = "a".repeat(64); s.bundles[0].itemCount = 2; s.bundles[0].totalBytes = 6;
 }
-test("v2 retains 20-day success and expires exact 21 days and older", () => {
-  assert.equal(evaluateRetention(fixture(20), AS_OF).summary.eligibleBundles, 0);
-  for (const days of [21, 22]) { const plan = evaluateRetention(fixture(days), AS_OF); certifyExecutionPlan(plan); assert.equal(plan.summary.eligibleBundles, 1); }
+test("v3 retains 29-day success and expires exact 30 days and older", () => {
+  assert.equal(evaluateRetention(fixture(29), AS_OF).summary.eligibleBundles, 0);
+  for (const days of [30, 31]) { const plan = evaluateRetention(fixture(days), AS_OF); certifyExecutionPlan(plan); assert.equal(plan.summary.eligibleBundles, 1); }
 });
-test("30/21/14 comparison uses the same rules; comparative and mismatched policies cannot execute", () => {
+test("30/60/90 versus legacy 21-day comparison uses the same rules; comparative and mismatched policies cannot execute", () => {
   const plans = retentionComparison(fixture(25), AS_OF);
-  assert.equal(plans.thirtyDays.summary.eligibleBundles, 0); assert.equal(plans.twentyOneDays.summary.eligibleBundles, 1); assert.equal(plans.fourteenDays.summary.eligibleBundles, 1);
-  for (const plan of [plans.thirtyDays, plans.fourteenDays, { ...plans.twentyOneDays, policyVersion: "evidence-retention-v1" }]) assert.throws(() => certifyExecutionPlan(plan));
+  assert.equal(plans.thirtyDays.summary.eligibleBundles, 0); assert.equal(plans.twentyOneDays.summary.eligibleBundles, 1);
+  for (const plan of [plans.twentyOneDays, { ...plans.thirtyDays, policyVersion: "evidence-retention-v1" }]) assert.throws(() => certifyExecutionPlan(plan));
 });
-for (const state of ["failed", "failed_startup", "timed_out", "cancelled"] as const) test(`v2 ${state} under 90 days never deletes`, async () => {
+for (const state of ["failed", "failed_startup", "timed_out", "cancelled"] as const) test(`v3 ${state} under 90 days never deletes`, async () => {
   const h = harness(fixture(89, state)); await run(h.io); assert.deepEqual(h.sent, []);
 });
-test("v2 security, active, review and unresolved cleanup never delete", async () => {
+test("v3 security, active, review and unresolved cleanup never delete", async () => {
   for (const change of [(s: RetentionSnapshot) => { s.items[0].retentionClass = "security-evidence"; },
     (s: RetentionSnapshot) => { s.runs[0].status = "running"; }, (s: RetentionSnapshot) => { s.bundles[0].uploadStatus = "local_only"; },
     (s: RetentionSnapshot) => { s.bundles[0].retentionClass = "cleanup-evidence"; }]) {
@@ -84,7 +84,7 @@ test("partial deletion persists intent, re-evaluates and retries ONLY remaining 
 test("missing objects without a durable intent never become eligible; changed pending evidence fails closed", () => {
   const s = fixture(); s.objects = []; assert.equal(evaluateRetention(s, AS_OF).summary.eligibleBundles, 0);
   const full = fixture(); full.deletions.push({ id: "intent", bundleId: "bundle-1", runId: "run-1", campaignKey: "test_inssa_safe", sourceSignature: retentionSourceSignature(full.bundles[0], full.items),
-    expectedObjects: structuredClone(full.objects), policyVersion: "evidence-retention-v2", retentionPlanId: "old-plan", status: "RETENTION_PARTIAL_FAILURE", originalByteCount: 3, originalObjectCount: 1 });
+    expectedObjects: structuredClone(full.objects), policyVersion: "evidence-retention-v3", retentionPlanId: "old-plan", status: "RETENTION_PARTIAL_FAILURE", originalByteCount: 3, originalObjectCount: 1 });
   full.objects[0].id = "replacement"; assert.equal(evaluateRetention(full, AS_OF).summary.eligibleBundles, 0);
 });
 test("failed absence verification never prunes metadata", async () => { const h = harness(); h.failVerification(); await run(h.io); assert.equal(h.snapshot.items.length, 1); assert.equal(h.tombstones.length, 0); });
@@ -100,9 +100,31 @@ test("bundle budget stops at 100 and leaves the next eligible bundle for another
   const h = harness(s); await run(h.io); assert.equal(h.tombstones.length, 100); assert.equal(h.snapshot.bundles.length, 1);
 });
 test("active campaign safely records a skipped occurrence without competing with QA", async () => { const h = harness(); h.setActive(); assert.equal((await run(h.io) as { status: string }).status, "SKIPPED_ACTIVE_EXECUTION"); assert.deepEqual(h.calls, []); });
-test("Dublin daily occurrence handles summer and winter boundaries and repeated DST hour", () => {
-  assert.equal(dueRetentionOccurrence(new Date("2026-09-15T00:29:59Z")), null);
-  assert.equal(dueRetentionOccurrence(new Date("2026-09-15T00:30:00Z")), "daily:2026-09-15");
-  assert.equal(dueRetentionOccurrence(new Date("2026-12-15T01:30:00Z")), "daily:2026-12-15");
-  assert.equal(dueRetentionOccurrence(new Date("2026-10-25T00:30:00Z")), dueRetentionOccurrence(new Date("2026-10-25T01:30:00Z")));
+test("Dublin monthly occurrence handles winter/summer, no daily or startup/missed-minute catch-up", () => {
+  const started = new Date("2026-01-01T00:00:00Z");
+  for (const date of ["2026-10-01T00:29:59Z", "2026-10-01T00:31:00Z", "2026-10-01T12:00:00Z", "2026-10-02T00:30:00Z", "2026-09-15T00:30:00Z", "2026-10-25T01:30:00Z"]) {
+    assert.equal(dueRetentionOccurrence(new Date(date), started), null, date);
+  }
+  assert.equal(dueRetentionOccurrence(new Date("2026-10-01T00:30:00Z"), started), "monthly:2026-10");
+  assert.equal(dueRetentionOccurrence(new Date("2026-12-01T01:30:59Z"), started), "monthly:2026-12");
+  for (const boot of ["2026-10-01T00:30:00Z", "2026-10-01T00:30:20Z"]) assert.equal(dueRetentionOccurrence(new Date("2026-10-01T00:30:30Z"), new Date(boot)), null);
+});
+test("warnings and retries remain protected until 60 days even when process status passed", async () => {
+  for (const days of [29, 30, 59]) {
+    for (const status of ["passed", "passed_with_warnings"] as const) {
+      const h = harness(fixture(days, status));
+      if (status === "passed") h.snapshot.items[0].metadata.executionDiagnostics = { schemaVersion: 1, state: "available", retryUsed: true, flaky: false };
+      const plan = evaluateRetention(h.snapshot, AS_OF);
+      assert.equal(plan.summary.protectedWarningEvidence, 1); assert.equal(plan.summary.protectedWarningBytes, 3);
+      await run(h.io); assert.deepEqual(h.sent, []);
+    }
+  }
+  assert.equal(evaluateRetention(fixture(60, "passed_with_warnings"), AS_OF).summary.eligibleBundles, 1);
+  const unknown = fixture(100); unknown.items[0].metadata.executionDiagnostics = { state: "unknown" };
+  assert.equal(evaluateRetention(unknown, AS_OF).bundles[0].eligibilityReason, "REVIEW_REQUIRED");
+});
+test("manual execution never expands beyond the explicitly confirmed bundle list", async () => {
+  const h = harness();
+  await executeRetention(h.io, { occurrence: "manual:confirmed", owner: "test-owner", approvedBundleIds: ["different-bundle"], now: () => new Date(AS_OF) });
+  assert.deepEqual(h.sent, []); assert.equal(h.snapshot.bundles.length, 1);
 });
