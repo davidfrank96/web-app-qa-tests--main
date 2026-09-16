@@ -9,6 +9,7 @@ loadEnvConfig(process.cwd(), process.env.INSSA_DASHBOARD_MODE !== "start");
 
 const INTERVAL_MS = readPositiveInteger(process.env.INSSA_SCHEDULER_INTERVAL_MS, 60_000);
 const runOnce = process.argv.includes("--once");
+const schedulerStartedAt = new Date();
 const schedulerId = `${process.env.HOSTNAME || "local"}-${process.pid}-${crypto.randomUUID()}`;
 const store = getSchedulerStore();
 let stopping = false;
@@ -36,12 +37,12 @@ async function main() {
       process.stdout.write(
         `Scheduler evaluation: definitions=${result.definitionsEvaluated}, queued=${result.jobsQueued}, errors=${result.errors.length}\n`
       );
-      const occurrence = dueRetentionOccurrence(new Date());
+      const occurrence = dueRetentionOccurrence(new Date(), schedulerStartedAt);
       if (!maintenance && occurrence && occurrence !== attemptedMaintenance && process.env.INSSA_OPS_METADATA_STORE === "supabase") {
         // A caught background task keeps monitoring and scheduler liveness independent of retention.
         attemptedMaintenance = occurrence;
         maintenance = Promise.resolve().then(() => executeRetention(createRetentionExecutorIO(maintenanceAbort.signal), {
-          occurrence, owner: `retention-${schedulerId}`, automatic: true, signal: maintenanceAbort.signal
+          occurrence, owner: `retention-${schedulerId}`, automatic: true, schedulerStartedAt: schedulerStartedAt.toISOString(), signal: maintenanceAbort.signal
         })).then((result) => {
           if (result && typeof result === "object" && "status" in result && result.status === "NOT_DUE") attemptedMaintenance = null;
           process.stdout.write(`Retention evaluation: ${JSON.stringify(result)}\n`);

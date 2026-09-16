@@ -1,3 +1,5 @@
+import { renderInvestigationReport, providerResults, SUCCESS_EVIDENCE_PROFILE, type InvestigationResults, type InvestigationStep } from "./investigation-report";
+import { redactInssaTextOutput } from "./redaction";
 import { getInssaPhase1Command } from "./command-registry";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -5,10 +7,10 @@ import { getRunOutputRoot } from "./paths";
 import { parseAuthenticationMonitoringSummary, type AuthenticationMonitoringSummary } from "../monitoring/authentication-result";
 import type { InssaRunRecord } from "./types";
 
-type Result = { status: string; retry: number; duration: number };
-type Spec = { title: string; file: string; tests: { status: string; results: Result[] }[] };
+type Result = { status: string; retry: number; duration: number; startTime?: string; steps?: InvestigationStep[]; errors?: { message?: string }[]; stdout?: { text?: string }[]; stderr?: { text?: string }[] };
+type Spec = { title: string; file: string; tests: { status: string; projectName?: string; results: Result[] }[] };
 type Suite = { suites?: Suite[]; specs?: Spec[] };
-type Report = { suites: Suite[]; errors: unknown[]; stats: { flaky: number; skipped: number; unexpected: number; expected: number } };
+type Report = { suites: Suite[]; errors: unknown[]; stats: { startTime?: string; duration?: number; flaky: number; skipped: number; unexpected: number; expected: number } };
 export type RoutineEvidenceInput = {
   run: InssaRunRecord; exitCode: number | null; interrupted: boolean; warningLines: string[]; stderrLines: string[];
 };
@@ -71,12 +73,19 @@ export async function reduceRoutineEvidence(input: RoutineEvidenceInput) {
   // Symlinks or files outside the expected output layout indicate an unrecognized producer.
   if (files.some((file) => !/^(playwright-report\/|test-results\/|authentication-monitoring\/|evidence-manifest\.json$|playwright-results\.json$)/.test(file))) return null;
   const beforeBytes = (await Promise.all(files.map(async (file) => (await fs.stat(path.join(root, file))).size))).reduce((a, b) => a + b, 0);
-  const results = { schemaVersion: 1, runId: input.run.id, campaignKey: input.run.campaignKey, stats: report.stats, notices: input.warningLines,
-    tests: specs(report.suites).map((s) => ({ title: s.title, file: s.file, results: s.tests.map((t) => ({ outcome: t.status, status: t.results[0].status, retry: t.results[0].retry, duration: t.results[0].duration })) })) };
+  const results: InvestigationResults = { schemaVersion: 2, profile: SUCCESS_EVIDENCE_PROFILE,
+    runId: input.run.id, campaignKey: input.run.campaignKey, environment: input.run.commandSnapshot.targetEnvironment ?? "staging",
+    startedAt: auth?.startedAt ?? report.stats.startTime ?? input.run.startedAt, completedAt: auth?.completedAt ?? new Date().toISOString(),
+    stats: report.stats, notices: input.warningLines, consoleSummary: input.stderrLines, errorSummary: [], ...providerResults(auth),
+    tests: specs(report.suites).map((s) => ({ title: s.title, file: s.file, results: s.tests.map((t) => ({
+      outcome: t.status, status: t.results[0].status, retry: t.results[0].retry, duration: t.results[0].duration,
+      project: t.projectName, startTime: t.results[0].startTime, steps: t.results[0].steps,
+      errors: t.results[0].errors?.map((e) => e.message ?? "Error detail not recorded"),
+      stdout: t.results[0].stdout?.flatMap((x) => x.text ? [x.text] : []), stderr: t.results[0].stderr?.flatMap((x) => x.text ? [x.text] : [])
+    })) })) };
   const output = new Map<string, string>();
-  output.set("run-results.json", JSON.stringify(results, null, 2) + "\n");
-  const escape = (s: string) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-  output.set("playwright-report/index.html", `<!doctype html><html lang="en"><meta charset="utf-8"><title>Run results</title><body><h1>Run results</h1><p>Routine evidence summary</p><pre>${escape(JSON.stringify({ ...results, ...(auth ? { providerResults: auth.checks } : {}) }, null, 2))}</pre></body></html>`);
+  output.set("run-results.json", redactInssaTextOutput(Buffer.from(JSON.stringify(results, null, 2))) + "\n");
+  output.set("playwright-report/index.html", renderInvestigationReport(results));
   if (auth) {
     // The parsed provider summary is retained exactly; remove references to deliberately discarded diagnostics.
     const summary = { ...auth }; delete summary.evidenceReferences;
@@ -89,7 +98,7 @@ export async function reduceRoutineEvidence(input: RoutineEvidenceInput) {
   try {
     await fs.mkdir(staged, { recursive: true });
     for (const [file, content] of output) { await fs.mkdir(path.dirname(path.join(staged, file)), { recursive: true }); await fs.writeFile(path.join(staged, file), content); }
-    const footprint = { mode: "routine_summary", beforeBytes, summaryBytes: [...output.values()].reduce((n, value) => n + Buffer.byteLength(value), 0),
+    const footprint = { mode: SUCCESS_EVIDENCE_PROFILE, beforeBytes, summaryBytes: [...output.values()].reduce((n, value) => n + Buffer.byteLength(value), 0),
       originalFiles: files.length, retainedFiles: output.size + 2, reason: auth ? "Known provider outcomes; no retry or unexpected warning" : "All tests passed without retries or warnings" };
     await fs.writeFile(path.join(staged, "evidence-footprint.json"), JSON.stringify(footprint, null, 2) + "\n");
     await fs.rename(root, backup); moved = true;

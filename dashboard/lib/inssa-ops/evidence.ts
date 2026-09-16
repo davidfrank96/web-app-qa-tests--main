@@ -76,7 +76,8 @@ function evidenceItemFromArtifact(
       compatibilityArtifactId: artifact.id,
       compatibilityArtifactType: artifact.artifactType,
       originalFilePath: artifact.filePath,
-      ...authenticationMonitoringResultMetadata(artifact)
+      ...authenticationMonitoringResultMetadata(artifact),
+      ...executionDiagnosticsMetadata(artifact)
     },
     relativePath: artifact.filePath,
     renderInline: artifact.renderInline,
@@ -91,6 +92,29 @@ function evidenceItemFromArtifact(
     uploadStatus: "local_only",
     uploadedAt: null
   };
+}
+
+// Preserve retry/flaky classification with the immutable evidence, including runs
+// whose process exit code is zero after a failed attempt. Unknown data fails closed.
+function executionDiagnosticsMetadata(artifact: InssaArtifactRecord): Record<string, unknown> {
+  if (!/(^|\/)(playwright-results|run-results)\.json$/.test(artifact.filePath.replaceAll("\\", "/"))) return {};
+  try {
+    const root = path.resolve(getRepoRoot()), file = path.resolve(root, artifact.filePath);
+    const relative = path.relative(root, file);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("Invalid results path");
+    const report = JSON.parse(fs.readFileSync(file, "utf8"));
+    const attempts: { retry?: number }[] = [];
+    const visit = (suites: { specs?: { tests: { results: { retry?: number }[] }[] }[]; suites?: unknown[] }[]) => {
+      for (const suite of suites) {
+        for (const spec of suite.specs ?? []) for (const test of spec.tests) attempts.push(...test.results);
+        visit((suite.suites ?? []) as typeof suites);
+      }
+    };
+    if (Array.isArray(report.suites)) visit(report.suites);
+    else if (Array.isArray(report.tests)) for (const test of report.tests) attempts.push(...test.results);
+    if (!attempts.length || attempts.some((x) => !Number.isInteger(x.retry) || x.retry! < 0) || !Number.isInteger(report.stats?.flaky)) throw new Error("Incomplete result diagnostics");
+    return { executionDiagnostics: { schemaVersion: 1, state: "available", retryUsed: attempts.some((x) => x.retry! > 0), flaky: report.stats.flaky > 0 } };
+  } catch { return { executionDiagnostics: { schemaVersion: 1, state: "unknown" } }; }
 }
 
 function authenticationMonitoringResultMetadata(artifact: InssaArtifactRecord): Record<string, unknown> {

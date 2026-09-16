@@ -35,13 +35,20 @@ for (const auth of [false, true]) test(`${auth ? "known Authentication Monitorin
   await fs.writeFile(path.join(root, "playwright-report/index.html"), Buffer.alloc(2_000_000, "H"));
   await fs.writeFile(path.join(root, "playwright-report/data/trace.zip"), Buffer.alloc(200_000));
   if (auth) { await fs.mkdir(path.join(root, "authentication-monitoring")); await fs.writeFile(path.join(root, "authentication-monitoring/authentication-monitoring-summary.json"), JSON.stringify(summary)); }
-  const result = await reduceRoutineEvidence(i); assert.ok(result); assert.ok(result.beforeBytes > 2_000_000); assert.ok(result.summaryBytes < 10_000);
+  const result = await reduceRoutineEvidence(i); assert.ok(result); assert.ok(result.beforeBytes > 2_000_000); assert.ok(result.summaryBytes < 100_000);
+  assert.equal(result.mode, "INVESTIGATION_READY_SUCCESS");
+  const html = await fs.readFile(path.join(root, "playwright-report/index.html"), "utf8");
+  assert.match(html, /Test results and execution path/); assert.match(html, /Warnings and notices/);
+  assert.match(html, /fixture.spec.ts/); assert.match(html, /0.01 s/); assert.ok(html.includes(i.run.id));
+  assert.doesNotMatch(html, /(?:src|href)=["']/); assert.doesNotMatch(html, /heavy-inline-evidence/);
+  if (auth) { assert.match(html, /BLOCKED_EXTERNAL/); assert.match(html, /MISSING_CONFIGURATION/); }
   assert.deepEqual(await fs.readdir(path.dirname(root)), [i.run.id], "no staging or backup copy remains");
   const finalized = await finalizeRunOutput({ runId: i.run.id, campaignKey: i.run.campaignKey, startedAt: new Date(stamp), completedAt: new Date(stamp), skipLegacyCopy: true });
   const artifacts = await indexArtifactsForRun({ runId: i.run.id, outputRoot: root, startedAtMs: Date.parse(stamp), completedAtMs: Date.parse(stamp) });
   const evidence = buildEvidenceMetadataForRun(i.run, artifacts); assert.ok(evidence.bundle); validateEvidenceManifest(i.run.id, evidence.bundle, evidence.items);
-  assert.ok(evidence.items.every((item) => !/\.(zip|png|webm)$/.test(item.relativePath))); assert.ok(evidence.bundle.totalBytes < 20_000);
+  assert.ok(evidence.items.every((item) => !/\.(zip|png|webm)$/.test(item.relativePath))); assert.ok(evidence.bundle.totalBytes < 110_000);
   assert.ok(!JSON.stringify(finalized.manifest).includes("trace.zip")); assert.ok(!(await fs.readFile(path.join(root, "run-results.json"), "utf8")).includes("heavy-inline-evidence"));
+  assert.ok(evidence.items.some((item) => (item.metadata.executionDiagnostics as { state?: string })?.state === "available"));
   if (auth) { const resolved = await resolveAuthenticationMonitoringResult(i.run, artifacts, evidence.items, evidence.bundle);
     assert.equal(resolved.state, "available"); assert.deepEqual(resolved.result?.checks, authSummary().checks); }
 });
@@ -80,4 +87,24 @@ test("nonempty or unresolved cleanup manifests cannot select lightweight mode ev
     const i = input(); i.run.cleanup = { ...empty, ...patch } as NonNullable<typeof i.run.cleanup>;
     assert.equal(routineEvidenceDecision(i, report(), null), false, JSON.stringify(patch));
   }
+});
+
+test("a retried final pass keeps failed-attempt evidence and durable retry metadata", async (t) => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "retry-evidence-")), prior = process.env.INSSA_QA_REPO_ROOT;
+  process.env.INSSA_QA_REPO_ROOT = temp;
+  t.after(async () => { if (prior === undefined) delete process.env.INSSA_QA_REPO_ROOT; else process.env.INSSA_QA_REPO_ROOT = prior; await fs.rm(temp, { recursive: true, force: true }); });
+  const i = input(), root = path.join(temp, "run-output", i.run.id), r = report();
+  r.stats.flaky = 1;
+  r.suites[0].specs[0].tests[0].results = [
+    { status: "failed", retry: 0, duration: 40, attachments: [{ body: "initial failure screenshot" }] },
+    { status: "passed", retry: 1, duration: 20, attachments: [] }
+  ];
+  await fs.mkdir(path.join(root, "test-results"), { recursive: true });
+  await fs.writeFile(path.join(root, "playwright-results.json"), JSON.stringify(r));
+  const trace = Buffer.from("failed-attempt trace"); await fs.writeFile(path.join(root, "test-results/trace.zip"), trace);
+  assert.equal(await reduceRoutineEvidence(i), null);
+  const artifacts = await indexArtifactsForRun({ runId: i.run.id, outputRoot: root, startedAtMs: Date.parse(stamp), completedAtMs: Date.parse(stamp) });
+  const evidence = buildEvidenceMetadataForRun(i.run, artifacts);
+  assert.ok(evidence.items.some((item) => JSON.stringify(item.metadata.executionDiagnostics) === JSON.stringify({ schemaVersion: 1, state: "available", retryUsed: true, flaky: true })));
+  assert.deepEqual(await fs.readFile(path.join(root, "test-results/trace.zip")), trace);
 });

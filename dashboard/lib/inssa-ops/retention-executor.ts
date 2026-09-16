@@ -4,7 +4,7 @@ import type { RetentionObject, RetentionPlan, RetentionSnapshot } from "./retent
 export const RETENTION_LIMITS = { bundles: 100, objects: 5000, bytes: 2_000_000_000 } as const;
 export type RetentionExecutorIO = {
   snapshot(): Promise<RetentionSnapshot>;
-  claim(id: string, owner: string, automatic: boolean): Promise<{ status: string }>;
+  claim(id: string, owner: string, automatic: boolean, schedulerStartedAt?: string): Promise<{ status: string }>;
   heartbeat(id: string, owner: string): Promise<void>;
   reserve(input: { occurrence: string; owner: string; snapshot: RetentionSnapshot; bundleId: string; signature: string; planId: string; objects: RetentionObject[] }): Promise<{ status: string; remaining?: RetentionObject[] }>;
   remove(keys: string[]): Promise<void>;
@@ -13,23 +13,20 @@ export type RetentionExecutorIO = {
   finish(id: string, owner: string, error: string | null, protectedCount: number, reviewCount: number): Promise<unknown>;
 };
 export function certifyExecutionPlan(plan: RetentionPlan) {
-  if (plan.policyVersion !== RETENTION_POLICY_VERSION || plan.routineDays !== 21 || plan.comparisonOnly || plan.reviewReasons.length ||
-      !plan.summary.storageSizeComplete) throw new Error("Retention v2 execution certification failed; no deletion authorized by this plan.");
+  if (plan.policyVersion !== RETENTION_POLICY_VERSION || plan.routineDays !== 30 || plan.warningDays !== 60 || plan.comparisonOnly || plan.reviewReasons.length ||
+      !plan.summary.storageSizeComplete) throw new Error("Retention v3 execution certification failed; no deletion authorized by this plan.");
 }
 export function retentionComparison(snapshot: RetentionSnapshot, asOf = new Date().toISOString()) {
-  return { thirtyDays: evaluateRetention(snapshot, asOf, { routineDays: 30 }),
-    twentyOneDays: evaluateRetention(snapshot, asOf), fourteenDays: evaluateRetention(snapshot, asOf, { routineDays: 14 }) };
+  return { thirtyDays: evaluateRetention(snapshot, asOf),
+    twentyOneDays: evaluateRetention(snapshot, asOf, { legacyV2: true }) };
 }
-export function dueRetentionOccurrence(now: Date) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Dublin", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now).map((p) => [p.type, p.value]));
-  return Number(parts.hour) * 60 + Number(parts.minute) >= 90 ? `daily:${parts.year}-${parts.month}-${parts.day}` : null;
-}
+export { dueRetentionOccurrence } from "./retention-schedule";
 
 // No input candidate list is trusted: every bundle gets a NEW consistent plan. SQL reserve
 // compares its revision and gates concurrent safety changes before the first Storage call.
-export async function executeRetention(io: RetentionExecutorIO, input: { occurrence: string; owner: string; automatic?: boolean; signal?: AbortSignal; now?: () => Date }) {
+export async function executeRetention(io: RetentionExecutorIO, input: { occurrence: string; owner: string; automatic?: boolean; schedulerStartedAt?: string; approvedBundleIds?: string[]; signal?: AbortSignal; now?: () => Date }) {
   const now = input.now ?? (() => new Date());
-  const claim = await io.claim(input.occurrence, input.owner, input.automatic ?? false);
+  const claim = await io.claim(input.occurrence, input.owner, input.automatic ?? false, input.schedulerStartedAt);
   if (claim.status !== "RUNNING") return claim;
   let heartbeatFailure: unknown = null;
   let heartbeatPending: Promise<void> | null = null;
@@ -53,7 +50,7 @@ export async function executeRetention(io: RetentionExecutorIO, input: { occurre
       const plan = evaluateRetention(snapshot, now().toISOString());
       certifyExecutionPlan(plan);
       protectedCount = plan.summary.protectedBundles; reviewCount = plan.summary.reviewRequiredBundles;
-      initialCandidates ??= new Set(plan.bundles.filter((b) => b.eligibilityReason === "ELIGIBLE").map((b) => b.bundleId));
+      initialCandidates ??= new Set(plan.bundles.filter((b) => b.eligibilityReason === "ELIGIBLE" && (!input.approvedBundleIds || input.approvedBundleIds.includes(b.bundleId))).map((b) => b.bundleId));
       const candidate = plan.bundles.find((b) => b.eligibilityReason === "ELIGIBLE" && initialCandidates!.has(b.bundleId) && !attempted.has(b.bundleId));
       if (!candidate || bundles >= RETENTION_LIMITS.bundles) break;
       const bundle = snapshot.bundles.find((b) => b.id === candidate.bundleId)!;
