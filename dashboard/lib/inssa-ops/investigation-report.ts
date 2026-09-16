@@ -19,6 +19,15 @@ const escape = (value: unknown) => String(value ?? "Not recorded").replaceAll("&
 const duration = (ms: number | undefined) => typeof ms === "number" && Number.isFinite(ms) ? `${(ms / 1000).toFixed(2)} s` : "Not recorded";
 const list = (lines: string[], empty: string) => lines.length ? `<ul>${lines.map((line) => `<li>${escape(line)}</li>`).join("")}</ul>` : `<p class="muted">${empty}</p>`;
 const steps = (items: InvestigationStep[]): string => `<ol>${items.map((step) => `<li>${escape(step.title)} <span class="muted">${duration(step.duration)}</span>${step.error ? `<p>${escape(step.error)}</p>` : ""}${step.steps?.length ? steps(step.steps) : ""}</li>`).join("")}</ol>`;
+const providerLayout = "table{table-layout:fixed}th:first-child{width:16%}th:nth-child(2){width:22%}th:nth-child(3){width:12%}td:nth-child(3){white-space:nowrap}@media(max-width:600px){thead{display:none}tr{display:block;padding:12px 0}td{display:block;border:0;padding:4px 0}}";
+
+// Reports published during the initial v3 rollout keep their immutable bytes; serve
+// the corrected layout without rewriting evidence or adding asset dependencies.
+export function improveInvestigationReportLayout(file: Buffer): Buffer {
+  const text = file.toString("utf8");
+  return text.includes(`<p class="eyebrow">${SUCCESS_EVIDENCE_PROFILE}</p>`) && !text.includes(providerLayout)
+    ? Buffer.from(text.replace("</head>", `<style>${providerLayout}</style></head>`)) : file;
+}
 
 // A complete result report with inline styles and native details: no remote scripts,
 // fonts, fetches or relative assets can disappear independently of its HTML.
@@ -27,7 +36,7 @@ export function renderInvestigationReport(results: InvestigationResults, legacy 
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Investigation report · ${escape(results.campaignKey)}</title><style>
 body{font:16px/1.6 system-ui,sans-serif;color:#182536;background:#f2f5f8;margin:0}main{max-width:1100px;margin:auto;padding:36px 24px}h1{line-height:1.2;margin:12px 0}h2{margin-top:32px}h3{margin:0}p{margin:8px 0}.muted,small{color:#506074}.eyebrow{font-size:12px;letter-spacing:.08em}section,article{background:white;border:1px solid #d8e0e8;border-radius:12px;padding:20px;margin:14px 0}dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}dt{font-size:12px;color:#506074}dd{margin:2px 0;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px 8px;border-bottom:1px solid #e2e8ef;vertical-align:top;overflow-wrap:anywhere}summary{cursor:pointer;font-weight:600}li{overflow-wrap:anywhere}.notice{border-left:4px solid #b07910}code{font-size:13px;overflow-wrap:anywhere}a{color:#145999}@media(max-width:600px){main{padding:20px 12px}table{font-size:13px}th,td{padding:8px 4px}}
-</style></head><body><main><p class="eyebrow">${legacy ? "PRESERVED HISTORICAL RESULTS" : SUCCESS_EVIDENCE_PROFILE}</p>
+${providerLayout}</style></head><body><main><p class="eyebrow">${legacy ? "PRESERVED HISTORICAL RESULTS" : SUCCESS_EVIDENCE_PROFILE}</p>
 <h1>Investigation report</h1><p>${escape(results.campaignKey)}</p>
 ${legacy ? '<section class="notice"><strong>Historical report presentation restored</strong><p>This view uses the authentic structured results retained by Wave 4. Original traces, video, screenshots and unrecorded steps cannot be reconstructed. No historical test was rerun.</p></section>' : ""}
 <section aria-label="Run correlation"><dl><div><dt>Run</dt><dd><code>${escape(results.runId)}</code></dd></div><div><dt>Campaign / environment</dt><dd>${escape(results.campaignKey)} / ${escape(results.environment)}</dd></div><div><dt>Started</dt><dd>${escape(results.startedAt ?? results.stats.startTime)}</dd></div><div><dt>Completed</dt><dd>${escape(results.completedAt)}</dd></div><div><dt>Test execution duration</dt><dd>${duration(results.stats.duration)}</dd></div><div><dt>Results</dt><dd>${results.tests.length} tests · ${escape(results.stats.flaky ?? 0)} flaky · ${escape(results.stats.skipped ?? 0)} skipped</dd></div></dl></section>
