@@ -1,17 +1,20 @@
+import { installBackgroundRequestMetrics } from "../lib/inssa-ops/background-request-metrics";
 import { dueRetentionOccurrence, executeRetention } from "../lib/inssa-ops/retention-executor";
 import { createRetentionExecutorIO } from "../lib/inssa-ops/retention-service";
 import { recordProcessLiveness } from "../lib/inssa-ops/process-liveness";
 import { loadEnvConfig } from "@next/env";
-import { evaluateSchedulerOnce } from "../lib/monitoring/scheduler";
+import { evaluateSchedulerOnce, SchedulerEvaluationCache } from "../lib/monitoring/scheduler";
 import { getSchedulerStore } from "../lib/monitoring/scheduler-store";
 
 loadEnvConfig(process.cwd(), process.env.INSSA_DASHBOARD_MODE !== "start");
+installBackgroundRequestMetrics();
 
 const INTERVAL_MS = readPositiveInteger(process.env.INSSA_SCHEDULER_INTERVAL_MS, 60_000);
 const runOnce = process.argv.includes("--once");
 const schedulerStartedAt = new Date();
 const schedulerId = `${process.env.HOSTNAME || "local"}-${process.pid}-${crypto.randomUUID()}`;
 const store = getSchedulerStore();
+const cache = new SchedulerEvaluationCache();
 let stopping = false;
 let maintenance: Promise<unknown> | null = null;
 const maintenanceAbort = new AbortController();
@@ -32,7 +35,7 @@ async function main() {
   process.stdout.write(`INSSA scheduler started: ${schedulerId} (interval ${INTERVAL_MS}ms)\n`);
   try {
     do {
-      const result = await evaluateSchedulerOnce({ schedulerId, schedulerStore: store });
+      const result = await evaluateSchedulerOnce({ schedulerId, schedulerStore: store, cache });
       if (!result.errors.length) await recordProcessLiveness("scheduler").catch(() => {});
       process.stdout.write(
         `Scheduler evaluation: definitions=${result.definitionsEvaluated}, queued=${result.jobsQueued}, errors=${result.errors.length}\n`

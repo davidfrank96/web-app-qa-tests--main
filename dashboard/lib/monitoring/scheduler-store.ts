@@ -279,17 +279,11 @@ class SupabaseSchedulerStore implements SchedulerStore {
     jobsQueued: number;
     schedulerId: string;
   }) {
-    const current = await this.getStatus(Number.MAX_SAFE_INTEGER, input.at);
-    await this.upsertStatus({
-      definition_states: input.definitionStates,
-      definitions_evaluated: input.definitionsEvaluated,
-      heartbeat_at: input.at.toISOString(),
-      jobs_queued: current.jobsQueued + input.jobsQueued,
-      last_error: input.errorMessage ?? null,
-      last_evaluation_at: input.at.toISOString(),
-      running: true,
-      scheduler_id: input.schedulerId,
-      updated_at: input.at.toISOString()
+    await this.request("rpc/record_scheduler_evaluation", {
+      method: "POST",
+      body: JSON.stringify({ scheduler_owner: input.schedulerId, evaluated_at: input.at.toISOString(),
+        states: input.definitionStates, evaluated_count: input.definitionsEvaluated,
+        queued_count: input.jobsQueued, evaluation_error: input.errorMessage ?? null })
     });
   }
 
@@ -320,6 +314,7 @@ class SupabaseSchedulerStore implements SchedulerStore {
   private async request(resource: string, init: RequestInit = {}): Promise<Record<string, unknown>[]> {
     const response = await fetch(`${this.baseUrl}/${resource}`, {
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(10_000),
       headers: {
         apikey: this.apiKey,
         authorization: `Bearer ${this.apiKey}`,

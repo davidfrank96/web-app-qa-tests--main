@@ -1,4 +1,4 @@
-export const MAX_WORKER_IDLE_MS = 10_000;
+export const MAX_WORKER_IDLE_MS = 30_000;
 
 // Only empty queue polls back off. Execution leases and heartbeats are independent.
 export class WorkerIdleBackoff {

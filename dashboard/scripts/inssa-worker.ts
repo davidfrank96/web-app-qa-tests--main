@@ -1,3 +1,4 @@
+import { installBackgroundRequestMetrics } from "../lib/inssa-ops/background-request-metrics";
 import { recordProcessLiveness } from "../lib/inssa-ops/process-liveness";
 import { initializeConfiguredCleanupLedger } from "../lib/inssa-ops/cleanup-ledger";
 import { MAX_WORKER_IDLE_MS, WorkerIdleBackoff } from "../lib/inssa-ops/worker-idle-backoff";
@@ -8,15 +9,17 @@ import { recordJobRecoveryNotifications, recordWorkerRestartedNotification } fro
 import { executeClaimedInssaJob, type WorkerExecutionConfig } from "../lib/inssa-ops/runner";
 
 loadEnvConfig(process.cwd(), process.env.INSSA_DASHBOARD_MODE !== "start");
+installBackgroundRequestMetrics();
 
 const POLL_MS = readPositiveInteger(process.env.INSSA_WORKER_POLL_MS, 1_000);
 const EXECUTION_CONFIG = readExecutionConfig();
 const runOnce = process.argv.includes("--once");
 const workerId = `${process.env.HOSTNAME || "local"}-${process.pid}-${crypto.randomUUID()}`;
 let stopping = false;
+let wakeSleep: (() => void) | null = null;
 
-process.on("SIGINT", () => { stopping = true; });
-process.on("SIGTERM", () => { stopping = true; });
+process.on("SIGINT", () => { stopping = true; wakeSleep?.(); });
+process.on("SIGTERM", () => { stopping = true; wakeSleep?.(); });
 
 void main().catch((error) => {
   process.stderr.write(`INSSA execution worker fatal error: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
@@ -38,7 +41,7 @@ async function main() {
   }
 
   do {
-    const recovered = await store.recoverAbandoned();
+    const { recovered, job } = await store.poll({ leaseMs: EXECUTION_CONFIG.leaseMs, workerId });
     for (const job of recovered) {
       await recordJobRecoveryNotifications(job);
       await reconcileTerminalExecutionJobRun(job);
@@ -48,7 +51,6 @@ async function main() {
       reportedMaxIdle = false;
       process.stdout.write(`Recovered ${recovered.length} abandoned execution job(s).\n`);
     }
-    const job = await store.claimNext({ leaseMs: EXECUTION_CONFIG.leaseMs, workerId });
     await recordProcessLiveness("worker").catch(() => {});
     if (job) {
       idleBackoff.reset();
@@ -92,5 +94,9 @@ function readPositiveInteger(value: string | undefined, fallback: number) {
 }
 
 function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(finish, ms);
+    wakeSleep = finish;
+    function finish() { clearTimeout(timer); wakeSleep = null; resolve(); }
+  });
 }

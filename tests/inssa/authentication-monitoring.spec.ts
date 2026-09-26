@@ -1,3 +1,4 @@
+import { assertAuthenticationTarget, productionAuthRequestAllowed } from "../../scripts/inssa/production-auth-safety.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Locator, type Page, type Request, type Response, type TestInfo } from "@playwright/test";
@@ -125,6 +126,17 @@ async function runAuthenticationCheck(
     observedPage.on("console", (message) => consoleEntries.push({ text: sanitize(message.text()), type: message.type() }));
   };
   const context = page.context();
+  const blockedWrites: string[] = [];
+  if (config.environment === "production") {
+    await context.route("**/*", async (route) => {
+      const request = route.request();
+      if (productionAuthRequestAllowed(request.url(), request.method())) await route.continue();
+      else {
+        blockedWrites.push(`${request.method()} ${safeUrl(request.url())}`);
+        await route.abort("blockedbyclient");
+      }
+    });
+  }
   attachObservers(page);
   context.on("page", attachObservers);
   context.on("request", (request) => {
@@ -167,6 +179,7 @@ async function runAuthenticationCheck(
   let failure: Error | null = null;
   try {
     await check();
+    if (blockedWrites.length) throw new Error(`Production read-only guard blocked ${blockedWrites.length} unapproved request(s): ${blockedWrites.join(", ")}`);
   } catch (error) {
     failure = error instanceof Error ? error : new Error(String(error));
   }
@@ -514,10 +527,7 @@ function authenticationMonitorConfig(): AuthenticationMonitorConfig {
   const targetUrl = required("INSSA_URL");
   const parsedTarget = new URL(targetUrl);
   const targetHost = parsedTarget.hostname;
-  const expectedHost = environment === "production" ? "inssa.us" : environment === "staging" ? "staging.inssa.us" : "";
-  if (!expectedHost || targetHost !== expectedHost || parsedTarget.protocol !== "https:") {
-    throw new Error(`Authentication monitoring target is not allowlisted for ${environment}: ${targetHost}`);
-  }
+  assertAuthenticationTarget(environment, targetUrl);
   if (environment === "production" && (
     process.env.AUTH_MONITOR_ALLOW_PRODUCTION !== "1" ||
     process.env.AUTH_MONITOR_PRODUCTION_CONFIRMATION?.trim().toLowerCase() !== "inssa.us"
@@ -530,7 +540,7 @@ function authenticationMonitorConfig(): AuthenticationMonitorConfig {
 function authenticationMethodsFor(environment: string) {
   const variableName = environment === "production" ? "AUTH_MONITOR_PRODUCTION_METHODS" : "AUTH_MONITOR_STAGING_METHODS";
   const configured = process.env[variableName]?.trim();
-  if (!configured) return new Set<AuthenticationMethod>(["username-password", "google-oauth", "apple-sign-in"]);
+  if (!configured) return new Set<AuthenticationMethod>(environment === "production" ? ["username-password"] : ["username-password", "google-oauth", "apple-sign-in"]);
   const methods = configured.split(",").map((value) => value.trim()).filter(Boolean);
   const supported = new Set<AuthenticationMethod>(["username-password", "google-oauth", "apple-sign-in"]);
   const unknown = methods.filter((method) => !supported.has(method as AuthenticationMethod));

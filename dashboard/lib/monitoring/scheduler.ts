@@ -19,8 +19,21 @@ export type SchedulerEvaluationResult = {
   jobsQueued: number;
 };
 
+export const DEFINITION_CACHE_MS = 10 * 60_000;
+export const SCHEDULER_STATUS_INTERVAL_MS = 120_000;
+// Owned by one scheduler process. Restart always reloads durable configuration/status.
+export class SchedulerEvaluationCache {
+  definitions: MonitoringDefinition[] | null = null;
+  loadedAt = 0;
+  states: SchedulerDefinitionState[] | null = null;
+  terminal = new Map<string, { key: string; lastRunAt: string | null }>();
+  writtenAt = 0;
+  writtenState = "";
+}
+
 export async function evaluateSchedulerOnce(input: {
   at?: Date;
+  cache?: SchedulerEvaluationCache;
   definitionStore?: MonitoringDefinitionStore;
   enqueue?: (definition: MonitoringDefinition, occurrenceKey: string) => Promise<ScheduledJobResult>;
   schedulerId: string;
@@ -30,13 +43,28 @@ export async function evaluateSchedulerOnce(input: {
   const definitionStore = input.definitionStore ?? getMonitoringDefinitionStore();
   const schedulerStore = input.schedulerStore ?? getSchedulerStore();
   const enqueue = input.enqueue ?? enqueueScheduledRun;
-  const page = await definitionStore.list({ enabled: true, triggerType: "schedule" }, 0, 100);
-  const definitions = page.items;
+  const cache = input.cache ?? new SchedulerEvaluationCache();
+  if (!cache.definitions || at.getTime() - cache.loadedAt >= DEFINITION_CACHE_MS || at.getTime() < cache.loadedAt) {
+    const fresh: MonitoringDefinition[] = [];
+    let cursor = 0;
+    for (;;) {
+      const page = await definitionStore.list({ enabled: true, triggerType: "schedule" }, cursor, 100);
+      fresh.push(...page.items);
+      if (!page.pagination.hasMore) break;
+      const next = Number(page.pagination.nextCursor);
+      if (!Number.isInteger(next) || next <= cursor) throw new Error("Invalid monitoring definition cursor");
+      cursor = next;
+    }
+    cache.definitions = fresh;
+    cache.loadedAt = at.getTime();
+    const ids = new Set(fresh.map((definition) => definition.id));
+    for (const id of cache.terminal.keys()) if (!ids.has(id)) cache.terminal.delete(id);
+  }
+  const definitions = cache.definitions;
   const errors: string[] = [];
   const definitionStates: SchedulerDefinitionState[] = [];
-  const previousStates = new Map(
-    (await schedulerStore.getStatus(Number.MAX_SAFE_INTEGER, at)).definitionStates.map((state) => [state.definitionId, state])
-  );
+  cache.states ??= (await schedulerStore.getStatus(Number.MAX_SAFE_INTEGER, at)).definitionStates;
+  const previousStates = new Map(cache.states.map((state) => [state.definitionId, state]));
   let jobsQueued = 0;
 
   for (const definition of definitions) {
@@ -50,6 +78,11 @@ export async function evaluateSchedulerOnce(input: {
         });
         continue;
       }
+      const terminal = cache.terminal.get(definition.id);
+      if (terminal?.key === window.occurrenceKey) {
+        definitionStates.push({ definitionId: definition.id, lastRunAt: terminal.lastRunAt, nextRunAt: window.nextRunAt });
+        continue;
+      }
       const claim = await schedulerStore.claimOccurrence({
         campaignId: definition.campaignId,
         claimedBy: input.schedulerId,
@@ -60,35 +93,53 @@ export async function evaluateSchedulerOnce(input: {
       let lastRunAt = claim.occurrence.status === "queued"
         ? claim.occurrence.scheduledFor
         : previousStates.get(definition.id)?.lastRunAt ?? null;
+      let terminalOutcome = ["queued", "skipped"].includes(claim.occurrence.status);
       if (claim.created) {
-        const result = await enqueue(definition, window.occurrenceKey);
+        // A cached definition never authorizes enqueue: reload and validate on the server.
+        const fresh = await definitionStore.get(definition.id);
+        const freshWindow = fresh?.enabled && fresh.triggerType === "schedule" ? evaluateSchedule(fresh, at) : null;
+        if (!fresh || JSON.stringify(fresh) !== JSON.stringify(definition) || freshWindow?.occurrenceKey !== window.occurrenceKey) {
+          cache.definitions = null;
+          await schedulerStore.markFailed(window.occurrenceKey, "Monitoring configuration changed; refresh before enqueue.");
+          continue;
+        }
+        const result = await enqueue(fresh, window.occurrenceKey);
         if (result.outcome === "queued") {
           await schedulerStore.markQueued(window.occurrenceKey, result.runId);
           jobsQueued += 1;
           lastRunAt = window.scheduledFor;
+          terminalOutcome = true;
         } else if (result.outcome === "deferred") {
           if (definition.runPolicy === "skip") {
             await schedulerStore.markSkipped(window.occurrenceKey, result.reason);
+            terminalOutcome = true;
           }
         } else {
           await schedulerStore.markFailed(window.occurrenceKey, result.reason);
           errors.push(`${definition.id}: ${result.reason}`);
         }
       }
+      if (terminalOutcome) cache.terminal.set(definition.id, { key: window.occurrenceKey, lastRunAt });
       definitionStates.push({ definitionId: definition.id, lastRunAt, nextRunAt: window.nextRunAt });
     } catch (error) {
       errors.push(`${definition.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  await schedulerStore.recordEvaluation({
-    at,
-    definitionStates,
-    definitionsEvaluated: definitions.length,
-    errorMessage: errors.length > 0 ? errors.join(" | ") : undefined,
-    jobsQueued,
-    schedulerId: input.schedulerId
-  });
+  cache.states = definitionStates;
+  const state = JSON.stringify({ definitionStates, errors, count: definitions.length });
+  if (jobsQueued || errors.length || state !== cache.writtenState || at.getTime() - cache.writtenAt >= SCHEDULER_STATUS_INTERVAL_MS || at.getTime() < cache.writtenAt) {
+    await schedulerStore.recordEvaluation({
+      at,
+      definitionStates,
+      definitionsEvaluated: definitions.length,
+      errorMessage: errors.length > 0 ? errors.join(" | ") : undefined,
+      jobsQueued,
+      schedulerId: input.schedulerId
+    });
+    cache.writtenAt = at.getTime();
+    cache.writtenState = state;
+  }
   return { definitionsEvaluated: definitions.length, errors, jobsQueued };
 }
 

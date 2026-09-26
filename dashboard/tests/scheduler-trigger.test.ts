@@ -204,3 +204,41 @@ function singleDefinitionStore(item: MonitoringDefinition): MonitoringDefinition
     }
   };
 }
+
+test("cached minute evaluations refresh within ten minutes and retain two-minute durable health", async () => {
+  const { SchedulerEvaluationCache, DEFINITION_CACHE_MS } = await import("../lib/monitoring/scheduler");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "qa-scheduler-cache-"));
+  process.env.INSSA_QA_REPO_ROOT = root; delete process.env.INSSA_OPS_METADATA_STORE;
+  const store = getSchedulerStore(), cache = new SchedulerEvaluationCache(), at = Date.parse("2026-07-21T10:05:00Z");
+  let current = definition({ frequency: "daily", hour: 10, minute: 0, timezone: "UTC" });
+  let lists = 0, reads = 0, writes = 0, claims = 0, enqueues = 0;
+  const definitionStore: MonitoringDefinitionStore = { get: async () => ({ ...current }), list: async () => {
+    lists++; const page = await singleDefinitionStore(current).list({}, 0, 100); return { ...page, items: current.enabled ? page.items : [] };
+  } };
+  const schedulerStore = new Proxy(store, { get(target, key) {
+    const value = Reflect.get(target, key); if (typeof value !== "function") return value;
+    return (...args: unknown[]) => { if (key === "getStatus") reads++; if (key === "recordEvaluation") writes++; if (key === "claimOccurrence") claims++; return value.apply(target, args); };
+  } });
+  try {
+    await store.start("cache-owner", new Date(at));
+    const evaluate = (offset: number) => evaluateSchedulerOnce({ at: new Date(at + offset), cache, definitionStore, schedulerStore, schedulerId: "cache-owner", enqueue: async () => { enqueues++; return { outcome: "queued", runId: "fixture" }; } });
+    for (let minute = 0; minute < 10; minute++) {
+      await evaluate(minute * 60_000);
+      assert.equal((await store.getStatus(180_000, new Date(at + minute * 60_000))).running, true);
+    }
+    assert.equal(lists, 1); assert.equal(reads, 1); assert.equal(claims, 1); assert.equal(enqueues, 1); assert.equal(writes, 5);
+    current = { ...current, enabled: false, updatedAt: new Date(at + 1).toISOString() };
+    assert.equal((await evaluate(DEFINITION_CACHE_MS)).definitionsEvaluated, 0); assert.equal(lists, 2);
+    assert.equal((await store.getStatus(180_000, new Date(at + DEFINITION_CACHE_MS + 180001))).running, false);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+test("fresh server configuration prevents stale cached enqueue", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "qa-scheduler-validation-")); process.env.INSSA_QA_REPO_ROOT = root;
+  const scheduled = definition({ frequency: "daily", hour: 10, minute: 0, timezone: "UTC" });
+  const staleStore = singleDefinitionStore(scheduled); staleStore.get = async () => ({ ...scheduled, enabled: false });
+  try {
+    let enqueued = 0;
+    const result = await evaluateSchedulerOnce({ at: new Date("2026-07-21T10:05:00Z"), definitionStore: staleStore, schedulerId: "fixture", enqueue: async () => { enqueued++; return { outcome: "queued", runId: "never" }; } });
+    assert.equal(result.jobsQueued, 0); assert.equal(enqueued, 0);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
