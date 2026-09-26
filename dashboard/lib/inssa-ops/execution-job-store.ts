@@ -24,6 +24,7 @@ export type ClaimExecutionJobInput = {
 };
 
 export interface InssaExecutionJobStore {
+  poll(input: ClaimExecutionJobInput): Promise<{ recovered: InssaExecutionJobRecord[]; job: InssaExecutionJobRecord | null }>;
   claimNext(input: ClaimExecutionJobInput): Promise<InssaExecutionJobRecord | null>;
   complete(jobId: string, workerId: string, status: "completed" | "failed", error?: string): Promise<void>;
   enqueue(input: EnqueueExecutionJobInput): Promise<{ created: boolean; job: InssaExecutionJobRecord }>;
@@ -46,6 +47,13 @@ export function getInssaExecutionJobStore(): InssaExecutionJobStore {
 }
 
 class LocalExecutionJobStore implements InssaExecutionJobStore {
+  async poll(input: ClaimExecutionJobInput) {
+    return this.write((snapshot) => {
+      const recovered = recoverExpiredJobs(snapshot);
+      return { recovered, job: claimLocalJob(snapshot, input) };
+    });
+  }
+
   async enqueue(input: EnqueueExecutionJobInput) {
     return this.write(async (snapshot) => {
       const existing = snapshot.jobs.find((job) => job.idempotencyKey === input.idempotencyKey);
@@ -84,20 +92,7 @@ class LocalExecutionJobStore implements InssaExecutionJobStore {
 
   async claimNext(input: ClaimExecutionJobInput) {
     return this.write(async (snapshot) => {
-      const job = snapshot.jobs
-        .filter((candidate) => candidate.status === "queued" && candidate.attempt < candidate.maxAttempts)
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
-      if (!job) return null;
-
-      const now = new Date();
-      job.attempt += 1;
-      job.claimedAt = now.toISOString();
-      job.claimedBy = input.workerId;
-      job.heartbeatAt = now.toISOString();
-      job.leaseExpiresAt = new Date(now.getTime() + input.leaseMs).toISOString();
-      job.status = "claimed";
-      job.updatedAt = now.toISOString();
-      return { ...job };
+      return claimLocalJob(snapshot, input);
     });
   }
 
@@ -182,6 +177,13 @@ class LocalExecutionJobStore implements InssaExecutionJobStore {
 }
 
 class SupabaseExecutionJobStore implements InssaExecutionJobStore {
+  async poll(input: ClaimExecutionJobInput) {
+    const result = await this.request("rpc/poll_inssa_execution_job", {
+      method: "POST", body: JSON.stringify({ worker_id: input.workerId, lease_ms: input.leaseMs })
+    });
+    return { recovered: result.recovered.map(fromRow), job: result.job ? fromRow(result.job) : null };
+  }
+
   private readonly apiKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   private readonly baseUrl = `${process.env.SUPABASE_URL}/rest/v1`;
 
@@ -455,4 +457,21 @@ function nullableString(value: unknown) {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+function claimLocalJob(snapshot: JobStoreSnapshot, input: ClaimExecutionJobInput) {
+      const job = snapshot.jobs
+        .filter((candidate) => candidate.status === "queued" && candidate.attempt < candidate.maxAttempts)
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
+      if (!job) return null;
+
+      const now = new Date();
+      job.attempt += 1;
+      job.claimedAt = now.toISOString();
+      job.claimedBy = input.workerId;
+      job.heartbeatAt = now.toISOString();
+      job.leaseExpiresAt = new Date(now.getTime() + input.leaseMs).toISOString();
+      job.status = "claimed";
+      job.updatedAt = now.toISOString();
+      return { ...job };
 }

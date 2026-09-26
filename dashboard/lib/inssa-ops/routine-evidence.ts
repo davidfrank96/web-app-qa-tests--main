@@ -46,14 +46,14 @@ export function routineEvidenceDecision(input: RoutineEvidenceInput, report: Rep
   if (input.run.campaignKey === "test_inssa_safe") return warningLines.length === 0 && report.stats.unexpected === 0 &&
     all.every((s) => s.tests.every((t) => t.status === "expected" && t.results[0].status === "passed"));
   if (!auth || auth.runId !== input.run.id || auth.environment !== (input.run.campaignKey.endsWith("_production") ? "production" : "staging") || !["passed", "degraded"].includes(auth.overallStatus) ||
-      auth.checks["username-password"].status !== "passed" || !["passed", "blocked_external"].includes(auth.checks["google-oauth"].status) ||
-      !["passed", "missing_configuration"].includes(auth.checks["apple-sign-in"].status) || all.length !== 3) return false;
+      auth.checks["username-password"].status !== "passed" || !["passed", "blocked_external", "disabled"].includes(auth.checks["google-oauth"].status) ||
+      !["passed", "missing_configuration", "disabled"].includes(auth.checks["apple-sign-in"].status) || all.length !== 3) return false;
   const expectedWarning = `WARNING: Authentication monitoring ${auth.environment}: overall=degraded, checks=` +
     Object.values(METHODS).map((method) => `${method}:${auth.checks[method].status}`).join(",");
   if (warningLines.some((line) => line.trim() !== expectedWarning)) return false;
   return new Set(all.map((s) => s.title)).size === 3 && all.every((s) => {
     const method = METHODS[s.title as keyof typeof METHODS]; if (!method || s.tests.length !== 1) return false;
-    const expectedPass = auth.checks[method].status === "passed";
+    const expectedPass = ["passed", "disabled"].includes(auth.checks[method].status);
     return s.tests[0].results[0].status === (expectedPass ? "passed" : "failed") && s.tests[0].status === (expectedPass ? "expected" : "unexpected");
   });
 }

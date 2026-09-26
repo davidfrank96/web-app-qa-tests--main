@@ -1,3 +1,4 @@
+import { backgroundRequestSnapshot } from "./background-request-metrics";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { getRepoRoot } from "./paths";
@@ -11,7 +12,7 @@ export async function recordProcessLiveness(role: Role) {
     const root = path.join(getRepoRoot(), "dashboard", ".data");
     await fs.mkdir(root, { recursive: true });
     const target = path.join(root, `${role}-liveness.json`), temporary = `${target}.${process.pid}.tmp`;
-    await fs.writeFile(temporary, JSON.stringify({ at: new Date(now).toISOString(), pid: process.pid,
+    await fs.writeFile(temporary, JSON.stringify({ requests: backgroundRequestSnapshot(), at: new Date(now).toISOString(), pid: process.pid,
       ownerToken: process.env.INSSA_DASHBOARD_LOCK_TOKEN ?? null }));
     await fs.rename(temporary, target);
   })();

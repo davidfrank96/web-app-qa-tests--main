@@ -1,6 +1,7 @@
 const METHODS = ["username-password", "google-oauth", "apple-sign-in"];
 
 function credentialVariableNames(environment, provider) {
+  if (!["staging", "production"].includes(environment)) throw new Error("Unsupported authentication environment");
   const prefix = environment === "production" ? "AUTH_MONITOR_PRODUCTION" : "AUTH_MONITOR_STAGING";
   return {
     email: provider === "password" ? `${prefix}_EMAIL` : `${prefix}_${provider.toUpperCase()}_EMAIL`,

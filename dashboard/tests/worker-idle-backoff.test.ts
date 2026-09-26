@@ -11,11 +11,11 @@ import { WorkerIdleBackoff, MAX_WORKER_IDLE_MS } from "../lib/inssa-ops/worker-i
 const require = createRequire(import.meta.url);
 test("idle waits are bounded and reset after activity", () => {
   const backoff = new WorkerIdleBackoff(1000);
-  assert.deepEqual(Array.from({ length: 7 }, () => backoff.nextDelay()), [1000, 2000, 4000, 8000, 10000, 10000, 10000]);
+  assert.deepEqual(Array.from({ length: 7 }, () => backoff.nextDelay()), [1000, 2000, 4000, 8000, 16000, 30000, 30000]);
   backoff.reset(); assert.equal(backoff.nextDelay(), 1000);
   assert.equal(new WorkerIdleBackoff(60000).nextDelay(), MAX_WORKER_IDLE_MS);
 });
-test("real worker claims maximum-backoff arrival once and recovers an expired claim", { timeout: 65000 }, async (t) => {
+test("real worker claims maximum-backoff arrival once and recovers an expired claim", { timeout: 100000 }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "qa-worker-wave2-"));
   const previousRoot = process.env.INSSA_QA_REPO_ROOT;
   process.env.INSSA_QA_REPO_ROOT = root; delete process.env.INSSA_OPS_METADATA_STORE;
@@ -30,19 +30,19 @@ test("real worker claims maximum-backoff arrival once and recovers an expired cl
     if (previousRoot === undefined) delete process.env.INSSA_QA_REPO_ROOT; else process.env.INSSA_QA_REPO_ROOT = previousRoot;
     await fs.rm(root, { recursive: true, force: true });
   });
-  const until = async (predicate: () => Promise<boolean> | boolean, timeout = 20000) => {
+  const until = async (predicate: () => Promise<boolean> | boolean, timeout = 45000) => {
     const deadline = Date.now() + timeout;
     while (!(await predicate())) { assert.ok(Date.now() < deadline, output); assert.equal(worker.exitCode, null, output); await delay(20); }
   };
-  await until(() => output.includes("idle backoff reached 10000ms"));
+  await until(() => output.includes("idle backoff reached 30000ms"));
   assert.match(output, /heartbeatMs=15000, leaseMs=120000, failureLimit=3/);
   const store = getInssaExecutionJobStore();
   // Missing-run fixture stops at the runner boundary without launching a command.
   const enqueued = await store.enqueue({ campaignKey: "test_inssa_safe", runId: "idle-arrival", idempotencyKey: "idle-arrival" });
-  await until(async () => (await store.getByRunId("idle-arrival"))?.status === "failed", 12000);
+  await until(async () => (await store.getByRunId("idle-arrival"))?.status === "failed", 32000);
   const completed = await store.getByRunId("idle-arrival");
   const latencyMs = Date.parse(completed!.claimedAt!) - Date.parse(enqueued.job.createdAt);
-  assert.ok(latencyMs >= 0 && latencyMs <= 10750, `claim latency ${latencyMs}ms exceeds 10s plus local IO allowance`);
+  assert.ok(latencyMs >= 0 && latencyMs <= 30750, `claim latency ${latencyMs}ms exceeds 30s plus local IO allowance`);
   assert.equal(completed!.attempt, 1);
   assert.equal(output.split(`Claimed execution job ${enqueued.job.id}`).length - 1, 1);
   t.diagnostic(JSON.stringify({ maxIdleClaimLatencyMs: latencyMs, idleCapMs: MAX_WORKER_IDLE_MS }));

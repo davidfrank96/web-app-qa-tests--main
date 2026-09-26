@@ -108,3 +108,17 @@ test("a retried final pass keeps failed-attempt evidence and durable retry metad
   assert.ok(evidence.items.some((item) => JSON.stringify(item.metadata.executionDiagnostics) === JSON.stringify({ schemaVersion: 1, state: "available", retryUsed: true, flaky: true })));
   assert.deepEqual(await fs.readFile(path.join(root, "test-results/trace.zip")), trace);
 });
+
+test("production password success with disabled OAuth is compact; failure/retry is not", () => {
+  const i = input(true), s = authSummary(), r = report(true);
+  i.run.campaignKey = "monitor_inssa_auth_production"; i.run.commandSnapshot = getInssaPhase1Command(i.run.campaignKey)!; i.warningLines = [];
+  s.environment = "production"; s.targetHost = "inssa.us"; s.overallStatus = "passed";
+  s.checks["google-oauth"].status = s.checks["apple-sign-in"].status = "disabled";
+  r.stats.expected = 3; r.stats.unexpected = 0;
+  for (const spec of r.suites[0].specs) { spec.tests[0].status = "expected"; spec.tests[0].results[0].status = "passed"; }
+  assert.equal(routineEvidenceDecision(i, r, s), true);
+  r.suites[0].specs[0].tests[0].results[0].retry = 1;
+  assert.equal(routineEvidenceDecision(i, r, s), false);
+  r.suites[0].specs[0].tests[0].results[0].retry = 0; s.checks["username-password"].status = "failed";
+  assert.equal(routineEvidenceDecision(i, r, s), false);
+});

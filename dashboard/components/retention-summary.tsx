@@ -1,5 +1,6 @@
 "use client";
 
+import { QuotaSummary } from "./quota-summary";
 import type { RetentionPreview } from "../lib/inssa-ops/retention-confirmation";
 import { useState } from "react";
 import type { RetentionHealth, RetentionPlan } from "../lib/inssa-ops/retention-types";
@@ -59,6 +60,7 @@ export function RetentionSummary() {
     ["Estimated reclaimable bytes", `${summary.eligibleBytes.toLocaleString()} bytes (${size(summary.eligibleBytes)})`]
   ] : [];
   return <section className="workspace-card" aria-label="Evidence retention">
+    <QuotaSummary plan={plan} onDryRun={() => void refresh()} busy={busy} />
     <div className="flex items-center justify-between gap-3">
       <div><h2 className="text-lg font-semibold text-slate-100">Evidence retention</h2>
         <p className="mt-1 text-sm text-slate-400">Monthly maintenance · Day 1 at 01:30 Europe/Dublin · No catch-up · The assessment below is read-only.</p></div>
