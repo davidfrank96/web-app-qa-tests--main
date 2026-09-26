@@ -137,7 +137,7 @@ jobs:
       - run: npm run test:ci:security
 
   dependency-security:
-    name: Production dependency audit
+    name: Full dependency audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -151,10 +151,10 @@ jobs:
             dashboard/package-lock.json
       - run: npm ci
       - run: npm --prefix dashboard ci
-      - name: Root production audit
-        run: npm audit --omit=dev --audit-level=high
-      - name: Dashboard production audit
-        run: npm --prefix dashboard audit --omit=dev --audit-level=high
+      - name: Root dependency audit
+        run: npm audit --audit-level=high
+      - name: Dashboard dependency audit
+        run: npm --prefix dashboard audit --audit-level=high
 
   qa:
     name: Playwright QA Gate
