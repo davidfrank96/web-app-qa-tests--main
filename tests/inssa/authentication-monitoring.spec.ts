@@ -46,6 +46,7 @@ const AUTH_TIMEOUT_MS = readPositiveInteger(process.env.AUTH_MONITOR_TIMEOUT_MS,
 const AUTH_MONITOR_CAMPAIGN_REQUESTED = Boolean(process.env.AUTH_MONITOR_ENVIRONMENT);
 
 test.describe.configure({ mode: "default", timeout: AUTH_TIMEOUT_MS });
+test.use({ serviceWorkers: process.env.AUTH_MONITOR_ENVIRONMENT === "production" ? "block" : "allow" });
 test.skip(!AUTH_MONITOR_CAMPAIGN_REQUESTED, "Authentication monitoring runs only through its campaign runner.");
 
 test("Username & Password", async ({ page }, testInfo) => {
@@ -128,6 +129,10 @@ async function runAuthenticationCheck(
   const context = page.context();
   const blockedWrites: string[] = [];
   if (config.environment === "production") {
+    await context.routeWebSocket("**/*", async (socket) => {
+      blockedWrites.push("WebSocket connection");
+      await socket.close();
+    });
     await context.route("**/*", async (route) => {
       const request = route.request();
       if (productionAuthRequestAllowed(request.url(), request.method())) await route.continue();
