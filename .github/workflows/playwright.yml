@@ -48,7 +48,7 @@ jobs:
       - name: Verify complete staging authentication cache
         working-directory: dashboard
         run: node --import tsx scripts/test-staging-auth-cache.ts
-      - name: Verify manual cleanup advisories and preflight-only UI
+      - name: Verify lifecycle workflow, automatic preflight and responsive UI
         run: node dashboard/scripts/test-manual-cleanup-ui.mjs
       - name: Verify admin retention dry-run workspace
         run: npm run test:ci:retention-ui

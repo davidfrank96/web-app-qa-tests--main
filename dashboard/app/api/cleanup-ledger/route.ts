@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInssaApiUser } from "../../../lib/inssa-ops/api-guard";
-import { readCleanupLedgerSnapshot } from "../../../lib/inssa-ops/cleanup-ledger";
+import { readCleanupLedgerSnapshot, resolveCleanupPolicy } from "../../../lib/inssa-ops/cleanup-ledger";
 import { listInssaPhase1Commands } from "../../../lib/inssa-ops/command-registry";
 import { getInssaExecutionJobStore } from "../../../lib/inssa-ops/execution-job-store";
 import { dashboardWorkerIsHealthy, isGovernedLiveCampaign } from "../../../lib/inssa-ops/live-campaigns";
@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
       }));
     }
     return NextResponse.json({
+      manualCleanupMode: resolveCleanupPolicy(process.env, false, true).manualModeEnabled === true,
       banner: "INSSA staging cleanup is deferred because direct database access is unavailable.",
       readiness,
       records

@@ -7,7 +7,7 @@ import { evaluateCleanupGate, persistCleanupLedgerForRun, resolveCleanupPolicy }
 import { writeCleanupManifest } from "../lib/inssa-ops/cleanup-manifest";
 import { getInssaPhase1Command } from "../lib/inssa-ops/command-registry";
 import { evaluateMutationCampaignReadiness } from "../lib/inssa-ops/mutation-readiness";
-import { validateLiveCampaignPreflight, LIVE_MUTATION_ACKNOWLEDGEMENTS, IRREVERSIBLE_ACTION_ACKNOWLEDGEMENT } from "../lib/inssa-ops/live-campaigns";
+import { previewLiveCampaignPreflight, validateLiveCampaignPreflight, LIVE_MUTATION_ACKNOWLEDGEMENTS, IRREVERSIBLE_ACTION_ACKNOWLEDGEMENT } from "../lib/inssa-ops/live-campaigns";
 import { confirmManualCleanupRecord, MANUAL_CLEANUP_CONFIRMATION } from "../lib/inssa-ops/manual-cleanup";
 import { determineExecutionFinalStatus } from "../lib/inssa-ops/runner";
 import type { InssaRunStore } from "../lib/inssa-ops/run-store";
@@ -141,4 +141,30 @@ test("unwritable output and active/audit-failed confirmations still block", asyn
   const unavailable = storeFor(records); unavailable.store.appendAuditEvent = async () => { throw new Error('audit unavailable'); };
   await assert.rejects(confirmManualCleanupRecord(unavailable.store, admin, input), /audit unavailable/);
   assert.equal(records[0].status, 'cleanup_unavailable');
+});
+
+
+test("automatic readiness preview retains safety checks but never grants execution approval or mutates records", async (t) => {
+  const repoRoot = await fixture(t), records = [ledger()], before = JSON.stringify(records);
+  const { store, events } = storeFor(records);
+  const dependencies = { repoRoot, store, now, environment: env, activeRunId: null, workerHealthy: true };
+  const preview = await previewLiveCampaignPreflight(command(), {}, admin, dependencies);
+  assert.equal(preview.ok, true);
+  assert.equal("context" in preview, false);
+  assert.equal(preview.checks.some(check => check.id === "approval"), false);
+  assert.equal(preview.checks.some(check => check.id === "prerequisites" && check.passed), true);
+  const execution = await validateLiveCampaignPreflight(command(), {}, admin, dependencies);
+  assert.equal(execution.ok, false);
+  assert.equal(execution.checks.at(-1)?.id, "approval");
+  for (const override of [{ workerHealthy: false }, { activeRunId: "active-run" }, { environment: { ...env, INSSA_URL: "https://inssa.us" } }, { environment: { ...env, INSSA_TEST_PASSWORD: "" } }]) {
+    const blocked = await previewLiveCampaignPreflight(command(), {}, admin, { ...dependencies, ...override });
+    assert.equal(blocked.ok, false);
+    assert.equal("context" in blocked, false);
+  }
+  assert.equal((await previewLiveCampaignPreflight(command(), {}, { ...admin, role: "operator" }, dependencies)).ok, false);
+  assert.equal((await previewLiveCampaignPreflight(command(keys[3]), {}, admin, dependencies)).ok, false);
+  assert.equal((await previewLiveCampaignPreflight(command(keys[3]), { executionMode: "resume", resumeArtifactPath: "missing.json" }, admin, dependencies)).ok, false);
+  assert.equal((await previewLiveCampaignPreflight(command(keys[3]), { executionMode: "create" }, admin, dependencies)).ok, true);
+  assert.equal(JSON.stringify(records), before);
+  assert.deepEqual(events, []);
 });
