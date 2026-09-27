@@ -378,6 +378,10 @@ async function executeRun(
     if (run.commandSnapshot.cleanupRequired) {
       const cleanup = await writeCleanupManifest(run, output.outputRoot);
       if (cleanup) {
+        if (run.executionContext?.cleanupPolicy?.manualModeEnabled) {
+          warningSeen = true;
+          await appendLog("system", `MANUAL CLEANUP REQUIRED: ${cleanup.reasonCode}; functional exit status is evaluated independently.`);
+        }
         await store.updateRun(run.id, { cleanup });
         const cleanupRecords = await persistCleanupLedgerForRun(run, cleanup, store);
         if (cleanupRecords.length > 0) {

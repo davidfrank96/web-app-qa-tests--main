@@ -15,7 +15,9 @@ export async function writeCleanupManifest(run: InssaRunRecord, outputRoot: stri
   const values = await collectSanitizedLifecycleValues(outputRoot);
   const recordedAt = new Date().toISOString();
   const policy = run.executionContext?.cleanupPolicy;
+  const manualCleanup = policy?.manualModeEnabled === true && run.commandSnapshot.mutatesStaging && run.executionContext?.targetHost === "staging.inssa.us";
   const objectCount = values.capsuleIds.length + values.mediaIds.length;
+  const identityUnknown = !objectCount || (values.finalActionPerformed && !values.capsuleIds.length);
   const expectedMediaCount = /(?:media|video)/i.test(run.campaignKey) ? 1 : 0;
   const unexpectedData =
     values.capsuleIds.length > 1 ||
@@ -23,16 +25,16 @@ export async function writeCleanupManifest(run: InssaRunRecord, outputRoot: stri
     objectCount > 1 + expectedMediaCount;
   const dedicatedQaAccount = policy?.dedicatedQaAccountsConfirmed === true;
   const safelyAccounted =
-    objectCount > 0 &&
+    objectCount > 0 && (!manualCleanup || !identityUnknown) &&
     values.affectedUsers.length > 0 &&
     dedicatedQaAccount &&
     !unexpectedData;
-  const deferredCleanup = safelyAccounted && policy?.deferredModeEnabled === true;
+  const deferredCleanup = safelyAccounted && (policy?.deferredModeEnabled === true || manualCleanup);
   const manifest: InssaCleanupManifest = {
     affectedUsers: values.affectedUsers,
     automaticCleanupAvailable: false,
     cleanupMethod: "Deferred cleanup ledger; no approved direct INSSA staging database deletion is available.",
-    cleanupResult: deferredCleanup ? "cleanup_unavailable_object_tracked" : "cleanup_identity_or_accounting_required",
+    cleanupResult: manualCleanup && identityUnknown ? "MANUAL_CLEANUP_IDENTITY_UNKNOWN" : deferredCleanup ? "cleanup_unavailable_object_tracked" : "cleanup_identity_or_accounting_required",
     cleanupTimestamp: recordedAt,
     confirmedAt: null,
     confirmedBy: null,
@@ -52,7 +54,7 @@ export async function writeCleanupManifest(run: InssaRunRecord, outputRoot: stri
     lifecycleState: values.lifecycleState,
     mediaType: values.mediaType,
     ownerAccount: values.affectedUsers[0] ?? null,
-    reasonCode: deferredCleanup ? "INSSA-CLEANUP-UNAVAILABLE" : "INSSA-CLEANUP-IDENTITY-REQUIRED",
+    reasonCode: manualCleanup && identityUnknown ? "MANUAL_CLEANUP_IDENTITY_UNKNOWN" : deferredCleanup ? "INSSA-CLEANUP-UNAVAILABLE" : "INSSA-CLEANUP-IDENTITY-REQUIRED",
     recordedAt,
     retentionUntil: addDays(recordedAt, policy?.retentionDays ?? 90),
     runId: run.id,

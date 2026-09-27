@@ -14,27 +14,27 @@ const DEFAULT_MAX_UNRESOLVED_AGE_DAYS = 90;
 const DEFAULT_MAX_MUTATION_RUNS_PER_DAY = 10;
 const DEFAULT_RETENTION_DAYS = 90;
 
-export type CleanupGateResult =
-  | {
-      error: string;
-      id: string;
-      ok: false;
-      policy: InssaCleanupPolicySnapshot;
-      unresolved: InssaCleanupLedgerRecord[];
-    }
-  | {
-      ok: true;
-      policy: InssaCleanupPolicySnapshot;
-      unresolved: InssaCleanupLedgerRecord[];
-    };
+export type CleanupPolicyIssue = { id: string; detail: string };
+type CleanupGateSummary = {
+  mode: "manual_cleanup" | "enforced";
+  advisories: CleanupPolicyIssue[];
+  blockingFailures: CleanupPolicyIssue[];
+  mutationRunsToday: number;
+  policy: InssaCleanupPolicySnapshot;
+  unresolved: InssaCleanupLedgerRecord[];
+};
+export type CleanupGateResult = CleanupGateSummary & ({ ok: true } | { ok: false; id: string; error: string });
 
 export function resolveCleanupPolicy(
   environment: Record<string, string | undefined>,
-  requiresSecondaryAccount = false
+  requiresSecondaryAccount = false,
+  governedStaging = false
 ): InssaCleanupPolicySnapshot {
   const primaryDedicated = environment.INSSA_TEST_ACCOUNT_IS_DEDICATED_QA === "1";
   const secondaryDedicated = !requiresSecondaryAccount || environment.INSSA_SECONDARY_TEST_ACCOUNT_IS_DEDICATED_QA === "1";
   return {
+    manualModeEnabled: governedStaging && environment.INSSA_MANUAL_CLEANUP_MODE === "1" &&
+      /^https:\/\/staging\.inssa\.us\/?$/.test(environment.INSSA_URL ?? ""),
     dedicatedQaAccountsConfirmed: primaryDedicated && secondaryDedicated,
     deferredModeEnabled: environment.INSSA_DEFERRED_CLEANUP_MODE === "1",
     maxMutationRunsPerDay: positiveInteger(environment.INSSA_MAX_MUTATION_RUNS_PER_DAY, DEFAULT_MAX_MUTATION_RUNS_PER_DAY),
@@ -75,7 +75,15 @@ export async function persistCleanupLedgerForRun(
   store: InssaRunStore = getInssaRunStore()
 ) {
   const records = buildCleanupLedgerRecords(run, manifest);
-  return store.replaceRunCleanupLedger(run.id, records);
+  // Append discoveries without erasing earlier IDs or reopening manual resolutions.
+  const existing = (await store.listCleanupLedger()).filter((record) => record.originatingRunId === run.id);
+  for (const record of records) {
+    if (!existing.some((prior) => prior.objectId === record.objectId && prior.objectType === record.objectType)) {
+      await store.upsertCleanupLedger(record);
+      existing.push(record);
+    }
+  }
+  return existing;
 }
 
 export function buildCleanupLedgerRecords(run: InssaRunRecord, manifest: InssaCleanupManifest) {
@@ -129,119 +137,60 @@ export function buildCleanupLedgerRecords(run: InssaRunRecord, manifest: InssaCl
 
 export async function evaluateCleanupGate(input: {
   environment: Record<string, string | undefined>;
+  governedStaging?: boolean;
   now?: Date;
   repoRoot?: string;
   requiresSecondaryAccount?: boolean;
   store?: InssaRunStore;
 }): Promise<CleanupGateResult> {
   const repoRoot = input.repoRoot ?? getRepoRoot();
-  const policy = resolveCleanupPolicy(input.environment, input.requiresSecondaryAccount);
+  const policy = resolveCleanupPolicy(input.environment, input.requiresSecondaryAccount, input.governedStaging);
   const now = input.now ?? new Date();
   const usesCurrentStore = Boolean(input.store) || path.resolve(repoRoot) === path.resolve(getRepoRoot());
   const store = input.store ?? (usesCurrentStore ? getInssaRunStore() : null);
-
-  if (!policy.dedicatedQaAccountsConfirmed) {
-    return fail("qa-account", "Every account used by this campaign must be explicitly marked as a dedicated QA account.", policy, []);
-  }
-
-  const [ledger, runs, manifests] = await Promise.all([
+  const [ledger, runs, localManifests] = await Promise.all([
     readCleanupLedgerSnapshot(repoRoot, store),
     store ? store.listRuns() : Promise.resolve([]),
     readCleanupManifests(repoRoot)
   ]);
+  // Durable manifests survive redeploys; retain unknown identities without inventing object IDs.
+  const manifests = new Map(localManifests.map((manifest) => [manifest.runId, manifest]));
+  for (const run of runs) if (run.commandSnapshot?.mutatesStaging && run.cleanup) manifests.set(run.id, run.cleanup);
   const unresolved = ledger.filter((record) => record.status !== "completed");
-
-  for (const manifest of manifests) {
+  const blockingFailures: CleanupPolicyIssue[] = [], advisories: CleanupPolicyIssue[] = [];
+  const issue = (id: string, detail: string, cleanupOnly = true) => {
+    (policy.manualModeEnabled && cleanupOnly ? advisories : blockingFailures).push({ id, detail });
+  };
+  if (!policy.dedicatedQaAccountsConfirmed) issue("qa-account", "Every account used by this campaign must be explicitly marked as a dedicated QA account.", false);
+  for (const manifest of manifests.values()) {
     if (["completed", "manually_confirmed", "not_required"].includes(manifest.status)) continue;
     const ids = [...manifest.createdCapsuleIds, ...manifest.createdMediaIds];
-    if (ids.length === 0) {
-      return fail(
-        "cleanup-identity",
-        `Run ${manifest.runId} has unresolved cleanup but no identified staging object.`,
-        policy,
-        unresolved
-      );
-    }
-    if (manifest.status !== "deferred" && manifest.status !== "cleanup_unavailable") {
-      return fail(
-        "cleanup-state",
-        `Run ${manifest.runId} remains ${manifest.status}; unresolved objects must be truthfully marked deferred or cleanup_unavailable.`,
-        policy,
-        unresolved
-      );
-    }
-    for (const objectId of ids) {
-      if (!ledger.some((record) => record.originatingRunId === manifest.runId && record.objectId === objectId)) {
-        return fail(
-          "cleanup-ledger",
-          `Object ${objectId} from run ${manifest.runId} is not represented in the durable cleanup ledger.`,
-          policy,
-          unresolved
-        );
-      }
+    const resolved = ids.length > 0 && ids.every((objectId) => ledger.some((record) =>
+      record.originatingRunId === manifest.runId && record.objectId === objectId && record.status === "completed"));
+    if (resolved) continue;
+    if (!ids.length) issue("cleanup-identity", `MANUAL_CLEANUP_IDENTITY_UNKNOWN: Run ${manifest.runId} has unresolved cleanup but no identified staging object.`);
+    if (manifest.status !== "deferred" && manifest.status !== "cleanup_unavailable") issue("cleanup-state", `Run ${manifest.runId} remains ${manifest.status}; manual investigation is required.`);
+    for (const objectId of ids) if (!ledger.some((record) => record.originatingRunId === manifest.runId && record.objectId === objectId)) {
+      issue("cleanup-ledger", `Object ${objectId} from run ${manifest.runId} is not represented in the durable cleanup ledger.`);
     }
   }
-
   for (const record of unresolved) {
-    if (!record.objectId || !record.originatingRunId) {
-      return fail("cleanup-identity", "An unresolved cleanup record has no object ID or originating run ID.", policy, unresolved);
-    }
-    if (record.status !== "deferred" && record.status !== "cleanup_unavailable") {
-      return fail(
-        "cleanup-state",
-        `Object ${record.objectPath} remains ${record.status}; deferred execution is not permitted.`,
-        policy,
-        unresolved
-      );
-    }
-    if (!record.dedicatedQaAccount || !record.ownerAccount || record.affectedUsers.length === 0) {
-      return fail("qa-account", `Object ${record.objectPath} is not fully attributed to a dedicated QA account.`, policy, unresolved);
-    }
-    if (!record.sensitiveValuesExcluded) {
-      return fail("cleanup-sanitization", `Object ${record.objectPath} lacks credential/token sanitization evidence.`, policy, unresolved);
-    }
-    if (!record.safelyAccounted || record.unexpectedData) {
-      return fail("cleanup-accounting", `Object ${record.objectPath} is not safely accounted for.`, policy, unresolved);
-    }
-    if (record.securitySensitive && !record.safelyAccounted) {
-      return fail("cleanup-security", `Security-sensitive object ${record.objectPath} is not safely accounted for.`, policy, unresolved);
-    }
+    if (!record.objectId || !record.originatingRunId) issue("cleanup-identity", "MANUAL_CLEANUP_IDENTITY_UNKNOWN: An unresolved record has no object ID or originating run ID.");
+    if (record.status !== "deferred" && record.status !== "cleanup_unavailable") issue("cleanup-state", `Object ${record.objectPath} remains ${record.status}; manual investigation is required.`);
+    if (!record.dedicatedQaAccount || !record.ownerAccount || record.affectedUsers.length === 0) issue("qa-account", `Object ${record.objectPath} is not fully attributed to a dedicated QA account.`, false);
+    if (!record.sensitiveValuesExcluded) issue("cleanup-sanitization", `Object ${record.objectPath} lacks credential/token sanitization evidence.`, false);
+    if (!record.safelyAccounted || record.unexpectedData) issue("cleanup-accounting", `Object ${record.objectPath} is not safely accounted for.`, !record.unexpectedData);
     const ageMs = now.getTime() - new Date(record.createdAt).getTime();
-    if (!Number.isFinite(ageMs) || ageMs > policy.maxUnresolvedAgeDays * 86_400_000) {
-      return fail(
-        "cleanup-age",
-        `Object ${record.objectPath} exceeds the ${policy.maxUnresolvedAgeDays}-day unresolved age limit.`,
-        policy,
-        unresolved
-      );
-    }
+    if (!Number.isFinite(ageMs) || ageMs > policy.maxUnresolvedAgeDays * 86_400_000) issue("cleanup-age", `Object ${record.objectPath} exceeds the ${policy.maxUnresolvedAgeDays}-day unresolved age limit.`);
   }
-
-  if (unresolved.length > 0 && !policy.deferredModeEnabled) {
-    return fail("deferred-mode", "Deferred cleanup mode is disabled while unresolved staging objects exist.", policy, unresolved);
-  }
-  if (unresolved.length >= policy.maxUnresolvedObjects) {
-    return fail(
-      "cleanup-threshold",
-      `The unresolved-object limit (${policy.maxUnresolvedObjects}) would be exceeded by another mutation campaign.`,
-      policy,
-      unresolved
-    );
-  }
+  if (unresolved.length > 0 && !policy.deferredModeEnabled) issue("deferred-mode", "Deferred cleanup mode is disabled while unresolved staging objects exist.");
+  if (unresolved.length >= policy.maxUnresolvedObjects) issue("cleanup-threshold", `The unresolved-object limit (${policy.maxUnresolvedObjects}) would be exceeded by another mutation campaign.`);
   const dayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const mutationRunsToday = runs.filter(
-    (run) => run.commandSnapshot?.mutatesStaging && new Date(run.createdAt).getTime() >= dayStart
-  ).length;
-  if (mutationRunsToday >= policy.maxMutationRunsPerDay) {
-    return fail(
-      "mutation-rate",
-      `The daily mutation-run limit (${policy.maxMutationRunsPerDay}) has been reached.`,
-      policy,
-      unresolved
-    );
-  }
-
-  return { ok: true, policy, unresolved };
+  const mutationRunsToday = runs.filter((run) => run.commandSnapshot?.mutatesStaging && new Date(run.createdAt).getTime() >= dayStart).length;
+  if (mutationRunsToday >= policy.maxMutationRunsPerDay) issue("mutation-rate", `The daily mutation-run limit (${policy.maxMutationRunsPerDay}) has been reached.`);
+  if (policy.manualModeEnabled) advisories.unshift({ id: "manual-cleanup", detail: `MANUAL CLEANUP MODE: automatic deletion unavailable; ${unresolved.length} unresolved QA object(s); ${mutationRunsToday} mutation run(s) today. Cleanup remains an operator responsibility.` });
+  const summary: CleanupGateSummary = { mode: policy.manualModeEnabled ? "manual_cleanup" : "enforced", advisories, blockingFailures, mutationRunsToday, policy, unresolved };
+  return blockingFailures.length ? { ...summary, ok: false, id: blockingFailures[0].id, error: blockingFailures[0].detail } : { ...summary, ok: true };
 }
 
 async function readCleanupManifests(repoRoot: string) {
@@ -283,15 +232,6 @@ async function readConfiguredCleanupLedger(repoRoot: string) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
-}
-
-function fail(
-  id: string,
-  error: string,
-  policy: InssaCleanupPolicySnapshot,
-  unresolved: InssaCleanupLedgerRecord[]
-): CleanupGateResult {
-  return { error, id, ok: false, policy, unresolved };
 }
 
 function positiveInteger(value: string | undefined, fallback: number) {

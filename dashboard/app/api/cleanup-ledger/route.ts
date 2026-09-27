@@ -7,6 +7,9 @@ import { dashboardWorkerIsHealthy, isGovernedLiveCampaign } from "../../../lib/i
 import { evaluateMutationCampaignReadiness } from "../../../lib/inssa-ops/mutation-readiness";
 import { getInssaRunStore } from "../../../lib/inssa-ops/run-store";
 
+import { confirmManualCleanupRecord } from "../../../lib/inssa-ops/manual-cleanup";
+import { assertAllowedFields, readBoundedJsonObject, requireTrustedMutationOrigin, requestErrorResponse, InssaRequestError } from "../../../lib/inssa-ops/request-security";
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -38,4 +41,21 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function POST(request: NextRequest) {
+  const auth = await requireInssaApiUser(request, "admin");
+  if (auth.response) return auth.response;
+  const originFailure = requireTrustedMutationOrigin(request);
+  if (originFailure) return originFailure;
+  try {
+    const body = await readBoundedJsonObject(request, 4096);
+    assertAllowedFields(body, ["recordId", "objectId", "runId", "confirmationPhrase", "note"]);
+    for (const key of ["recordId", "objectId", "runId"]) if (typeof body[key] !== "string" || !body[key] || (body[key] as string).length > 1000) throw new InssaRequestError(`Valid ${key} required.`, 400);
+    const record = await confirmManualCleanupRecord(getInssaRunStore(), auth.user, {
+      recordId: body.recordId as string, objectId: body.objectId as string, runId: body.runId as string,
+      confirmationPhrase: body.confirmationPhrase, note: body.note
+    });
+    return NextResponse.json({ record });
+  } catch (error) { return requestErrorResponse(error); }
 }

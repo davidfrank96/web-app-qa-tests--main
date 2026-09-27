@@ -591,8 +591,12 @@ class SupabaseRunStore implements InssaRunStore {
   }
 
   async listCleanupLedger() {
-    const rows = await this.request("cleanup_ledger?order=created_at.desc");
-    return rows.map(fromSupabaseCleanupLedger);
+    const records: InssaCleanupLedgerRecord[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const rows = await this.request(`cleanup_ledger?order=id.asc&limit=500&offset=${offset}`);
+      records.push(...rows.map(fromSupabaseCleanupLedger));
+      if (rows.length < 500) return records;
+    }
   }
 
   async replaceRunArtifacts(runId: string, artifacts: InssaArtifactRecord[]) {
