@@ -7,6 +7,7 @@ import {
   dashboardWorkerIsHealthy,
   isGovernedLiveCampaign,
   parseLiveCampaignApprovalRequest,
+  previewLiveCampaignPreflight,
   validateLiveCampaignPreflight
 } from "../../../lib/inssa-ops/live-campaigns";
 import {
@@ -44,14 +45,24 @@ export async function POST(request: NextRequest) {
     await recordInssaAuditEvent({ campaignKey, eventType: "approval_opened", metadata: { targetHost: "staging.inssa.us" }, status: "opened", user: auth.user });
     return NextResponse.json({ ok: true });
   }
-  if (body.action !== "preflight" || !command) {
-    return NextResponse.json({ error: "action must be opened or preflight." }, { status: 400 });
+  if ((body.action !== "preflight" && body.action !== "preview") || !command) {
+    return NextResponse.json({ error: "action must be opened, preview or preflight." }, { status: 400 });
   }
 
-  const activeJob = await getInssaExecutionJobStore().getActive();
+  const [activeJob, workerHealthy] = await Promise.all([
+    getInssaExecutionJobStore().getActive(), dashboardWorkerIsHealthy()
+  ]);
+  if (body.action === "preview") {
+    const selection = parseLiveCampaignApprovalRequest(body.liveApproval);
+    const result = await previewLiveCampaignPreflight(command, {
+      executionMode: selection?.executionMode,
+      resumeArtifactPath: selection?.resumeArtifactPath
+    }, auth.user, { activeRunId: activeJob?.runId ?? null, workerHealthy });
+    return NextResponse.json(result, { status: result.ok ? 200 : result.status });
+  }
   const result = await validateLiveCampaignPreflight(command, parseLiveCampaignApprovalRequest(body.liveApproval), auth.user, {
     activeRunId: activeJob?.runId ?? null,
-    workerHealthy: await dashboardWorkerIsHealthy()
+    workerHealthy
   });
   if (!result.ok) {
     await recordInssaAuditEvent({

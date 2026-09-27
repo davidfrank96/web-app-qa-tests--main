@@ -64,6 +64,26 @@ export function isGovernedLiveCampaign(command: InssaCommandDefinition | null | 
   return Boolean(command?.phase1Enabled && command.mutatesStaging && command.adminOnly && command.approvalRequired);
 }
 
+// Readiness inspection only: never expose an approved execution context. The
+// execution endpoint still validates the operator's real approval independently.
+export async function previewLiveCampaignPreflight(
+  command: InssaCommandDefinition,
+  selection: Pick<LiveCampaignApprovalRequest, "executionMode" | "resumeArtifactPath">,
+  user: InssaAuthenticatedUser,
+  dependencies: PreflightDependencies
+) {
+  const result = await validateLiveCampaignPreflight(command, {
+    executionMode: selection.executionMode,
+    resumeArtifactPath: selection.resumeArtifactPath,
+    acknowledgements: [...LIVE_MUTATION_ACKNOWLEDGEMENTS, IRREVERSIBLE_ACTION_ACKNOWLEDGEMENT],
+    confirmationPhrase: LIVE_MUTATION_CONFIRMATION_PHRASE
+  }, user, dependencies);
+  const checks = result.checks.filter(check => check.id !== "approval" && check.id !== "cleanup");
+  return result.ok
+    ? { ok: true as const, checks }
+    : { ok: false as const, checks, error: result.error, status: result.status };
+}
+
 export async function validateLiveCampaignPreflight(
   command: InssaCommandDefinition,
   approval: LiveCampaignApprovalRequest | null | undefined,

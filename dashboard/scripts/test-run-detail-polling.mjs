@@ -76,13 +76,16 @@ try {
     await log('run-a').waitFor();
     // Active selection retains the original 3-second polling cadence.
     runs[0] = { ...runs[0], status: 'running', completedAt: null };
-    await page.clock.runFor(15_100); await delay(100);
+    await page.clock.runFor(15_100);
+    await page.locator('.run-detail-pane').getByText('Running', { exact: true }).first().waitFor();
     const activeStart = detailCount();
-    await page.clock.runFor(3_100); await delay(100);
-    await page.clock.runFor(3_100); await delay(100);
+    await page.clock.runFor(3_100); await waitFor(() => detailCount() >= activeStart + 4);
+    await page.clock.runFor(3_100); await waitFor(() => detailCount() >= activeStart + 8);
     assert.ok(detailCount() >= activeStart + 8, 'active run keeps polling');
     runs[0] = { ...makeRun('run-a'), updatedAt: '2026-09-14T10:03:00Z' };
-    await page.clock.runFor(3_100); await delay(100); await log('run-a').waitFor();
+    await page.clock.runFor(3_100);
+    await page.locator('.run-detail-pane').getByText('Passed', { exact: true }).first().waitFor();
+    await log('run-a').waitFor();
     const terminalStart = detailCount();
     await page.clock.runFor(30_100); await delay(100);
     assert.equal(detailCount(), terminalStart, 'terminal transition stops detail polling');
