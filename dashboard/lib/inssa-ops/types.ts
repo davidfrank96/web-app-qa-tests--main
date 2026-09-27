@@ -60,6 +60,7 @@ export type InssaCleanupStatus =
   | "pending";
 
 export type InssaCleanupPolicySnapshot = {
+  manualModeEnabled?: boolean;
   dedicatedQaAccountsConfirmed: boolean;
   deferredModeEnabled: boolean;
   maxMutationRunsPerDay: number;

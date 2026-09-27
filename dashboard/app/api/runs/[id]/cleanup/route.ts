@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInssaApiUser } from "../../../../../lib/inssa-ops/api-guard";
-import { recordInssaAuditEvent } from "../../../../../lib/inssa-ops/audit";
+import { confirmManualCleanupRecord, MANUAL_CLEANUP_CONFIRMATION } from "../../../../../lib/inssa-ops/manual-cleanup";
 import { getInssaRunStore } from "../../../../../lib/inssa-ops/run-store";
 import {
   assertAllowedFields,
@@ -23,11 +23,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   try {
     id = readUuid((await context.params).id, "run id");
     body = await readBoundedJsonObject(request, 1_024);
-    assertAllowedFields(body, ["confirmed"]);
+    assertAllowedFields(body, ["confirmed", "confirmationPhrase", "note"]);
   } catch (error) {
     return requestErrorResponse(error);
   }
-  if (body?.confirmed !== true) return NextResponse.json({ error: "confirmed=true is required." }, { status: 400 });
+  if (body?.confirmed !== true || body.confirmationPhrase !== MANUAL_CLEANUP_CONFIRMATION) return NextResponse.json({ error: "confirmed=true is required." }, { status: 400 });
 
   const store = getInssaRunStore();
   const run = await store.getRun(id);
@@ -42,14 +42,17 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     return NextResponse.json({ error: "Cleanup cannot be confirmed while the run is active." }, { status: 409 });
   }
 
-  const cleanup = {
-    ...run.cleanup,
-    confirmedAt: new Date().toISOString(),
-    confirmedBy: auth.user.email || auth.user.id,
-    status: "manually_confirmed" as const
-  };
+  const records = (await store.listCleanupLedger()).filter((record) => record.originatingRunId === id);
+  const ids = [...run.cleanup.createdCapsuleIds, ...run.cleanup.createdMediaIds];
+  if (!ids.length || !records.length || ids.some((objectId) => !records.some((record) => record.objectId === objectId))) {
+    return NextResponse.json({ error: "Resolve unknown cleanup identities before confirming all run objects." }, { status: 409 });
+  }
+  try {
+    for (const record of records) await confirmManualCleanupRecord(store, auth.user, {
+      recordId: record.id, objectId: record.objectId, runId: id, confirmationPhrase: body.confirmationPhrase, note: body.note
+    });
+  } catch (error) { return requestErrorResponse(error); }
+  const cleanup = { ...run.cleanup, confirmedAt: new Date().toISOString(), confirmedBy: auth.user.email || auth.user.id, status: "manually_confirmed" as const };
   const updated = await store.updateRun(id, { cleanup });
-  await recordInssaAuditEvent({ campaignKey: run.campaignKey, eventType: "cleanup_acknowledged", metadata: { cleanupStatus: cleanup.status }, runId: run.id, status: "acknowledged", user: auth.user });
-  await recordInssaAuditEvent({ campaignKey: run.campaignKey, eventType: "cleanup_verified", metadata: { cleanupStatus: cleanup.status }, runId: run.id, status: "verified", user: auth.user });
   return NextResponse.json({ cleanup: updated.cleanup });
 }

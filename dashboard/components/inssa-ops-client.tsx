@@ -125,6 +125,8 @@ type ArtifactRecord = {
 };
 
 type CleanupLedgerRecord = {
+  ownerAccount: string | null;
+  notes: string | null;
   campaignKey: string;
   createdAt: string;
   dedicatedQaAccount: boolean;
@@ -141,6 +143,8 @@ type CleanupLedgerRecord = {
 };
 
 type MutationReadinessRecord = {
+  manualCleanupMode?: boolean;
+  advisories?: Array<{ id: string; detail: string }>;
   blockingReason: string | null;
   campaignKey: string;
   checks: Array<{ detail: string; id: string; passed: boolean }>;
@@ -282,7 +286,7 @@ type LiveApprovalPayload = {
   resumeArtifactPath?: string;
 };
 
-type PreflightCheck = { detail: string; id: string; passed: boolean };
+type PreflightCheck = { detail: string; id: string; passed: boolean; advisory?: boolean };
 
 type LifecycleArtifactSelection = {
   mode: "explicit" | "latest";
@@ -1302,7 +1306,7 @@ export function InssaOpsClient({
     }
   }
 
-  async function submitLiveCampaignApproval(campaign: CampaignDefinition) {
+  async function submitLiveCampaignApproval(campaign: CampaignDefinition, execute = true) {
     const liveApproval: LiveApprovalPayload = {
       acknowledgements: approvalAcknowledgements,
       confirmationPhrase: approvalPhrase,
@@ -1324,6 +1328,7 @@ export function InssaOpsClient({
         setApprovalError(body.error ?? "Campaign preflight failed.");
         return;
       }
+      if (!execute) return;
       const started = await runCampaign(campaign.key, undefined, liveApproval);
       if (started) setApprovalCampaignKey("");
     } finally {
@@ -1331,10 +1336,24 @@ export function InssaOpsClient({
     }
   }
 
+  async function confirmLedgerCleanup(record: CleanupLedgerRecord) {
+    const phrase = window.prompt(`Confirm only after deleting ${record.objectPath} from INSSA staging. Originating run: ${record.originatingRunId}. Type DELETED FROM INSSA STAGING.`);
+    if (phrase !== "DELETED FROM INSSA STAGING") return;
+    const note = window.prompt("Optional manual cleanup note (no secrets):", "");
+    if (note === null) return;
+    const response = await apiFetch("/api/cleanup-ledger", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ recordId: record.id, objectId: record.objectId, runId: record.originatingRunId, confirmationPhrase: phrase, note }) });
+    const body = await readJsonResponse(response);
+    if (!response.ok) { recordApiFailure("/api/cleanup-ledger", response.status, body.error ?? "Cleanup confirmation failed."); return; }
+    await refreshCleanupLedger();
+  }
+
   async function confirmRunCleanup(run: RunRecord) {
+    const phrase = window.prompt(`Confirm only after deleting ALL capsule and media objects created by run ${run.id} from INSSA staging. Type DELETED FROM INSSA STAGING.`);
+    if (phrase !== "DELETED FROM INSSA STAGING") return;
     const endpoint = `/api/runs/${run.id}/cleanup`;
     const response = await apiFetch(endpoint, {
-      body: JSON.stringify({ confirmed: true }),
+      body: JSON.stringify({ confirmed: true, confirmationPhrase: phrase }),
       headers: { "content-type": "application/json" },
       method: "POST"
     });
@@ -1345,6 +1364,7 @@ export function InssaOpsClient({
     }
     await refreshRuns();
     await refreshRunDetail(run.id, true);
+    await refreshCleanupLedger();
   }
 
   function recordApiFailure(endpoint: string, status: number | string, message: string) {
@@ -1552,7 +1572,7 @@ export function InssaOpsClient({
                   <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
                     Security campaigns execute tests and can generate findings. Live cross-user and reveal-later actions require staging-only admin approval.
                   </p>
-                  <DeferredCleanupBanner />
+                  <DeferredCleanupBanner manual={mutationReadiness.some((item) => item.manualCleanupMode)} />
                   <ActionSelectorPanel
                     canStartRuns={canStartRuns}
                     currentUserRole={currentUser.role}
@@ -1569,6 +1589,7 @@ export function InssaOpsClient({
                     artifacts={reportArtifacts}
                     campaigns={securityCommands.filter((campaign) => campaign.mutatesStaging)}
                     cleanupLedger={cleanupLedger}
+                    onConfirmCleanup={currentUser.role === "admin" ? confirmLedgerCleanup : undefined}
                     readiness={mutationReadiness}
                     onOpenRun={(runId) => {
                       setSelectedRunId(runId);
@@ -1585,7 +1606,7 @@ export function InssaOpsClient({
                   <p className="mt-2 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
                     Lifecycle commands create staging data. They require live flags, one-run execution, no retry around final actions, and manual cleanup evidence.
                   </p>
-                  <DeferredCleanupBanner />
+                  <DeferredCleanupBanner manual={mutationReadiness.some((item) => item.manualCleanupMode)} />
                   <ActionSelectorPanel
                     canStartRuns={canStartRuns}
                     currentUserRole={currentUser.role}
@@ -1602,6 +1623,7 @@ export function InssaOpsClient({
                     artifacts={reportArtifacts}
                     campaigns={lifecycleCommands}
                     cleanupLedger={cleanupLedger}
+                    onConfirmCleanup={currentUser.role === "admin" ? confirmLedgerCleanup : undefined}
                     readiness={mutationReadiness}
                     onOpenRun={(runId) => {
                       setSelectedRunId(runId);
@@ -2384,12 +2406,14 @@ export function InssaOpsClient({
                             <section className="rounded-2xl border border-amber-300/25 bg-amber-300/10 p-4">
                               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
-                                  <h3 className="font-semibold text-amber-100">Cleanup {selectedRun.cleanup.status.replaceAll("_", " ")}</h3>
+                                  <h3 className="font-semibold text-amber-100">Cleanup: {["completed", "manually_confirmed"].includes(selectedRun.cleanup.status) ? "Manually confirmed" : "MANUAL CLEANUP REQUIRED"}</h3>
+                                  <p className="mt-1 text-sm">Test result: {humanizePolicy(selectedRun.status)} · Recorded cleanup status: {selectedRun.cleanup.status}</p>
+                                  {selectedRun.cleanup.reasonCode ? <p className="text-sm">{selectedRun.cleanup.reasonCode}</p> : null}
                                   <p className="mt-1 text-sm text-amber-100/80">
                                     {selectedRun.cleanup.createdCapsuleIds.length} capsule target(s) · {selectedRun.cleanup.createdArtifactIds.length} artifact reference(s)
                                   </p>
                                 </div>
-                                {currentUser.role === "admin" && selectedRun.cleanup.status === "pending" && !ACTIVE_STATUSES.has(selectedRun.status) ? (
+                                {currentUser.role === "admin" && !["completed", "manually_confirmed"].includes(selectedRun.cleanup.status) && !ACTIVE_STATUSES.has(selectedRun.status) ? (
                                   <button className="rounded-xl border border-amber-200/40 px-4 py-2 text-sm font-semibold text-amber-100" onClick={() => void confirmRunCleanup(selectedRun)} type="button">
                                     Confirm Manual Cleanup
                                   </button>
@@ -2522,6 +2546,7 @@ export function InssaOpsClient({
             onClose={() => setApprovalCampaignKey("")}
             onExecutionModeChange={setApprovalExecutionMode}
             onPhraseChange={setApprovalPhrase}
+            onPreflight={() => void submitLiveCampaignApproval(approvalCampaign, false)}
             onSubmit={() => void submitLiveCampaignApproval(approvalCampaign)}
             phrase={approvalPhrase}
             revealLaterArtifacts={revealLaterArtifacts}
@@ -2546,6 +2571,7 @@ function LiveCampaignApprovalModal({
   onClose,
   onExecutionModeChange,
   onPhraseChange,
+  onPreflight,
   onSubmit,
   phrase,
   revealLaterArtifacts,
@@ -2563,6 +2589,7 @@ function LiveCampaignApprovalModal({
   onClose: () => void;
   onExecutionModeChange: (value: "" | "create" | "resume") => void;
   onPhraseChange: (value: string) => void;
+  onPreflight: () => void;
   onSubmit: () => void;
   phrase: string;
   revealLaterArtifacts: LifecycleArtifactOption[];
@@ -2649,11 +2676,13 @@ function LiveCampaignApprovalModal({
             <input className="mt-2 w-full rounded-xl border border-amber-200/30 bg-slate-950 px-3 py-2 font-mono text-sm" id="mutation-confirmation" onChange={(event) => onPhraseChange(event.target.value)} value={phrase} />
           </section>
 
-          {checks.length ? <div className="mt-4 grid gap-2">{checks.map((check) => <p className={`rounded-xl border p-3 text-sm ${check.passed ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100" : "border-rose-300/20 bg-rose-300/10 text-rose-100"}`} key={check.id}>{check.passed ? "PASS" : "FAIL"}: {check.detail}</p>)}</div> : null}
+          {checks.length ? <div className="mt-4 grid gap-2">{checks.map((check) => <p className={`rounded-xl border p-3 text-sm ${check.advisory ? "border-amber-300/20 bg-amber-300/10 text-amber-100" : check.passed ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100" : "border-rose-300/20 bg-rose-300/10 text-rose-100"}`} key={`${check.id}-${check.detail}`}>{check.advisory ? "MANUAL CLEANUP ADVISORY" : check.passed ? "PASS" : "BLOCKING PREFLIGHT"}: {check.detail}</p>)}</div> : null}
+          {checks.length > 0 && checks.every((check) => check.passed) && !error ? <p className="mt-3 text-emerald-200">Execution allowed · preflight only does not create a run.</p> : null}
           {error ? <p className="mt-4 rounded-xl border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">{error}</p> : null}
         </div>
         <div className="flex items-center justify-between gap-4 border-t border-slate-800 p-5">
           <p className="text-xs text-slate-500">The confirmation phrase is validated but never persisted.</p>
+          <button className="secondary-action" disabled={!approvalReady || submitting} onClick={onPreflight} type="button">Run Preflight Only</button>
           <button className="rounded-xl bg-amber-300 px-5 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400" disabled={!approvalReady || runningCount > 0 || submitting} onClick={onSubmit} type="button">{submitting ? "Running Preflight..." : "Run Staging Mutation"}</button>
         </div>
       </section>
@@ -3233,12 +3262,12 @@ function ActionDetail({
   );
 }
 
-function DeferredCleanupBanner() {
+function DeferredCleanupBanner({ manual }: { manual: boolean }) {
   return (
     <div className="mt-4 rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
-      <p className="font-semibold">INSSA staging cleanup is deferred because direct database access is unavailable.</p>
+      <p className="font-semibold">{manual ? "MANUAL CLEANUP MODE" : "INSSA staging cleanup is deferred because direct database access is unavailable."}</p>
       <p className="mt-1 text-amber-100/75">
-        Deferred objects remain unresolved INSSA staging data. The ledger records ownership, age, evidence, and retention; it does not delete product data.
+        {manual ? "Automatic INSSA database cleanup is unavailable. Created QA staging objects remain tracked and require manual removal. Existing cleanup backlog does not prevent additional staging tests." : "Deferred objects remain unresolved INSSA staging data. Normal cleanup enforcement is active."}
       </p>
     </div>
   );
@@ -3248,6 +3277,7 @@ function MutationCampaignReadiness({
   artifacts,
   campaigns,
   cleanupLedger,
+  onConfirmCleanup,
   onOpenRun,
   readiness,
   runs
@@ -3255,6 +3285,7 @@ function MutationCampaignReadiness({
   artifacts: ArtifactRecord[];
   campaigns: CampaignDefinition[];
   cleanupLedger: CleanupLedgerRecord[];
+  onConfirmCleanup?: (record: CleanupLedgerRecord) => Promise<void>;
   onOpenRun: (runId: string) => void;
   readiness: MutationReadinessRecord[];
   runs: RunRecord[];
@@ -3308,13 +3339,19 @@ function MutationCampaignReadiness({
                   value={campaignReadiness?.createdObjectPaths.length ? campaignReadiness.createdObjectPaths.join(", ") : "none recorded"}
                   mono
                 />
-                <Metadata label="Unresolved objects" value={String(campaignReadiness?.unresolvedCount ?? 0)} />
+                <Metadata label="Unresolved QA objects" value={String(campaignReadiness?.unresolvedCount ?? 0)} />
+                <Metadata label="Manual cleanup required" value={campaignReadiness?.unresolvedCount ? "YES" : "No known objects"} />
+                <Metadata label="Backlog advisory" value={(campaignReadiness?.unresolvedCount ?? 0) > 50 ? "HIGH MANUAL CLEANUP BACKLOG" : (campaignReadiness?.unresolvedCount ?? 0) > 25 ? "WARNING" : "NORMAL"} />
                 <Metadata label="Oldest unresolved age" value={campaignReadiness?.oldestUnresolvedAt ? ageFromDate(campaignReadiness.oldestUnresolvedAt) : "none"} />
                 <Metadata label="Retention deadline" value={campaignReadiness?.retentionDeadline ? formatDate(campaignReadiness.retentionDeadline) : "not recorded"} />
                 <Metadata label="Safely accounted" value={campaignReadiness?.safelyAccounted ? "yes" : "no"} />
                 <Metadata label="Blocking reason" value={campaignReadiness?.blockingReason ?? "none"} />
                 <Metadata label="Current readiness" value={humanizePolicy(displayedStatus)} />
               </dl>
+              {campaignReadiness?.advisories?.length ? <details className="mt-3 text-sm text-amber-200"><summary>Manual cleanup advisories ({campaignReadiness.advisories.length})</summary>{campaignReadiness.advisories.map((item, index) => <p key={`${item.id}-${index}`}>{item.detail}</p>)}</details> : null}
+              {campaignRecords.length ? <details className="mt-3 text-sm"><summary>Cleanup ledger · {campaignRecords.length} object(s)</summary><div className="overflow-x-auto"><table className="mt-2 w-full text-left"><thead><tr>{["Object", "Originating run", "Owner", "Age", "Deadline", "Status", "Manual cleanup"].map((label) => <th className="p-2" key={label}>{label}</th>)}</tr></thead><tbody>{campaignRecords.map((record) => <tr key={record.id}>
+                <td className="p-2 break-all">{record.objectPath}</td><td className="p-2 break-all">{record.originatingRunId}</td><td className="p-2">{record.ownerAccount ?? "Unknown"}</td><td className="p-2">{ageFromDate(record.createdAt)}</td><td className="p-2">{formatDate(record.retentionUntil)}</td><td className="p-2">{record.status}<p>{record.notes}</p></td><td className="p-2">{record.status === "completed" ? "Confirmed" : <>Required{onConfirmCleanup ? <button className="secondary-action" type="button" onClick={() => void onConfirmCleanup(record)}>Confirm deleted object</button> : null}</>}</td>
+              </tr>)}</tbody></table></div></details> : null}
               <div className="mt-4 flex flex-wrap gap-2">
                 {videoHref ? (
                   <a className="secondary-action" href={videoHref} rel="noreferrer" target="_blank">Open Video</a>
@@ -3547,7 +3584,7 @@ function RiskBadge({ risk }: { risk: string }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const className = status === "READY_WITH_DEFERRED_CLEANUP" || status === "NOT_YET_VALIDATED"
+  const className = status === "READY_WITH_MANUAL_CLEANUP" || status === "READY_WITH_DEFERRED_CLEANUP" || status === "NOT_YET_VALIDATED"
     ? "bg-amber-300/15 text-amber-200 ring-amber-300/20"
     : status.startsWith("BLOCKED_")
       ? "bg-rose-300/15 text-rose-200 ring-rose-300/20"

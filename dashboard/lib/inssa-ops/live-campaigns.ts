@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { getInssaPhase1Command } from "./command-registry";
 import { evaluateCleanupGate } from "./cleanup-ledger";
 import type { InssaRunStore } from "./run-store";
 import type { InssaAuthenticatedUser } from "./security";
@@ -40,6 +41,7 @@ export function parseLiveCampaignApprovalRequest(value: unknown): LiveCampaignAp
 }
 
 export type LiveCampaignPreflightCheck = {
+  advisory?: boolean;
   detail: string;
   id: string;
   passed: boolean;
@@ -75,7 +77,8 @@ export async function validateLiveCampaignPreflight(
   };
   const pass = (id: string, detail: string) => checks.push({ detail, id, passed: true });
 
-  if (!isGovernedLiveCampaign(command)) return fail("governed-command", "The selected command is not a governed live campaign.");
+  const registered = getInssaPhase1Command(command.key);
+  if (!isGovernedLiveCampaign(command) || !registered || JSON.stringify(registered) !== JSON.stringify(command)) return fail("governed-command", "The selected command is not a governed live campaign.");
   pass("governed-command", "Governed campaign wrapper selected.");
 
   if (user.role !== "admin") return fail("admin-role", "Admin role is required for live staging mutation.");
@@ -106,15 +109,19 @@ export async function validateLiveCampaignPreflight(
 
   const cleanupGate = await evaluateCleanupGate({
     environment: env,
+    governedStaging: true,
     now: dependencies.now,
     repoRoot: dependencies.repoRoot ?? getRepoRoot(),
     requiresSecondaryAccount: command.requiresSecondaryAccount,
     store: dependencies.store
   });
+  checks.push(...cleanupGate.advisories.map((item) => ({ ...item, passed: true, advisory: true })));
   if (!cleanupGate.ok) return fail(cleanupGate.id, cleanupGate.error, 409);
   pass(
     "cleanup-ledger",
-    cleanupGate.unresolved.length
+    cleanupGate.mode === "manual_cleanup"
+      ? "Cleanup obligations remain recorded; backlog, age, and daily cleanup-oriented limits are advisory."
+      : cleanupGate.unresolved.length
       ? `${cleanupGate.unresolved.length} unresolved staging object(s) are identified, QA-owned, sanitized, and deferred within policy limits.`
       : "No unresolved cleanup object blocks staging mutation."
   );
@@ -147,7 +154,8 @@ export async function validateLiveCampaignPreflight(
     return fail("execution-mode", "Create/resume parameters are only accepted by reveal-later campaigns.");
   }
 
-  const requiredEnvironment = requiredEnvironmentFor(command.key);
+  const requiredEnvironment = requiredEnvironmentFor(command.key).filter((name) =>
+    !(cleanupGate.policy.manualModeEnabled && name === "INSSA_DEFERRED_CLEANUP_MODE"));
   const missing = requiredEnvironment.filter((name) => !env[name]?.trim());
   if (missing.length) return fail("prerequisites", `Missing required campaign configuration: ${missing.join(", ")}`);
   const disabledFlag = requiredEnvironment
@@ -287,12 +295,7 @@ export async function dashboardWorkerIsHealthy(repoRoot = getRepoRoot()) {
 }
 
 function isExactStagingTarget(value: string) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "staging.inssa.us" && (url.pathname === "/" || url.pathname === "");
-  } catch {
-    return false;
-  }
+  return /^https:\/\/staging\.inssa\.us\/?$/.test(value);
 }
 
 function normalizeAcknowledgements(value: unknown) {

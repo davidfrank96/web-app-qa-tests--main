@@ -16,6 +16,7 @@ import type {
 export type InssaMutationReadinessStatus =
   | "READY"
   | "READY_WITH_DEFERRED_CLEANUP"
+  | "READY_WITH_MANUAL_CLEANUP"
   | "BLOCKED_CONFIGURATION"
   | "BLOCKED_CLEANUP_IDENTITY"
   | "BLOCKED_CLEANUP_POLICY"
@@ -28,8 +29,10 @@ export type InssaMutationReadinessStatus =
 export type InssaMutationReadinessRecord = {
   blockingReason: string | null;
   campaignKey: string;
-  checks: Array<{ detail: string; id: string; passed: boolean }>;
+  checks: Array<{ detail: string; id: string; passed: boolean; advisory?: boolean }>;
   cleanupStatus: string;
+  manualCleanupMode: boolean;
+  advisories: Array<{ id: string; detail: string }>;
   createdObjectPaths: string[];
   executionAllowed: boolean;
   latestRunAvailable: boolean;
@@ -77,7 +80,9 @@ export async function evaluateMutationCampaignReadiness(
   const unresolved = ledger.filter((record) => record.status !== "completed");
   const status = preflight.ok
     ? correlation.hasHistoricalExecution
-      ? unresolved.length > 0
+      ? preflight.context.cleanupPolicy?.manualModeEnabled
+        ? "READY_WITH_MANUAL_CLEANUP"
+        : unresolved.length > 0
         ? "READY_WITH_DEFERRED_CLEANUP"
         : "READY"
       : "NOT_YET_VALIDATED"
@@ -88,6 +93,8 @@ export async function evaluateMutationCampaignReadiness(
     campaignKey: command.key,
     checks: preflight.checks,
     cleanupStatus: correlation.cleanupStatus,
+    manualCleanupMode: preflight.checks.some((check) => check.id === "manual-cleanup" && check.advisory),
+    advisories: preflight.checks.filter((check) => check.advisory),
     createdObjectPaths: correlation.records.map((record) => record.objectPath),
     executionAllowed: preflight.ok,
     latestRunAvailable: correlation.latestRun !== null,
