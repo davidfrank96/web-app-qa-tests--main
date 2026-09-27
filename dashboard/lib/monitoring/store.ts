@@ -186,6 +186,7 @@ function fromSupabaseRecord(row: Record<string, unknown>): MonitoringDefinition 
     retryPolicy: recordValue(row.retry_policy) as MonitoringDefinition["retryPolicy"],
     runPolicy: row.run_policy as MonitoringDefinition["runPolicy"],
     schedule: monitoringSchedule(row.schedule_config ?? row.schedule),
+    scheduleNotBefore: typeof row.schedule_not_before === "string" ? row.schedule_not_before : null,
     schemaVersion: 1,
     severity: row.severity as MonitoringDefinition["severity"],
     timeout: Number(row.timeout_ms),

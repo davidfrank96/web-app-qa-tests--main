@@ -9,6 +9,7 @@ dotenv.config({
 
 console.log("Loaded INSSA_URL:", process.env.INSSA_URL);
 
+const productionAuth = process.env.AUTH_MONITOR_ENVIRONMENT === "production";
 const mutationRecording = process.env.INSSA_MUTATION_RECORDING === "1";
 
 export default defineConfig({
@@ -22,14 +23,14 @@ export default defineConfig({
     timeout: 8_000
   },
   outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR,
-  reporter: [
+  reporter: productionAuth ? [["./scripts/inssa/production-auth-reporter.ts"]] : [
     ["html", process.env.PLAYWRIGHT_HTML_OUTPUT_DIR ? { outputFolder: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR } : {}], ["list"],
     ...(process.env.PLAYWRIGHT_JSON_OUTPUT_FILE ? [["json", { outputFile: process.env.PLAYWRIGHT_JSON_OUTPUT_FILE }] as [string, { outputFile: string }]] : [])
   ],
   use: {
-    trace: "retain-on-failure",
-    screenshot: mutationRecording ? "on" : "only-on-failure",
-    video: mutationRecording ? "on" : "retain-on-failure",
+    trace: productionAuth ? "off" : "retain-on-failure",
+    screenshot: productionAuth ? "off" : mutationRecording ? "on" : "only-on-failure",
+    video: productionAuth ? "off" : mutationRecording ? "on" : "retain-on-failure",
     actionTimeout: 10_000,
     navigationTimeout: 20_000
   },

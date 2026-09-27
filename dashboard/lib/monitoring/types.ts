@@ -34,6 +34,7 @@ export type MonitoringDefinition = {
   retryPolicy: MonitoringRetryPolicy;
   runPolicy: MonitoringRunPolicy;
   schedule: MonitoringSchedule | null;
+  scheduleNotBefore?: string | null;
   schemaVersion: 1;
   severity: MonitoringSeverity;
   timeout: number;

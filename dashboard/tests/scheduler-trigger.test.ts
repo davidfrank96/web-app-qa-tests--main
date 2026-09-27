@@ -242,3 +242,11 @@ test("fresh server configuration prevents stale cached enqueue", async () => {
     assert.equal(result.jobsQueued, 0); assert.equal(enqueued, 0);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
+
+test("production activation boundary skips history and allows next future Dublin occurrence", () => {
+  const production = { ...definition({ frequency: "daily", hour: 12, minute: 15, timezone: "Europe/Dublin" }), scheduleNotBefore: "2026-09-27T11:20:00Z" };
+  assert.equal(evaluateSchedule(production, new Date("2026-09-27T11:21Z")), null);
+  assert.equal(evaluateSchedule(production, new Date("2026-09-28T11:15Z"))?.scheduledFor, "2026-09-28T11:15:00.000Z");
+  assert.equal(evaluateSchedule({ ...production, scheduleNotBefore: "invalid" }, new Date("2026-09-28T11:15Z")), null);
+  assert.equal(evaluateSchedule({ ...production, scheduleNotBefore: "2026-09-28T11:15Z" }, new Date("2026-09-28T11:15Z")), null);
+});
