@@ -43,6 +43,8 @@ jobs:
 
       - name: Verify active and terminal dashboard polling
         run: npm run test:ci:dashboard-polling
+      - name: Verify production read-only logout with isolated browser fixtures
+        run: npm --prefix dashboard run test:production-auth-session
       - name: Verify admin retention dry-run workspace
         run: npm run test:ci:retention-ui
 

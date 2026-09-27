@@ -91,6 +91,16 @@ export async function reduceRoutineEvidence(input: RoutineEvidenceInput) {
     const summary = { ...auth }; delete summary.evidenceReferences;
     output.set("authentication-monitoring/authentication-monitoring-summary.json", JSON.stringify(summary, null, 2) + "\n");
     for (const [method, result] of Object.entries(auth.checks)) output.set(`authentication-monitoring/${method}/result.json`, JSON.stringify(result, null, 2) + "\n");
+    if (auth.environment === "production") {
+      // Keep the scope of the logout verification explicit even in compact PASS evidence.
+      const boundaryPath = "authentication-monitoring/username-password/read-only-boundary.json";
+      try {
+        const boundary = JSON.parse(await fs.readFile(path.join(root, boundaryPath), "utf8"));
+        if (boundary.logoutMode !== "offline-ui-then-online-signin-verification" ||
+            !Number.isSafeInteger(boundary.blockedRequestCount) || boundary.blockedRequestCount < 0) return null;
+        output.set(boundaryPath, JSON.stringify({ logoutMode: boundary.logoutMode, blockedRequestCount: boundary.blockedRequestCount }, null, 2) + "\n");
+      } catch { return null; }
+    }
   }
   // Stage the complete reduced tree first. A rename failure restores the original tree.
   const staged = `${root}.routine-${crypto.randomUUID()}`, backup = `${root}.unpublished-${crypto.randomUUID()}`;

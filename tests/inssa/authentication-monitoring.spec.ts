@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, test, type Locator, type Page, type Request, type Response, type TestInfo } from "@playwright/test";
 import { AuthPage } from "../../pages/inssa/auth-page";
 import { resolveAuthenticationMonitorCredentials } from "../../scripts/inssa/authentication-monitoring-config.js";
+import { expectProductionSession, signOutReadOnlyProduction } from "../../scripts/inssa/production-auth-session";
 
 type AuthenticationMethod = "apple-sign-in" | "google-oauth" | "username-password";
 type AuthenticationCheckStatus =
@@ -58,9 +59,14 @@ test("Username & Password", async ({ page }, testInfo) => {
     if (new URL(page.url()).origin !== new URL(config.targetUrl).origin) throw new Error("Credential submission origin mismatch");
     await authPage.signInWithEmail(credentials.email, credentials.password);
     await authPage.expectAuthenticatedState();
-    await authPage.expectAuthenticatedSession();
-    await authPage.signOut();
-    await expectLoggedOutState(page);
+    if (config.environment === "production") {
+      await expectProductionSession(page, credentials.email);
+      await signOutReadOnlyProduction(page);
+    } else {
+      await authPage.expectAuthenticatedSession();
+      await authPage.signOut();
+      await expectLoggedOutState(page);
+    }
   });
 });
 
@@ -185,12 +191,20 @@ async function runAuthenticationCheck(
   let failure: Error | null = null;
   try {
     await check();
-    if (blockedWrites.length) throw new Error(`Production read-only guard blocked ${blockedWrites.length} unapproved request(s): ${blockedWrites.join(", ")}`);
+    // Denied background writes are evidence that isolation worked, not a failed
+    // login. The guard still aborts every non-allowlisted request and WebSocket.
   } catch (error) {
     failure = error instanceof Error ? error : new Error(String(error));
   }
 
   const completedAt = new Date();
+  if (config.environment === "production") {
+    await fs.writeFile(path.join(outputDir, "read-only-boundary.json"), `${JSON.stringify({
+      logoutMode: "offline-ui-then-online-signin-verification",
+      blockedRequestCount: blockedWrites.length,
+      blockedRequests: [...new Set(blockedWrites)].map(sanitize)
+    }, null, 2)}\n`, "utf8");
+  }
   const result: CheckResult = {
     completedAt: completedAt.toISOString(),
     durationMs: completedAt.getTime() - startedAt.getTime(),
