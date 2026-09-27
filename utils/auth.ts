@@ -303,6 +303,16 @@ async function hasUsableInssaAuthStorageState(browser: Browser, statePath: strin
     return false;
   }
 
+  // Firebase can authenticate before INSSA finishes persisting the profile used
+  // by Bury. Do not reuse an early, partially initialized login snapshot.
+  try {
+    const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+    const origin = state.origins?.find((entry: { origin: string }) => entry.origin === new URL(assertValidInssaUrl()).origin);
+    if (!hasCompleteInssaSession(origin?.localStorage ?? [])) return false;
+  } catch {
+    return false;
+  }
+
   if (ageMs <= INSSA_AUTH_STATE_TRUST_WINDOW_MS) {
     return true;
   }
@@ -324,10 +334,10 @@ async function hasUsableInssaAuthStorageState(browser: Browser, statePath: strin
       await authPage.expectProfileSurface();
       return true;
     } catch {
-      return !(await isClearlyLoggedOutInssaPage(page));
+      return false;
     }
   } catch {
-    return true;
+    return false;
   } finally {
     await context?.close().catch(() => {});
   }
@@ -343,9 +353,30 @@ async function writeInssaAuthStorageState(browser: Browser, statePath: string): 
 
     const page = await context.newPage();
     await login(page);
+    await expect.poll(async () => {
+      const entries = await page.evaluate(() => Object.entries(localStorage)
+        .filter(([name]) => name === "userProfile" || name.startsWith("firebase:authUser:"))
+        .map(([name, value]) => ({ name, value })));
+      return hasCompleteInssaSession(entries);
+    }, {
+      message: "Expected Firebase authentication and the matching INSSA profile to persist before saving the test session.",
+      timeout: 30_000
+    }).toBe(true);
     await context.storageState({ path: statePath });
   } finally {
     await context?.close().catch(() => {});
+  }
+}
+
+export function hasCompleteInssaSession(entries: Array<{ name: string; value: string }>): boolean {
+  try {
+    const profile = JSON.parse(entries.find((entry) => entry.name === "userProfile")?.value ?? "null");
+    const uid = profile?.state?.userProfile?.uid;
+    return typeof uid === "string" && uid.length > 0 && entries.some((entry) =>
+      entry.name.startsWith("firebase:authUser:") && JSON.parse(entry.value)?.uid === uid
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -391,30 +422,4 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-}
-
-async function isClearlyLoggedOutInssaPage(page: Page): Promise<boolean> {
-  if (isAuthRoute(page.url())) {
-    return true;
-  }
-
-  const authInputs = page.locator(
-    [
-      "input[type='email']",
-      "input[autocomplete='email']",
-      "input[type='password']",
-      "input[autocomplete='current-password']"
-    ].join(", ")
-  );
-
-  return (await authInputs.count().catch(() => 0)) >= 2;
-}
-
-function isAuthRoute(url: string): boolean {
-  try {
-    const pathname = new URL(url).pathname;
-    return /^\/(?:signin|sign-in|login)(?:\/)?$|^\/auth(?:\/|$)/i.test(pathname);
-  } catch {
-    return false;
-  }
 }

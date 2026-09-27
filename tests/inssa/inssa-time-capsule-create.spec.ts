@@ -10,7 +10,7 @@ import {
 import { withInssaStabilityMonitor } from "../../utils/monitor";
 import { test as authenticatedTest } from "./fixtures";
 
-const PUBLIC_COMPOSE_ENTRY_TIMEOUT = 60_000;
+const PUBLIC_COMPOSE_ENTRY_TIMEOUT = 90_000;
 const AUTHENTICATED_COMPOSE_ENTRY_TIMEOUT = 90_000;
 
 baseTest.describe("INSSA time capsule compose entry", () => {

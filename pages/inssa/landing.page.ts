@@ -30,7 +30,9 @@ export class LandingPage {
 
   async goToHome(): Promise<void> {
     assertValidInssaUrl();
-    const response = await this.page.goto("/", { waitUntil: "domcontentloaded" });
+    // Cold home loads include Maps and reCAPTCHA scripts; keep this bounded
+    // independently of the shorter navigation budget for ordinary routes.
+    const response = await this.page.goto("/", { waitUntil: "domcontentloaded", timeout: 30_000 });
     if (response && response.status() >= 400) {
       throw new Error(`INSSA landing page returned HTTP ${response.status()}.`);
     }
@@ -136,14 +138,15 @@ export class LandingPage {
 
   private async dismissLandingOverlaysIfPresent(): Promise<void> {
     await this.dismissBrowserSessionWarningIfPresent();
-    const landingState = await expect
-      .poll(() => this.page.locator("body").innerText().catch(() => ""), {
-        message: "Expected onboarding or landing controls to render.",
-        timeout: DEFAULT_TIMEOUT
-      })
-      .toMatch(/Plan anywhere you want to go\.|FIND anywhere|Find|Bury|Search for any place/i)
-      .then(() => this.page.locator("body").innerText())
-      .catch(() => "");
+    await expect.poll(async () => {
+      await this.dismissBrowserSessionWarningIfPresent();
+      const onboarding = await this.page.getByRole("button", { name: /^Skip$/i }).first().isVisible();
+      return onboarding || await this.locationOrLandingControlState() !== "pending";
+    }, {
+      message: "Expected onboarding, the location prompt, or landing controls to finish loading.",
+      timeout: AUTHENTICATED_LANDING_READY_TIMEOUT
+    }).toBe(true);
+    const landingState = await this.page.locator("body").innerText();
 
     if (/Plan anywhere you want to go\.|FIND anywhere/i.test(landingState)) {
       const onboardingSkip = this.page.getByRole("button", { name: /^Skip$/i }).first();
