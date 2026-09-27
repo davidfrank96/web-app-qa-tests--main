@@ -28,6 +28,8 @@ export default defineConfig({
     ...(process.env.PLAYWRIGHT_JSON_OUTPUT_FILE ? [["json", { outputFile: process.env.PLAYWRIGHT_JSON_OUTPUT_FILE }] as [string, { outputFile: string }]] : [])
   ],
   use: {
+    // Service workers can bypass context routing; production writes must always meet the guard.
+    serviceWorkers: productionAuth ? "block" : "allow",
     trace: productionAuth ? "off" : "retain-on-failure",
     screenshot: productionAuth ? "off" : mutationRecording ? "on" : "only-on-failure",
     video: productionAuth ? "off" : mutationRecording ? "on" : "retain-on-failure",

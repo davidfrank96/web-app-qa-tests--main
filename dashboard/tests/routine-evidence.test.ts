@@ -109,7 +109,7 @@ test("a retried final pass keeps failed-attempt evidence and durable retry metad
   assert.deepEqual(await fs.readFile(path.join(root, "test-results/trace.zip")), trace);
 });
 
-test("production password success with disabled OAuth is compact; failure/retry is not", () => {
+test("production password success retains compact logout boundary evidence; failure/retry is not compact", async (t) => {
   const i = input(true), s = authSummary(), r = report(true);
   i.run.campaignKey = "monitor_inssa_auth_production"; i.run.commandSnapshot = getInssaPhase1Command(i.run.campaignKey)!; i.warningLines = [];
   s.environment = "production"; s.targetHost = "inssa.us"; s.overallStatus = "passed";
@@ -117,6 +117,19 @@ test("production password success with disabled OAuth is compact; failure/retry 
   r.stats.expected = 3; r.stats.unexpected = 0;
   for (const spec of r.suites[0].specs) { spec.tests[0].status = "expected"; spec.tests[0].results[0].status = "passed"; }
   assert.equal(routineEvidenceDecision(i, r, s), true);
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "production-boundary-")), prior = process.env.INSSA_QA_REPO_ROOT;
+  process.env.INSSA_QA_REPO_ROOT = temp;
+  t.after(async () => { if (prior === undefined) delete process.env.INSSA_QA_REPO_ROOT; else process.env.INSSA_QA_REPO_ROOT = prior; await fs.rm(temp, { recursive: true, force: true }); });
+  const root = path.join(temp, "run-output", i.run.id), authRoot = path.join(root, "authentication-monitoring");
+  await fs.mkdir(path.join(authRoot, "username-password"), { recursive: true });
+  await fs.writeFile(path.join(root, "playwright-results.json"), JSON.stringify(r));
+  await fs.writeFile(path.join(authRoot, "authentication-monitoring-summary.json"), JSON.stringify(s));
+  assert.equal(await reduceRoutineEvidence(i), null, "missing boundary keeps full evidence");
+  const boundaryPath = path.join(authRoot, "username-password/read-only-boundary.json");
+  const boundary = { logoutMode: "offline-ui-then-online-signin-verification", blockedRequestCount: 7 };
+  await fs.writeFile(boundaryPath, JSON.stringify({ ...boundary, blockedRequests: ["diagnostic detail"], arbitraryField: "must not survive compaction" }));
+  assert.ok(await reduceRoutineEvidence(i));
+  assert.deepEqual(JSON.parse(await fs.readFile(boundaryPath, "utf8")), boundary);
   r.suites[0].specs[0].tests[0].results[0].retry = 1;
   assert.equal(routineEvidenceDecision(i, r, s), false);
   r.suites[0].specs[0].tests[0].results[0].retry = 0; s.checks["username-password"].status = "failed";

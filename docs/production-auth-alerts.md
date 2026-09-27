@@ -5,6 +5,18 @@ Google and Apple remain disabled. Staging retains its existing credentials, prov
 and 12:00/18:00 Europe/Dublin schedules. Production uses the existing definition IDs
 at 12:15/18:15 and stays disabled until a manual production PASS is certified.
 
+Production logout uses the application's existing offline UI path: load the profile
+online, temporarily take only the isolated monitor browser offline, click Sign Out,
+verify Firebase persisted authentication is cleared, reconnect, and load the sign-in
+form in a fresh document. INSSA's online logout waits for an FCM-token Firestore write;
+that write is outside this monitor's no-mutation scope and remains blocked. The monitor
+does not clear storage or call Firebase signOut itself. This certifies login/session
+and offline UI logout cleanup, not the application's online notification-token cleanup.
+
+Blocked automatic background requests remain blocked and are recorded as isolation
+evidence rather than authentication failures. Compact PASS evidence retains the logout
+mode and blocked-request count. Staging's existing provider and logout behavior is unchanged.
+
 ## Configuration
 
 All local processes load `dashboard/.env.local` through the existing `@next/env`
