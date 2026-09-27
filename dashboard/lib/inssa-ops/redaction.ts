@@ -1,6 +1,6 @@
 const SENSITIVE_RULES: Array<{ pattern: RegExp; replacement: string }> = [
   {
-    pattern: /((?:^|\s)[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|PRIVATE_KEY|SERVICE_ROLE_KEY|COOKIE|SESSION_ID)[A-Z0-9_]*=)[^\s]+/gi,
+    pattern: /((?:^|\s)[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|API_KEY|PRIVATE_KEY|SERVICE_ROLE_KEY|COOKIE|SESSION_ID)[A-Z0-9_]*=)[^\s]+/gi,
     replacement: "$1[redacted]"
   },
   {

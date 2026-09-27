@@ -245,6 +245,7 @@ function sanitizeValue(value: unknown): unknown {
 }
 
 function isSensitivePayloadKey(key: string) {
+  if (/api.?key|password|secret|token|authorization|cookie/i.test(key)) return true;
   return /^(?:password|secret|private_?key|service_?role_?key|authorization|cookies?|session_?id|access_?token|refresh_?token|id_?token|share_?token|possible_?share_?tokens?)$/i.test(key);
 }
 
@@ -274,7 +275,7 @@ function toSupabaseRecord(record: NotificationOutboxRecord) {
   };
 }
 
-function fromSupabaseRecord(row: Record<string, unknown>): NotificationOutboxRecord {
+export function notificationFromSupabaseRecord(row: Record<string, unknown>): NotificationOutboxRecord {
   return {
     attemptCount: Number(row.attempt_count),
     campaignId: nullableString(row.campaign_id),
@@ -299,6 +300,8 @@ function fromSupabaseRecord(row: Record<string, unknown>): NotificationOutboxRec
     title: String(row.title)
   };
 }
+
+const fromSupabaseRecord = notificationFromSupabaseRecord;
 
 function shouldUseSupabaseStore() {
   if (process.env.INSSA_OPS_METADATA_STORE !== "supabase") return false;

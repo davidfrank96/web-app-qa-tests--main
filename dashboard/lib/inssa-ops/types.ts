@@ -209,7 +209,11 @@ export type NotificationEventType =
   | "worker_lease_expired"
   | "job_recovery"
   | "evidence_upload_failed"
-  | "execution_failed";
+  | "execution_failed"
+  | "production_auth_failed"
+  | "production_auth_recovered"
+  | "production_auth_test"
+  | "production_auth_observation";
 
 export type NotificationOutboxRecord = {
   attemptCount: number;

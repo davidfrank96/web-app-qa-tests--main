@@ -20,6 +20,7 @@ const allowedSecretTemplates = new Set([
   "performance/k6/.env.example"
 ]);
 const contentRules = [
+  ["brevo-api-key", /\bxkeysib-[A-Za-z0-9_-]{30,}/],
   ["private-key", /-----BEGIN (?:EC |OPENSSH |PGP |RSA )?PRIVATE KEY-----/],
   ["google-api-key", /AIza[0-9A-Za-z_-]{35}/],
   ["github-token", /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}\b/],

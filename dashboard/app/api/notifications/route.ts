@@ -1,3 +1,5 @@
+import { notificationRpc } from "../../../lib/inssa-ops/notification-delivery";
+import { alertConfiguration } from "../../../lib/inssa-ops/brevo-provider";
 import { NextRequest, NextResponse } from "next/server";
 import { requireInssaApiUser } from "../../../lib/inssa-ops/api-guard";
 import { getNotificationOutboxStore } from "../../../lib/inssa-ops/notification-outbox";
@@ -38,7 +40,11 @@ export async function GET(request: NextRequest) {
       cursor,
       limit
     );
-    return NextResponse.json({ notifications: page.items, pagination: page.pagination });
+    const config = alertConfiguration();
+    const health = config.configured ? await notificationRpc<{ pending: number; failed: number; deadLetter: number; lastDeliveredAt: string | null }>("production_auth_delivery_health", {}).catch(() => null) : null;
+    const delivery = { health, enabled: config.enabled, configured: config.configured,
+      pendingRecipientCount: config.invalidRecipients.length };
+    return NextResponse.json({ notifications: page.items, pagination: page.pagination, delivery });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }

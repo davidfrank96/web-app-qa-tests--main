@@ -1,5 +1,6 @@
 import { installBackgroundRequestMetrics } from "../lib/inssa-ops/background-request-metrics";
 import { recordProcessLiveness } from "../lib/inssa-ops/process-liveness";
+import { startNotificationDelivery } from "../lib/inssa-ops/notification-delivery";
 import { initializeConfiguredCleanupLedger } from "../lib/inssa-ops/cleanup-ledger";
 import { MAX_WORKER_IDLE_MS, WorkerIdleBackoff } from "../lib/inssa-ops/worker-idle-backoff";
 import { loadEnvConfig } from "@next/env";
@@ -39,6 +40,7 @@ async function main() {
   for (const terminalJob of await store.listTerminal()) {
     await reconcileTerminalExecutionJobRun(terminalJob);
   }
+  const stopNotifications = startNotificationDelivery();
 
   do {
     const { recovered, job } = await store.poll({ leaseMs: EXECUTION_CONFIG.leaseMs, workerId });
@@ -70,6 +72,7 @@ async function main() {
   } while (!runOnce && !stopping);
 
   process.stdout.write(`INSSA execution worker stopped: ${workerId}\n`);
+  stopNotifications();
 }
 
 function readExecutionConfig(): WorkerExecutionConfig {

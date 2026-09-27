@@ -55,6 +55,7 @@ test("Username & Password", async ({ page }, testInfo) => {
     const credentials = credentialsFor(config.environment, "password");
     const authPage = new AuthPage(page);
     await authPage.goToSignIn();
+    if (new URL(page.url()).origin !== new URL(config.targetUrl).origin) throw new Error("Credential submission origin mismatch");
     await authPage.signInWithEmail(credentials.email, credentials.password);
     await authPage.expectAuthenticatedState();
     await authPage.expectAuthenticatedSession();
@@ -203,7 +204,7 @@ async function runAuthenticationCheck(
   const resultPath = path.join(outputDir, "result.json");
   const screenshotPage = page.isClosed() ? context.pages().find((candidate) => !candidate.isClosed()) : page;
   if (screenshotPage) {
-    await screenshotPage.screenshot({ fullPage: true, path: screenshotPath }).catch(async (error) => {
+    await screenshotPage.screenshot({ fullPage: true, path: screenshotPath, mask: config.environment === "production" ? [screenshotPage.locator("input, textarea")] : [] }).catch(async (error) => {
       failure ??= error instanceof Error ? error : new Error(String(error));
     });
   }
@@ -239,7 +240,7 @@ async function runAuthenticationCheck(
   if (screenshotPage) {
     await testInfo.attach(`${method}-screenshot`, { contentType: "image/png", path: screenshotPath }).catch(() => {});
   }
-  if (failure) throw failure;
+  if (failure) throw config.environment === "production" ? new Error(sanitize(failure.message)) : failure;
 }
 
 async function captureFailurePages(pages: Page[], outputDir: string, primaryPage: Page | undefined) {
@@ -250,7 +251,7 @@ async function captureFailurePages(pages: Page[], outputDir: string, primaryPage
     index += 1;
     const screenshotPath = path.join(outputDir, `provider-page-${index}.png`);
     const captured = await observedPage
-      .screenshot({ fullPage: true, path: screenshotPath })
+      .screenshot({ fullPage: true, path: screenshotPath, mask: process.env.AUTH_MONITOR_ENVIRONMENT === "production" ? [observedPage.locator("input, textarea")] : [] })
       .then(() => true)
       .catch(() => false);
     if (captured) screenshots.push(screenshotPath);

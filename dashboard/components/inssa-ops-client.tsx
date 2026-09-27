@@ -518,6 +518,7 @@ export function InssaOpsClient({
   const [selectedManagedCampaignId, setSelectedManagedCampaignId] = useState("");
   const [runDetailError, setRunDetailError] = useState("");
   const [runHistoryError, setRunHistoryError] = useState(initialLoadError ?? "");
+  const [emailDelivery, setEmailDelivery] = useState<{ enabled: boolean; configured: boolean; pendingRecipientCount: number; health?: { pending: number; failed: number; deadLetter: number; lastDeliveredAt: string | null } | null } | null>(null);
   const [notifications, setNotifications] = useState<NotificationOutboxRecord[]>([]);
   const [notificationError, setNotificationError] = useState("");
   const [notificationStatusFilter, setNotificationStatusFilter] = useState("all");
@@ -959,6 +960,7 @@ export function InssaOpsClient({
       const body = (await response.json().catch(() => ({}))) as {
         error?: string;
         notifications?: NotificationOutboxRecord[];
+        delivery?: { enabled: boolean; configured: boolean; pendingRecipientCount: number; health?: { pending: number; failed: number; deadLetter: number; lastDeliveredAt: string | null } | null };
       };
       if (!response.ok) {
         const failureMessage = body.error ?? response.statusText;
@@ -969,6 +971,7 @@ export function InssaOpsClient({
       startTransition(() => {
         setNotificationError("");
         setNotifications(body.notifications ?? []);
+        setEmailDelivery(body.delivery ?? null);
       });
     } catch (error) {
       const failureMessage = error instanceof Error ? error.message : String(error);
@@ -2060,7 +2063,7 @@ export function InssaOpsClient({
                   <section className="workspace-card">
                     <SectionHeader title="Monitoring Framework" subtitle="Managed observation definitions for campaigns across products and environments." />
                     <p className="mt-2 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
-                      Schedule triggers enqueue durable execution jobs only. Campaign execution remains isolated in the existing worker, and notification delivery is not implemented.
+                      Schedule triggers enqueue durable execution jobs only. Campaign execution and production authentication email delivery use the existing worker.
                     </p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                       <MetadataCard label="Definitions" value={String(monitoringCounts.total)} />
@@ -2166,11 +2169,13 @@ export function InssaOpsClient({
               {activeWorkspace === "notifications" ? (
                 <div className="space-y-5">
                   <section className="workspace-card">
-                    <SectionHeader title="Notification Outbox" subtitle="Durable platform events only. External delivery is not implemented." />
+                    <SectionHeader title="Notification Outbox" subtitle="Platform events and production authentication email delivery." />
                     <p className="mt-2 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
-                      This workspace is read only. There is no send action and no notification provider is called by the execution worker.
+                      Email delivery status is separate from authentication and platform health. Failed delivery does not change a monitoring result.
                     </p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <MetadataCard label="Email Delivery" value={!emailDelivery ? "Unavailable" : !emailDelivery.enabled ? "Disabled" : !emailDelivery.configured ? "Configuration required" : !emailDelivery.health ? "Status unavailable" : emailDelivery.health.failed + emailDelivery.health.deadLetter > 0 ? "Delivery failure" : "Ready"} />
+                      <MetadataCard label="Recipients Pending Correction" value={String(emailDelivery?.pendingRecipientCount ?? 0)} />
                       <MetadataCard label="Pending" value={String(notificationCounts.pending)} />
                       <MetadataCard label="Failed" value={String(notificationCounts.failed)} />
                       <MetadataCard label="Delivered" value={String(notificationCounts.delivered)} />

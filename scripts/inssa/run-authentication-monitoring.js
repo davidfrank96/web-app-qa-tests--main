@@ -70,8 +70,8 @@ const playwrightBinary = path.join(
 );
 const command = fs.existsSync(playwrightBinary) ? playwrightBinary : process.platform === "win32" ? "npx.cmd" : "npx";
 const args = fs.existsSync(playwrightBinary)
-  ? ["test", "tests/inssa/authentication-monitoring.spec.ts", "--project=inssa-chrome", "--workers=1", "--retries=0", "--trace=retain-on-failure"]
-  : ["playwright", "test", "tests/inssa/authentication-monitoring.spec.ts", "--project=inssa-chrome", "--workers=1", "--retries=0", "--trace=retain-on-failure"];
+  ? ["test", "tests/inssa/authentication-monitoring.spec.ts", "--project=inssa-chrome", "--workers=1", "--retries=0", environment === "production" ? "--trace=off" : "--trace=retain-on-failure"]
+  : ["playwright", "test", "tests/inssa/authentication-monitoring.spec.ts", "--project=inssa-chrome", "--workers=1", "--retries=0", environment === "production" ? "--trace=off" : "--trace=retain-on-failure"];
 
 const startedAt = new Date();
 const child = spawnSync(command, args, {

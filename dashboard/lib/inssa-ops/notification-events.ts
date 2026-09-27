@@ -1,4 +1,5 @@
 import { getNotificationOutboxStore } from "./notification-outbox";
+import { requestNotificationDispatch } from "./notification-delivery";
 import type {
   CreateNotificationOutboxInput,
   InssaExecutionJobRecord,
@@ -40,6 +41,7 @@ export async function recordRunOutcomeNotification(
   exitCode: number | null
 ) {
   const completed = status === "passed" || status === "passed_with_warnings";
+  if (run.campaignKey === "monitor_inssa_auth_production") requestNotificationDispatch();
   return emit({
     ...runContext(run),
     deduplicationKey: `run:${run.id}:${completed ? "run_completed" : "run_failed"}`,

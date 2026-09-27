@@ -26,6 +26,8 @@ export function evaluateSchedule(definition: MonitoringDefinition, now: Date): S
   const scheduled = scanForMatch(currentMinute, definition.schedule, -1, maximumScan, true);
   const next = scanForMatch(currentMinute, definition.schedule, 1, maximumScan, false);
   if (!scheduled || !next || scheduled.getTime() < new Date(definition.createdAt).getTime()) return null;
+  if (definition.scheduleNotBefore && (!Number.isFinite(Date.parse(definition.scheduleNotBefore)) ||
+      scheduled.getTime() <= Date.parse(definition.scheduleNotBefore))) return null;
 
   return {
     nextRunAt: next.toISOString(),
