@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getInssaPhase1Command } from "../lib/inssa-ops/command-registry";
-import { determineExecutionFinalStatus } from "../lib/inssa-ops/runner";
+import { determineExecutionFinalStatus, executionLineHasWarning } from "../lib/inssa-ops/runner";
 import { describeAuthenticationMonitorIncompleteRun } from "../lib/monitoring/authentication-failure";
 import { DEFAULT_MONITORING_DEFINITIONS } from "../lib/monitoring/catalog";
 
@@ -68,4 +68,27 @@ test("a started campaign timeout cannot be overwritten as failed startup by clea
     }),
     "failed_startup"
   );
+});
+
+
+test("production runtime notice classification preserves real warnings and failure precedence", () => {
+  const notice = "npm warn config production Use `--omit=dev` instead.";
+  const production = "monitor_inssa_auth_production";
+  for (const stream of ["stdout", "stderr"] as const) {
+    assert.equal(executionLineHasWarning(production, stream, notice), false);
+    assert.equal(executionLineHasWarning("monitor_inssa_auth_staging", stream, notice), true);
+    assert.equal(executionLineHasWarning("test_inssa_safe", stream, notice), true);
+    assert.equal(executionLineHasWarning(production, stream, notice + " unexpected"), true);
+    assert.equal(executionLineHasWarning(production, stream, "WARNING: authentication degraded"), true);
+  }
+  assert.equal(executionLineHasWarning(production, "stderr", "upload failed"), true);
+  assert.equal(executionLineHasWarning(production, "stdout", "3 passed"), false);
+  const outcome = { exitCode: 0, exitSignal: null, leaseLost: false, startupError: false, terminationFailure: false, timedOut: false };
+  const classify = (lines: string[]) => lines.some((line) => executionLineHasWarning(production, "stderr", line));
+  assert.equal(determineExecutionFinalStatus({ ...outcome, warningSeen: classify([notice]) }), "passed");
+  assert.equal(determineExecutionFinalStatus({ ...outcome, warningSeen: classify([notice, "unexpected stderr"]) }), "passed_with_warnings");
+  assert.equal(determineExecutionFinalStatus({ ...outcome, exitCode: 1, warningSeen: classify([notice]) }), "failed");
+  assert.equal(determineExecutionFinalStatus({ ...outcome, timedOut: true, warningSeen: false }), "timed_out");
+  assert.equal(determineExecutionFinalStatus({ ...outcome, leaseLost: true, warningSeen: false }), "failed");
+  assert.equal(determineExecutionFinalStatus({ ...outcome, terminationFailure: true, warningSeen: false }), "failed");
 });

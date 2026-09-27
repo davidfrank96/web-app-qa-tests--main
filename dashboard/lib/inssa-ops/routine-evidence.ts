@@ -14,7 +14,7 @@ type Report = { suites: Suite[]; errors: unknown[]; stats: { startTime?: string;
 export type RoutineEvidenceInput = {
   run: InssaRunRecord; exitCode: number | null; interrupted: boolean; warningLines: string[]; stderrLines: string[];
 };
-const EXPECTED_RUNTIME_NOTICE = "npm warn config production Use `--omit=dev` instead.";
+export const EXPECTED_RUNTIME_NOTICE = "npm warn config production Use `--omit=dev` instead.";
 const METHODS = { "Username & Password": "username-password", "Google OAuth": "google-oauth", "Apple Sign-In": "apple-sign-in" } as const;
 function specs(suites: Suite[]): Spec[] { return suites.flatMap((suite) => [...(suite.specs ?? []), ...specs(suite.suites ?? [])]); }
 

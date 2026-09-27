@@ -1,4 +1,4 @@
-import { reduceRoutineEvidence } from "./routine-evidence";
+import { EXPECTED_RUNTIME_NOTICE, reduceRoutineEvidence } from "./routine-evidence";
 import { recordProcessLiveness } from "./process-liveness";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -299,14 +299,16 @@ async function executeRun(
 
   child.stdout.on("data", (chunk: Buffer) => {
     for (const line of splitLines(chunk)) {
-      if (/warn|warning/i.test(line)) { warningSeen = true; warningLines.push(line); }
+      if (/warn|warning/i.test(line)) warningLines.push(line);
+      if (executionLineHasWarning(run.campaignKey, "stdout", line)) warningSeen = true;
       void appendLog("stdout", redactInssaLogLine(line));
     }
   });
   child.stderr.on("data", (chunk: Buffer) => {
-    stderrSeen = true;
+    if (run.campaignKey !== "monitor_inssa_auth_production") stderrSeen = true;
     for (const line of splitLines(chunk)) {
-      if (/warn|warning/i.test(line)) { warningSeen = true; warningLines.push(line); }
+      if (executionLineHasWarning(run.campaignKey, "stderr", line)) stderrSeen = true;
+      if (/warn|warning/i.test(line)) warningLines.push(line);
       stderrLines.push(line);
       void appendLog("stderr", redactInssaLogLine(line));
     }
@@ -494,6 +496,13 @@ async function executeRun(
   await recordRunOutcomeNotification(run, finalStatus, durationMs, exit.code);
   leaseSignal?.removeEventListener("abort", stopForLeaseLoss);
   return finalStatus;
+}
+
+// Preserve the known npm configuration notice in logs/evidence without treating
+// it as a production authentication warning. Every other stderr line fails closed.
+export function executionLineHasWarning(campaignKey: string, stream: "stdout" | "stderr", line: string) {
+  if (campaignKey === "monitor_inssa_auth_production" && line.trim() === EXPECTED_RUNTIME_NOTICE) return false;
+  return stream === "stderr" || /warn|warning/i.test(line);
 }
 
 export function determineExecutionFinalStatus(input: {
