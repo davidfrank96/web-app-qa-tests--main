@@ -27,6 +27,7 @@ export type RetentionHold = {
 };
 export type RetentionObject = { provider?: "supabase" | "spaces"; bucket?: string; etag?: string; sha256?: string; id: string; name: string; sizeBytes: number | null; createdAt: string; updatedAt: string };
 export type RetentionSnapshot = {
+  migrations?: { id: string; bundleId: string; state: string; destinationBucket: string; sourceSnapshot: import("./evidence-migration").MigrationSnapshot }[];
   revision: string;
   consistent: boolean;
   policies: RetentionPolicy[];
@@ -87,6 +88,9 @@ export type RetentionPlan = {
     protectedCleanupBytes: number;
     activeHolds: number;
     unreferencedObjects: number;
+    migrationSourcePreservedObjects: number;
+    migrationSourcePreservedBytes: number;
+    migrationDestinationReservedObjects: number;
     unreferencedBytes: number;
     orphanItems: number;
     oldestEligibleBundle: { bundleId: string; createdAt: string } | null;

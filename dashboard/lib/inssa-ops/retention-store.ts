@@ -1,7 +1,7 @@
 import { spacesRetentionInventory } from "./retention-storage";
 import type { RetentionSnapshot } from "./retention-types";
 
-export const RETENTION_RESOURCES = ["policies", "holds", "runs", "bundles", "items", "cleanup", "objects", "deletions"] as const;
+export const RETENTION_RESOURCES = ["policies", "holds", "runs", "bundles", "items", "cleanup", "objects", "deletions", "migrations"] as const;
 export type RetentionResource = typeof RETENTION_RESOURCES[number];
 type Manifest = { revision: string; counts: Partial<Record<RetentionResource, number>> };
 export type RetentionReader = {

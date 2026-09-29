@@ -29,6 +29,7 @@ export async function spacesRetentionInventory(
       .map((b) => evidenceLocation(b).bucket),
   );
   const objects: RetentionObject[] = [];
+  for (const migration of snapshot.migrations ?? []) buckets.add(migration.destinationBucket);
   for (const bucket of buckets) {
     const adapter = storageProvider("spaces", bucket);
     for (const o of await adapter.listPrefix("inssa/")) {
