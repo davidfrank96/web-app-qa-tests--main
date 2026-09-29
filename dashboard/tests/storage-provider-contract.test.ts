@@ -151,6 +151,7 @@ function harness(provider: "supabase" | "spaces", t: TestContext) {
         return Response.json({ Key: key });
       }
       if (!o) return new Response(null, { status: 404 });
+      if (u.pathname.includes("/object/info/")) return Response.json({ name: key, bucket_id: "fixture-bucket", size: o.body.length, content_type: o.type });
       // Model the live CDN: compressed HEAD responses omit the original byte length.
       if (method === "HEAD" && new Headers(init?.headers).get("accept-encoding") !== "identity") {
         return new Response(null, { headers: { "content-type": o.type, "content-encoding": "br" } });
@@ -158,7 +159,7 @@ function harness(provider: "supabase" | "spaces", t: TestContext) {
       if (method === "GET") assert.equal(new Headers(init?.headers).get("accept-encoding"), "identity");
       return new Response(method === "HEAD" ? null : new Uint8Array(o.body), {
         headers: {
-          "content-type": o.type,
+          "content-type": o.type === "text/html" ? "text/plain" : o.type,
           "content-length": String(o.body.length),
         },
       });
