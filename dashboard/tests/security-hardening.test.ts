@@ -264,6 +264,7 @@ test("health endpoint is cheap, sanitized, and tied to the dashboard supervisor"
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.deepEqual(Object.keys(body).sort(), [
       "evidenceProvider",
+      "evidenceStorage",
       "metadataBackend",
       "platformInfrastructure",
       "scheduler",

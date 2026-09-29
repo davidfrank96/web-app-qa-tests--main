@@ -1,9 +1,11 @@
+import { spacesRetentionInventory } from "./retention-storage";
 import type { RetentionSnapshot } from "./retention-types";
 
 export const RETENTION_RESOURCES = ["policies", "holds", "runs", "bundles", "items", "cleanup", "objects", "deletions"] as const;
 export type RetentionResource = typeof RETENTION_RESOURCES[number];
 type Manifest = { revision: string; counts: Partial<Record<RetentionResource, number>> };
 export type RetentionReader = {
+  externalObjects?(snapshot: RetentionSnapshot): Promise<RetentionSnapshot["objects"]>;
   manifest(): Promise<Manifest>;
   page(resource: RetentionResource, offset: number, limit: number): Promise<Record<string, unknown>[]>;
 };
@@ -31,6 +33,7 @@ export async function readRetentionSnapshot(reader: RetentionReader): Promise<Re
     if (rows.length !== count || new Set(rows.map((row) => row.id)).size !== rows.length) consistent = false;
     data[resource] = rows.map(columns);
   }
+  if (reader.externalObjects) data.objects!.push(...await reader.externalObjects({ ...data, revision: before.revision, consistent } as RetentionSnapshot));
   const after = await reader.manifest();
   consistent &&= before.revision === after.revision;
   return { ...data, revision: before.revision, consistent } as RetentionSnapshot;
@@ -52,6 +55,7 @@ export function createRetentionReader(fetcher: typeof fetch = fetch): RetentionR
     return response.json();
   }
   return {
+    externalObjects: spacesRetentionInventory,
     manifest: () => get("retention_read_manifest"),
     page: async (resource, offset, limit) => (await get("retention_read_page", new URLSearchParams({
       p_resource: resource, p_offset: String(offset), p_limit: String(limit)

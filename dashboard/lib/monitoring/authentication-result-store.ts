@@ -1,3 +1,4 @@
+import { isDurableBackend } from "../inssa-ops/storage-provider-model";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { downloadEvidenceItemFromDurableStorage, verifyEvidenceItemBytes } from "../inssa-ops/evidence-storage";
@@ -141,7 +142,7 @@ async function readEvidenceItem(
   item: InssaEvidenceItemRecord,
   loadDurableItem: (item: InssaEvidenceItemRecord) => Promise<Buffer>
 ) {
-  if (item.storageBackend === "supabase-storage" && item.uploadStatus === "uploaded") {
+  if (isDurableBackend(item.storageBackend) && item.uploadStatus === "uploaded") {
     return loadDurableItem(item);
   }
   const repoRoot = path.resolve(getRepoRoot());

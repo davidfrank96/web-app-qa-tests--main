@@ -1,7 +1,8 @@
+import { spacesConfiguration, storageProvider } from "./storage-providers";
 import { dashboardWorkerIsHealthy } from "./live-campaigns";
 import { readProcessLiveness } from "./process-liveness";
 
-type DependencyHealth = { supabase: "healthy" | "unhealthy" | "not_configured"; evidenceProvider: "supabase" | "local" | "misconfigured" };
+type DependencyHealth = { supabase: "healthy" | "unhealthy" | "not_configured"; evidenceProvider: "supabase" | "spaces" | "local" | "misconfigured" };
 let cached: { key: string; expiresAt: number; value: Promise<DependencyHealth> } | undefined;
 
 async function dependencyHealth(): Promise<DependencyHealth> {
@@ -25,10 +26,10 @@ async function dependencyHealth(): Promise<DependencyHealth> {
     };
     const [metadataOkay, bucketOkay] = await Promise.all([
       metadata === "supabase" ? probe("rest/v1/campaign_runs?select=id&limit=1") : Promise.resolve(true),
-      provider === "supabase" ? probe(`storage/v1/bucket/${encodeURIComponent(bucket)}`, true) : Promise.resolve(provider === "local")
+      provider === "supabase" ? probe(`storage/v1/bucket/${encodeURIComponent(bucket)}`, true) : (provider === "spaces" ? Promise.resolve().then(() => storageProvider("spaces").listPrefix("__healthcheck__/", 1)).then(() => true).catch(() => false) : Promise.resolve(provider === "local"))
     ]);
     return { supabase: metadata === "supabase" ? metadataOkay ? "healthy" : "unhealthy" : "not_configured",
-      evidenceProvider: !bucketOkay ? "misconfigured" : provider === "supabase" ? "supabase" : "local" };
+      evidenceProvider: !bucketOkay ? "misconfigured" : provider === "supabase" ? "supabase" : provider === "spaces" ? "spaces" : "local" };
   })();
   cached = { key: cacheKey, expiresAt: Date.now() + 30_000, value };
   return value;
@@ -41,7 +42,10 @@ export async function getPlatformHealth() {
   // Infrastructure checks deliberately do not consume OAuth provider-monitor results.
   const healthy = supervisor && worker === "healthy" && scheduler === "healthy" && dependencies.supabase !== "unhealthy" &&
     dependencies.evidenceProvider !== "misconfigured";
-  return { ...dependencies, worker, scheduler, web: "healthy" as const,
+  let spaces: "configured_inactive" | "active" | "not_configured" | "misconfigured" = "not_configured";
+  try { spacesConfiguration(); spaces = dependencies.evidenceProvider === "spaces" ? "active" : "configured_inactive"; }
+  catch { if (process.env.INSSA_EVIDENCE_STORAGE_PROVIDER === "spaces") spaces = "misconfigured"; }
+  return { ...dependencies, evidenceStorage: { activeWriteProvider: dependencies.evidenceProvider, spaces }, worker, scheduler, web: "healthy" as const,
     platformInfrastructure: healthy ? "healthy" : "unhealthy",
     metadataBackend: process.env.INSSA_OPS_METADATA_STORE === "supabase" ? "supabase" : "local-json",
     status: healthy ? "ok" : "unhealthy", supervisor: supervisor ? "running" : "unavailable",

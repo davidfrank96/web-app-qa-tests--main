@@ -1,3 +1,5 @@
+import { evidenceLocation, type EvidenceLocation } from "./storage-provider-model";
+import { objectIdentity, itemIdentity } from "./retention-storage";
 import { evaluateRetention, retentionSourceSignature, RETENTION_POLICY_VERSION } from "./retention";
 import type { RetentionObject, RetentionPlan, RetentionSnapshot } from "./retention-types";
 
@@ -7,8 +9,8 @@ export type RetentionExecutorIO = {
   claim(id: string, owner: string, automatic: boolean, schedulerStartedAt?: string): Promise<{ status: string }>;
   heartbeat(id: string, owner: string): Promise<void>;
   reserve(input: { occurrence: string; owner: string; snapshot: RetentionSnapshot; bundleId: string; signature: string; planId: string; objects: RetentionObject[] }): Promise<{ status: string; remaining?: RetentionObject[] }>;
-  remove(keys: string[]): Promise<void>;
-  verifyAbsent(keys: string[]): Promise<void>;
+  remove(keys: string[], location?: EvidenceLocation): Promise<void>;
+  verifyAbsent(keys: string[], location?: EvidenceLocation): Promise<void>;
   settle(id: string, owner: string, bundle: string, success: boolean, error: string | null): Promise<unknown>;
   finish(id: string, owner: string, error: string | null, protectedCount: number, reviewCount: number): Promise<unknown>;
 };
@@ -56,8 +58,8 @@ export async function executeRetention(io: RetentionExecutorIO, input: { occurre
       const bundle = snapshot.bundles.find((b) => b.id === candidate.bundleId)!;
       const items = snapshot.items.filter((i) => i.bundleId === bundle.id);
       const pending = snapshot.deletions.find((d) => d.bundleId === bundle.id);
-      const exactObjects = pending?.expectedObjects ?? items.map((i) => snapshot.objects.find((o) => o.name === i.storageKey)!);
-      const remaining = exactObjects.filter((o) => snapshot.objects.some((s) => s.name === o.name));
+      const exactObjects = pending?.expectedObjects ?? items.map((i) => snapshot.objects.find((o) => objectIdentity(o) === itemIdentity(i))!);
+      const remaining = exactObjects.filter((o) => snapshot.objects.some((s) => objectIdentity(s) === objectIdentity(o)));
       const remainingBytes = remaining.reduce((n, o) => n + o.sizeBytes!, 0);
       if (objects + remaining.length > RETENTION_LIMITS.objects || bytes + remainingBytes > RETENTION_LIMITS.bytes) break;
       await assertOwned();
@@ -70,13 +72,13 @@ export async function executeRetention(io: RetentionExecutorIO, input: { occurre
       try {
         for (let i = 0; i < reserved.remaining.length; i += 100) {
           await assertOwned();
-          await io.remove(reserved.remaining.slice(i, i + 100).map((o) => o.name));
+          await io.remove(reserved.remaining.slice(i, i + 100).map((o) => o.name), evidenceLocation(bundle));
         }
       } catch (failure) { deletionError = failure; }
       try {
         await assertOwned();
         // Verify even when DELETE returned an ambiguous error or a prior attempt removed every object.
-        await io.verifyAbsent(exactObjects.map((o) => o.name));
+        await io.verifyAbsent(exactObjects.map((o) => o.name), evidenceLocation(bundle));
         await assertOwned();
         await io.settle(input.occurrence, input.owner, bundle.id, true, null);
       } catch (failure) {

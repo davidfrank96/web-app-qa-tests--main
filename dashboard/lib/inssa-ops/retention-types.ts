@@ -25,7 +25,7 @@ export type RetentionHold = {
   releasedBy: string | null;
   status: "active" | "released";
 };
-export type RetentionObject = { id: string; name: string; sizeBytes: number | null; createdAt: string; updatedAt: string };
+export type RetentionObject = { provider?: "supabase" | "spaces"; bucket?: string; etag?: string; sha256?: string; id: string; name: string; sizeBytes: number | null; createdAt: string; updatedAt: string };
 export type RetentionSnapshot = {
   revision: string;
   consistent: boolean;
@@ -39,6 +39,8 @@ export type RetentionSnapshot = {
   deletions: RetentionDeletion[];
 };
 export type RetentionDecision = {
+  provider: string;
+  bucket: string | null;
   bundleId: string;
   runId: string;
   campaign: string;

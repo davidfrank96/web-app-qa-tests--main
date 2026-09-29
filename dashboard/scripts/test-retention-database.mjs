@@ -22,7 +22,12 @@ sql += readFileSync(new URL('../tests/sql/retention.sql', import.meta.url), 'utf
 sql += readFileSync(new URL('20260914233531_evidence_cost_control.sql', dir), 'utf8') + '\n';
 sql += 'savepoint wave4;\n' + readFileSync(new URL('../tests/sql/retention-execution.sql', import.meta.url), 'utf8') + '\nrollback to savepoint wave4;\n';
 sql += readFileSync(new URL('20260916011111_retention_safety_v3.sql', dir), 'utf8') + '\n';
-sql += readFileSync(new URL('../tests/sql/retention-v3.sql', import.meta.url), 'utf8') + '\nrollback;';
+sql += 'savepoint v3;\n' + readFileSync(new URL('../tests/sql/retention-v3.sql', import.meta.url), 'utf8') + '\nrollback to savepoint v3;\n';
+sql += readFileSync(new URL('20260929153618_spaces_dual_provider.sql', dir), 'utf8') + '\n';
+sql += 'savepoint spaces;\n' + readFileSync(new URL('../tests/sql/retention-spaces.sql', import.meta.url), 'utf8') + '\nrollback to savepoint spaces;\n';
+const publication = readFileSync(new URL('../tests/sql/evidence-publication.sql', import.meta.url), 'utf8').replace(/^begin;/, '').replace(/rollback;\s*$/, '');
+sql += 'savepoint publication;\n' + publication + '\nrollback to savepoint publication;\n';
+sql += publication.replaceAll("'storage_backend','supabase-storage'", "'storage_bucket','fixture-bucket','storage_backend','spaces'") + '\nrollback;';
 const result = spawnSync('psql', [url.href, '-X', '-v', 'ON_ERROR_STOP=1', '-q'], { input: sql, encoding: 'utf8' });
 process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr || '');
 if (result.error) throw result.error;

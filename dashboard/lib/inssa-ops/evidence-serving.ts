@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { isDurableBackend } from "./storage-provider-model";
 import path from "node:path";
 import type { InssaArtifactRecord, InssaEvidenceItemRecord } from "./types";
 import { getRepoRoot } from "./paths";
@@ -111,7 +112,7 @@ export function findUploadedEvidenceItem(
   const normalizedPath = relativePath.split(path.sep).join("/");
   return items.find((item) =>
     item.relativePath.split(path.sep).join("/") === normalizedPath &&
-    item.storageBackend === "supabase-storage" &&
+    isDurableBackend(item.storageBackend) &&
     item.uploadStatus === "uploaded" &&
     Boolean(item.storageKey)
   ) ?? null;

@@ -3457,7 +3457,7 @@ function EvidenceWorkspace({
                 <MetadataCard label="Run" value={selectedBundle.runId.slice(0, 18)} />
                 <MetadataCard label="Evidence Count" value={String(evidenceItems.length)} />
                 <MetadataCard label="Bundle Size" value={formatBytes(selectedBundle.totalBytes)} />
-                <MetadataCard label="Storage Backend" value={selectedBundle.storageBackend} />
+                <MetadataCard label="Storage Backend" value={selectedBundle.storageBackend === "spaces" ? "DigitalOcean Spaces" : selectedBundle.storageBackend === "supabase-storage" ? "Supabase" : selectedBundle.storageBackend} />
                 <MetadataCard label="Upload Status" value={selectedBundle.uploadStatus} />
                 <MetadataCard label="Retention" value={selectedBundle.retentionClass} />
                 <MetadataCard label="Integrity" value={evidenceIntegrityLabel(selectedBundle, evidenceItems)} />

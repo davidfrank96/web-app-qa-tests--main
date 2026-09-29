@@ -79,6 +79,28 @@ test("Supabase-backed evidence reload returns the persisted provider results", a
   assert.equal(result.evidence.reportArtifactId, "11111111-1111-4111-8111-111111111111");
 });
 
+test("Spaces-backed evidence reload returns the persisted provider results", async () => {
+  const run = runFixture();
+  const summary = summaryFixture();
+  const item = { ...evidenceItemFixture(), storageBackend: "spaces" as const, storageBucket: "fixture-bucket" };
+  const result = await resolveAuthenticationMonitoringResult(
+    run,
+    [reportArtifactFixture()],
+    [item],
+    { id: item.bundleId, uploadError: null, uploadStatus: "uploaded" },
+    async (requestedItem) => {
+      assert.equal(requestedItem.storageBackend, "spaces");
+      return Buffer.from(JSON.stringify(summary));
+    }
+  );
+  assert.equal(result.state, "available");
+  assert.equal(result.source, "evidence_file");
+  assert.equal(result.result?.checks["username-password"].status, "passed");
+  assert.equal(result.result?.checks["google-oauth"].status, "blocked_external");
+  assert.equal(result.result?.checks["apple-sign-in"].status, "missing_configuration");
+  assert.equal(result.evidence.reportArtifactId, "11111111-1111-4111-8111-111111111111");
+});
+
 test("new evidence metadata embeds the structured Authentication Monitoring result", () => {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "inssa-auth-result-"));
   const previousRoot = process.env.INSSA_QA_REPO_ROOT;

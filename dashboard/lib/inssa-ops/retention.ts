@@ -1,3 +1,5 @@
+import { isDurableBackend, providerFromBackend } from "./storage-provider-model";
+import { objectIdentity, itemIdentity } from "./retention-storage";
 import { isAuthenticationMonitoringCampaign, parseAuthenticationMonitoringSummary } from "../monitoring/authentication-result";
 import { createHash } from "node:crypto";
 import { getInssaPhase1Command } from "./command-registry";
@@ -10,7 +12,7 @@ export const RETENTION_POLICY_V1 = "evidence-retention-v1";
 
 export function retentionSourceSignature(bundle: RetentionSnapshot["bundles"][number], items: RetentionSnapshot["items"]) {
   const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) :
-    value && typeof value === "object" ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)])) : value;
+    value && typeof value === "object" ? Object.fromEntries(Object.entries(value).filter(([k,v]) => k !== "storageBucket" || v != null).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)])) : value;
   return createHash("sha256").update(JSON.stringify(canonical({ bundle, items: [...items].sort((a, b) => a.id.localeCompare(b.id)) }))).digest("hex");
 }
 
@@ -55,9 +57,9 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
   // A hold currently active also protects a historical plan. A release after asOf cannot erase a past hold.
   const activeHolds = snapshot.holds.filter((h) => h.status !== "released" || timestamp(h.releasedAt) > now);
   const runs = new Map(snapshot.runs.map((run) => [run.id, run]));
-  const objects = new Map(snapshot.objects.map((object) => [object.name, object]));
+  const objects = new Map(snapshot.objects.map((object) => [objectIdentity(object), object]));
   const keyCounts = new Map<string, number>();
-  for (const item of snapshot.items) keyCounts.set(item.storageKey, (keyCounts.get(item.storageKey) ?? 0) + 1);
+  for (const item of snapshot.items) keyCounts.set(itemIdentity(item), (keyCounts.get(itemIdentity(item)) ?? 0) + 1);
   const decisions: RetentionDecision[] = snapshot.bundles.map((bundle): RetentionDecision => {
     const review: string[] = [...reviewReasons];
     const protect: string[] = [];
@@ -71,15 +73,15 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
     if (pending) {
       if (pending.policyVersion !== RETENTION_POLICY_VERSION || pending.sourceSignature !== retentionSourceSignature(bundle, items) ||
           pending.originalObjectCount !== items.length || pending.originalByteCount !== bundle.totalBytes ||
-          pending.expectedObjects.length !== items.length || new Set(pending.expectedObjects.map((o) => o.name)).size !== items.length ||
-          pending.expectedObjects.some((o) => !items.some((i) => i.storageKey === o.name && i.sizeBytes === o.sizeBytes))) {
+          pending.expectedObjects.length !== items.length || new Set(pending.expectedObjects.map(objectIdentity)).size !== items.length ||
+          pending.expectedObjects.some((o) => !items.some((i) => itemIdentity(i) === objectIdentity(o) && i.sizeBytes === o.sizeBytes))) {
         review.push("DELETION_INTENT_INCONSISTENT");
       } else {
         for (const expected of pending.expectedObjects) {
-          const actual = objects.get(expected.name);
+          const actual = objects.get(objectIdentity(expected));
           if (actual && (actual.id !== expected.id || actual.sizeBytes !== expected.sizeBytes ||
-              actual.createdAt !== expected.createdAt || actual.updatedAt !== expected.updatedAt)) review.push("DELETION_OBJECT_CHANGED");
-          if (!actual) bundleObjects.set(expected.name, expected);
+              actual.createdAt !== expected.createdAt || actual.updatedAt !== expected.updatedAt || actual.etag !== expected.etag || actual.sha256 !== expected.sha256)) review.push("DELETION_OBJECT_CHANGED");
+          if (!actual) bundleObjects.set(objectIdentity(expected), expected);
         }
       }
     }
@@ -94,12 +96,12 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
     if (classes.includes("siem-metadata")) { protect.push("SIEM_METADATA_PRESERVED"); indefinite = true; }
     try { validateEvidenceManifest(bundle.runId, bundle, items); } catch { review.push("BUNDLE_INCONSISTENT"); }
     if (bundle.status !== "indexed" || !items.length) review.push("BUNDLE_INCONSISTENT");
-    if (bundle.uploadStatus !== "uploaded" || bundle.storageBackend !== "supabase-storage" || bundle.uploadError ||
+    if (bundle.uploadStatus !== "uploaded" || !isDurableBackend(bundle.storageBackend) || bundle.uploadError ||
         items.some((item) => item.uploadStatus !== "uploaded" || item.uploadError)) review.push("UPLOAD_INCOMPLETE");
     for (const item of items) {
-      const object = bundleObjects.get(item.storageKey);
+      const object = bundleObjects.get(itemIdentity(item));
       if (!object || !Number.isSafeInteger(object.sizeBytes) || object.sizeBytes !== item.sizeBytes ||
-          keyCounts.get(item.storageKey) !== 1) review.push("STORAGE_INVENTORY_INCONSISTENT");
+          keyCounts.get(itemIdentity(item)) !== 1) review.push("STORAGE_INVENTORY_INCONSISTENT");
     }
     if (isAuthenticationMonitoringCampaign(bundle.campaignKey)) {
       try {
@@ -130,7 +132,7 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
       associated.some((row) => row.securitySensitive || row.unexpectedData);
     const anchorValues = [bundle.createdAt, bundle.indexedAt, bundle.uploadedAt, run?.createdAt, run?.completedAt,
       ...items.flatMap((item) => [item.createdAt, item.uploadedAt]),
-      ...items.flatMap((item) => { const object = bundleObjects.get(item.storageKey); return object ? [object.createdAt, object.updatedAt] : []; })];
+      ...items.flatMap((item) => { const object = bundleObjects.get(itemIdentity(item)); return object ? [object.createdAt, object.updatedAt] : []; })];
     const times = anchorValues.map(timestamp);
     if (times.some((time) => !Number.isFinite(time) || time > now)) review.push("DATES_INCONSISTENT");
     const anchor = Math.max(...times.filter(Number.isFinite));
@@ -182,7 +184,7 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
       }
     }
     const eligibilityReason = review.length ? "REVIEW_REQUIRED" : indefinite || expiry > now ? "PROTECTED" : "ELIGIBLE";
-    return { bundleId: bundle.id, runId: bundle.runId, campaign: bundle.campaignKey, runStatus: run?.status ?? null,
+    return { provider: (() => { try { return providerFromBackend(bundle.storageBackend); } catch { return "unknown"; } })(), bucket: bundle.storageBucket ?? (bundle.storageBackend === "supabase-storage" ? "inssa-evidence" : null), bundleId: bundle.id, runId: bundle.runId, campaign: bundle.campaignKey, runStatus: run?.status ?? null,
       retentionClasses: classes, createdAt: bundle.createdAt, completedAt: run?.completedAt ?? null,
       expiryAt: indefinite || !Number.isFinite(expiry) ? null : new Date(expiry).toISOString(),
       objectCount: items.length, bytes: bundle.totalBytes, protectionReasons: ordered([...protect, ...review]), eligibilityReason };
@@ -194,7 +196,7 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
   const count = (pattern: RegExp) => retained.filter((row) => row.protectionReasons.some((reason) => pattern.test(reason))).length;
   const bytes = (rows: RetentionDecision[]) => rows.reduce((sum, row) => sum + row.bytes, 0);
   const oldest = [...eligible].sort((a, b) => timestamp(a.createdAt) - timestamp(b.createdAt) || a.bundleId.localeCompare(b.bundleId))[0];
-  const unreferenced = snapshot.objects.filter((object) => !keyCounts.has(object.name));
+  const unreferenced = snapshot.objects.filter((object) => !keyCounts.has(objectIdentity(object)));
   const result: Omit<RetentionPlan, "planId"> = {
     mode: "DRY RUN ONLY", routineDays, warningDays, comparisonOnly: options.routineDays !== undefined || options.legacyV2 === true, policyVersion: policy?.id ?? RETENTION_POLICY_VERSION, asOf,
     snapshotRevision: snapshot.revision, reviewReasons, storageDeletionCalls: 0, metadataDeletionCalls: 0,
