@@ -64,6 +64,10 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
     const review: string[] = [...reviewReasons];
     const protect: string[] = [];
     let indefinite = false;
+    const migration = snapshot.migrations?.find(m => m.bundleId === bundle.id);
+    if (migration && !["SOURCE_PRESERVED", "ROLLED_BACK"].includes(migration.state)) {
+      protect.push("MIGRATION_ACTIVE"); indefinite = true;
+    }
     const items = snapshot.items.filter((item) => item.bundleId === bundle.id);
     const run = runs.get(bundle.runId);
     // Only a durable, unchanged deletion intent can explain missing objects. This is an in-memory
@@ -196,7 +200,18 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
   const count = (pattern: RegExp) => retained.filter((row) => row.protectionReasons.some((reason) => pattern.test(reason))).length;
   const bytes = (rows: RetentionDecision[]) => rows.reduce((sum, row) => sum + row.bytes, 0);
   const oldest = [...eligible].sort((a, b) => timestamp(a.createdAt) - timestamp(b.createdAt) || a.bundleId.localeCompare(b.bundleId))[0];
-  const unreferenced = snapshot.objects.filter((object) => !keyCounts.has(objectIdentity(object)));
+  const preserved = new Set<string>(); const reserved = new Set<string>();
+  for (const migration of snapshot.migrations ?? []) {
+    for (const item of migration.sourceSnapshot.items) {
+      // Both copies remain attributed to the stable ledger even after rollback or a failed copy.
+      preserved.add(objectIdentity({ provider: "supabase", bucket: item.storage_bucket ?? "inssa-evidence", name: item.storage_key } as RetentionSnapshot["objects"][number]));
+      reserved.add(objectIdentity({ provider: "spaces", bucket: migration.destinationBucket, name: item.storage_key } as RetentionSnapshot["objects"][number]));
+    }
+  }
+  const unused = snapshot.objects.filter(object => !keyCounts.has(objectIdentity(object)));
+  const migrationSources = unused.filter(object => preserved.has(objectIdentity(object)));
+  const migrationDestinations = unused.filter(object => reserved.has(objectIdentity(object)));
+  const unreferenced = unused.filter(object => !preserved.has(objectIdentity(object)) && !reserved.has(objectIdentity(object)));
   const result: Omit<RetentionPlan, "planId"> = {
     mode: "DRY RUN ONLY", routineDays, warningDays, comparisonOnly: options.routineDays !== undefined || options.legacyV2 === true, policyVersion: policy?.id ?? RETENTION_POLICY_VERSION, asOf,
     snapshotRevision: snapshot.revision, reviewReasons, storageDeletionCalls: 0, metadataDeletionCalls: 0,
@@ -213,6 +228,9 @@ export function evaluateRetention(snapshot: RetentionSnapshot, asOfInput: string
       protectedFailureOrSecurityBytes: bytes(retained.filter((r) => r.protectionReasons.some((p) => /^(FAILURE|SECURITY)_WINDOW$/.test(p)))),
       protectedCleanupBytes: bytes(retained.filter((r) => r.protectionReasons.some((p) => /^(UNRESOLVED_CLEANUP|POST_CLEANUP_WINDOW|CLEANUP_RETENTION_UNTIL)$/.test(p)))),
       activeHolds: activeHolds.length, unreferencedObjects: unreferenced.length,
+      migrationSourcePreservedObjects: migrationSources.length,
+      migrationSourcePreservedBytes: migrationSources.reduce((sum, o) => sum + (o.sizeBytes ?? 0), 0),
+      migrationDestinationReservedObjects: migrationDestinations.length,
       unreferencedBytes: unreferenced.reduce((sum, o) => sum + (o.sizeBytes ?? 0), 0),
       orphanItems: snapshot.items.filter((item) => !snapshot.bundles.some((b) => b.id === item.bundleId)).length,
       oldestEligibleBundle: oldest ? { bundleId: oldest.bundleId, createdAt: oldest.createdAt } : null

@@ -1,6 +1,7 @@
 // Operator-invoked only: no background polling or writes.
 import { loadEnvConfig } from "@next/env";
 import { activeEvidenceProvider } from "../lib/inssa-ops/storage-provider-model";
+import { evaluateRetention } from "../lib/inssa-ops/retention";
 import {
   spacesConfiguration,
   storageProvider,
@@ -44,9 +45,12 @@ async function main() {
         },
         spaces,
         migration: {
-          status: "not_implemented",
-          migratedObjects: null,
-          failedObjects: null,
+          status: "available",
+          sourceDeletion: "NOT_AUTHORIZED",
+          states: Object.fromEntries([...new Set((snapshot.migrations ?? []).map(m => m.state))].map(state => [state, snapshot.migrations!.filter(m => m.state === state).length])),
+          sourceClassification: "MIGRATION_SOURCE_PRESERVED",
+          sourcePreservedObjects: evaluateRetention(snapshot, new Date().toISOString()).summary.migrationSourcePreservedObjects,
+          sourcePreservedBytes: evaluateRetention(snapshot, new Date().toISOString()).summary.migrationSourcePreservedBytes,
         },
       },
       null,

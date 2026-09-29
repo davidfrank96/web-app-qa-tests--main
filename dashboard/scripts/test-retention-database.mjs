@@ -27,7 +27,9 @@ sql += readFileSync(new URL('20260929153618_spaces_dual_provider.sql', dir), 'ut
 sql += 'savepoint spaces;\n' + readFileSync(new URL('../tests/sql/retention-spaces.sql', import.meta.url), 'utf8') + '\nrollback to savepoint spaces;\n';
 const publication = readFileSync(new URL('../tests/sql/evidence-publication.sql', import.meta.url), 'utf8').replace(/^begin;/, '').replace(/rollback;\s*$/, '');
 sql += 'savepoint publication;\n' + publication + '\nrollback to savepoint publication;\n';
-sql += publication.replaceAll("'storage_backend','supabase-storage'", "'storage_bucket','fixture-bucket','storage_backend','spaces'") + '\nrollback;';
+sql += publication.replaceAll("'storage_backend','supabase-storage'", "'storage_bucket','fixture-bucket','storage_backend','spaces'") + '\nrollback to savepoint publication;\n';
+sql += readFileSync(new URL('20260929221111_historical_evidence_migration.sql', dir), 'utf8') + '\n';
+sql += readFileSync(new URL('../tests/sql/evidence-migration.sql', import.meta.url), 'utf8') + '\nrollback;';
 const result = spawnSync('psql', [url.href, '-X', '-v', 'ON_ERROR_STOP=1', '-q'], { input: sql, encoding: 'utf8' });
 process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr || '');
 if (result.error) throw result.error;

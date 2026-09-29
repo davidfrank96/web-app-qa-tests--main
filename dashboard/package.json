@@ -6,6 +6,7 @@
     "node": ">=22 <23"
   },
   "scripts": {
+    "evidence:migrate:spaces": "node --import tsx scripts/evidence-migrate-spaces.ts",
     "retention:plan": "node --import tsx scripts/retention-plan.ts",
     "test:retention": "node --import tsx --test tests/retention*.test.ts",
     "test:production-auth-session": "node --import tsx scripts/test-production-auth-session.ts",

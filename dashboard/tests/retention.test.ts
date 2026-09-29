@@ -142,12 +142,12 @@ test("planner pages beyond 1,000 rows; every transport call is GET; audit, clean
   const transport: typeof fetch = async (input, init) => {
     assert.equal(init?.method, "GET"); assert.equal(init?.redirect, "error");
     const url = new URL(String(input)); let body: unknown;
-    if (url.pathname === "/rest/v1/rpc/retention_read_manifest") body = { revision: "fixture-revision", counts: Object.fromEntries(RETENTION_RESOURCES.map((key) => [key, s[key].length])) };
+    if (url.pathname === "/rest/v1/rpc/retention_read_manifest") body = { revision: "fixture-revision", counts: Object.fromEntries(RETENTION_RESOURCES.map((key) => [key, (s[key] ?? []).length])) };
     else {
       assert.equal(url.pathname, "/rest/v1/rpc/retention_read_page");
       const resource = url.searchParams.get("p_resource") as typeof RETENTION_RESOURCES[number]; assert.ok(RETENTION_RESOURCES.includes(resource));
       const offset = Number(url.searchParams.get("p_offset")); calls.push({ resource, offset });
-      body = { rows: s[resource].slice(offset, offset + 500).map(sqlRow) };
+      body = { rows: (s[resource] ?? []).slice(offset, offset + 500).map(sqlRow) };
     }
     return Response.json(body);
   };
