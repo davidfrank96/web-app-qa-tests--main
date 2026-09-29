@@ -45,7 +45,8 @@ export async function getPlatformHealth() {
   let spaces: "configured_inactive" | "active" | "not_configured" | "misconfigured" = "not_configured";
   try { spacesConfiguration(); spaces = dependencies.evidenceProvider === "spaces" ? "active" : "configured_inactive"; }
   catch { if (process.env.INSSA_EVIDENCE_STORAGE_PROVIDER === "spaces") spaces = "misconfigured"; }
-  return { ...dependencies, evidenceStorage: { activeWriteProvider: dependencies.evidenceProvider, spaces }, worker, scheduler, web: "healthy" as const,
+  return { ...dependencies, evidenceStorage: { activeWriteProvider: dependencies.evidenceProvider,
+    historicalReadProviders: ["supabase", "spaces"] as const, spaces }, worker, scheduler, web: "healthy" as const,
     platformInfrastructure: healthy ? "healthy" : "unhealthy",
     metadataBackend: process.env.INSSA_OPS_METADATA_STORE === "supabase" ? "supabase" : "local-json",
     status: healthy ? "ok" : "unhealthy", supervisor: supervisor ? "running" : "unavailable",

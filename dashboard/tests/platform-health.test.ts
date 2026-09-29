@@ -34,6 +34,7 @@ test("health independently detects stale processes, caches bounded dependency ch
   let response = await GET(), body = await response.json();
   assert.equal(response.status,200); assert.equal(body.platformInfrastructure,"healthy");
   assert.equal(body.supabase,"healthy"); assert.equal(body.evidenceProvider,"supabase"); assert.equal(requests,2);
+  assert.deepEqual(body.evidenceStorage.historicalReadProviders,["supabase","spaces"]);
   for (const privateValue of [root,process.env.SUPABASE_SERVICE_ROLE_KEY!,"fixture-owner","blocked_external","missing_configuration"]) {
     assert.equal(JSON.stringify(body).includes(privateValue),false);
   }
