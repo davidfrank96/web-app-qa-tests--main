@@ -293,7 +293,9 @@ export class SupabaseEvidenceStorage implements EvidenceStorageProvider {
     try {
       return await fetch(this.objectUrl(key), {
         method,
-        headers: { apikey: this.key, authorization: `Bearer ${this.key}` },
+        // CDN compression can remove Content-Length on HEAD and change the ETag.
+        // Integrity metadata must describe the original stored bytes for both reads.
+        headers: { apikey: this.key, authorization: `Bearer ${this.key}`, "accept-encoding": "identity" },
         redirect: "error",
         signal: this.requestSignal(),
         cache: "no-store",
