@@ -314,7 +314,7 @@ export type InssaEvidenceRetentionClass =
   | "short-lived"
   | "siem-metadata";
 
-export type InssaEvidenceStorageBackend = "local-filesystem" | "supabase-storage";
+export type InssaEvidenceStorageBackend = import("./storage-provider-model").EvidenceBackend;
 
 export type InssaEvidenceUploadStatus = "local_only" | "uploaded" | "failed";
 
@@ -336,6 +336,7 @@ export type InssaEvidenceBundleRecord = {
   sourceArtifactId: string | null;
   status: InssaEvidenceBundleStatus;
   storageBackend: InssaEvidenceStorageBackend;
+  storageBucket?: string | null;
   storagePrefix: string | null;
   title: string;
   totalBytes: number;
@@ -362,6 +363,7 @@ export type InssaEvidenceItemRecord = {
   sha256: string;
   sizeBytes: number;
   storageBackend: InssaEvidenceStorageBackend;
+  storageBucket?: string | null;
   storageKey: string;
   uploadError: string | null;
   uploadStatus: InssaEvidenceUploadStatus;

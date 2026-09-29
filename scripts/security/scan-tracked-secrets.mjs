@@ -28,7 +28,7 @@ const contentRules = [
   ["jwt", /\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/],
   ["aws-access-key", /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/]
 ];
-const assignmentPattern = /^\s*(?:SUPABASE_SERVICE_ROLE_KEY|INSSA_AUTH_RATE_LIMIT_SECRET|SIEM_WAZUH_TOKEN|INSSA_INGEST_SHARED_TOKEN|AUTH_MONITOR_[A-Z0-9_]*(?:PASSWORD|SECRET)|INSSA_(?:TEST|SECONDARY_TEST)_PASSWORD)\s*=\s*(.+?)\s*$/;
+const assignmentPattern = /^\s*(?:DO_SPACES_ACCESS_KEY_ID|DO_SPACES_SECRET_ACCESS_KEY|SUPABASE_SERVICE_ROLE_KEY|INSSA_AUTH_RATE_LIMIT_SECRET|SIEM_WAZUH_TOKEN|INSSA_INGEST_SHARED_TOKEN|AUTH_MONITOR_[A-Z0-9_]*(?:PASSWORD|SECRET)|INSSA_(?:TEST|SECONDARY_TEST)_PASSWORD)\s*=\s*(.+?)\s*$/;
 const findings = [];
 
 for (const relativePath of trackedFiles) {

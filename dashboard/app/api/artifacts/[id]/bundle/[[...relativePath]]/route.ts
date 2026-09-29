@@ -1,3 +1,4 @@
+import { verifiedEvidenceResponse } from "../../../../../../lib/inssa-ops/evidence-stream";
 import { improveInvestigationReportLayout, restoreLegacyRoutineReport } from "../../../../../../lib/inssa-ops/investigation-report";
 import fs from "node:fs/promises";
 import { NextRequest, NextResponse } from "next/server";
@@ -65,6 +66,12 @@ export async function GET(
         return NextResponse.json({ error: "Evidence bundle file is unavailable locally and in durable storage." }, { status: 404 });
       }
       try {
+        if (!isRedactableContentType(logical.contentType)) {
+          return await verifiedEvidenceResponse(item, new Headers({
+            "content-type": logical.contentType, "content-disposition": `inline; filename="${safeEvidenceFileName(logical.fileName)}"`,
+            "cache-control": "no-store", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff"
+          }), request.headers.get("range"), request.signal);
+        }
         file = await downloadEvidenceItemFromDurableStorage(item);
       } catch {
         return NextResponse.json({ error: "Durable evidence retrieval or integrity verification failed." }, { status: 502 });

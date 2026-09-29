@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isDurableBackend, evidenceLocation, providerFromBackend } from "./storage-provider-model";
 import type { InssaEvidenceBundleRecord, InssaEvidenceItemRecord } from "./types";
 
 export function validateEvidenceManifest(runId: string, bundle: InssaEvidenceBundleRecord | null, items: InssaEvidenceItemRecord[]) {
@@ -7,6 +8,8 @@ export function validateEvidenceManifest(runId: string, bundle: InssaEvidenceBun
     return;
   }
   if (bundle.runId !== runId || bundle.itemCount !== items.length) throw new Error("Evidence item count or run mismatch.");
+  providerFromBackend(bundle.storageBackend);
+  if (bundle.uploadStatus === "uploaded") evidenceLocation(bundle);
   const ids = new Set<string>();
   const manifest: Record<string, string> = {};
   let total = 0;
@@ -19,10 +22,10 @@ export function validateEvidenceManifest(runId: string, bundle: InssaEvidenceBun
     if (ids.has(item.id) || Object.hasOwn(manifest, relative) || item.bundleId !== bundle.id || item.runId !== runId ||
         item.campaignKey !== bundle.campaignKey || !/^[a-f0-9]{64}$/.test(item.sha256) ||
         !Number.isSafeInteger(item.sizeBytes) || item.sizeBytes < 0) throw new Error("Corrupt evidence manifest.");
-    if (item.uploadStatus !== bundle.uploadStatus || item.storageBackend !== bundle.storageBackend) {
+    if (item.uploadStatus !== bundle.uploadStatus || item.storageBackend !== bundle.storageBackend || (item.storageBucket ?? null) !== (bundle.storageBucket ?? null)) {
       throw new Error("Inconsistent evidence upload state.");
     }
-    if (bundle.uploadStatus === "uploaded" && (bundle.storageBackend !== "supabase-storage" || !bundle.storagePrefix ||
+    if (bundle.uploadStatus === "uploaded" && (!isDurableBackend(bundle.storageBackend) || !bundle.storagePrefix ||
         !bundle.uploadedAt || !item.uploadedAt || item.storageKey !== `${bundle.storagePrefix}/${relative}`)) {
       throw new Error("Incomplete durable evidence metadata.");
     }
@@ -48,11 +51,11 @@ export function validateEvidenceReplacement(existing: { bundles: InssaEvidenceBu
     const item = items.find((candidate) => candidate.id === old.id);
     if (!item || item.artifactId !== old.artifactId || item.relativePath !== old.relativePath || item.sha256 !== old.sha256 ||
         item.sizeBytes !== old.sizeBytes || (old.uploadStatus === "uploaded" &&
-        (item.uploadStatus !== "uploaded" || old.storageKey !== item.storageKey))) {
+        (item.uploadStatus !== "uploaded" || old.storageKey !== item.storageKey || old.storageBackend !== item.storageBackend || (old.storageBucket ?? null) !== (item.storageBucket ?? null)))) {
       throw new Error("Cannot change or downgrade immutable evidence.");
     }
   }
-  if (previous.uploadStatus === "uploaded" && (bundle.uploadStatus !== "uploaded" || previous.storagePrefix !== bundle.storagePrefix)) {
+  if (previous.uploadStatus === "uploaded" && (bundle.uploadStatus !== "uploaded" || previous.storagePrefix !== bundle.storagePrefix || previous.storageBackend !== bundle.storageBackend || (previous.storageBucket ?? null) !== (bundle.storageBucket ?? null))) {
     throw new Error("Cannot downgrade uploaded evidence.");
   }
 }
