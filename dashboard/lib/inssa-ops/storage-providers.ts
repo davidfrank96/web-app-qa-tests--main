@@ -334,9 +334,17 @@ export class SupabaseEvidenceStorage implements EvidenceStorageProvider {
       Number(size) < 0
     )
       throw new Error("Incomplete object metadata.");
+    // Supabase deliberately serves HTML as text/plain. Verify the stored MIME
+    // through its authenticated metadata API instead of trusting delivery headers.
+    const info = await this.client.storage.from(this.bucket).info(key);
+    if (info.error || !info.data || info.data.name !== key || info.data.bucketId !== this.bucket ||
+        info.data.size !== Number(size) || !info.data.contentType ||
+        (info.data.etag && r.headers.get("etag") && info.data.etag !== r.headers.get("etag"))) {
+      throw new Error("Stored object metadata does not match HEAD.");
+    }
     return {
       sizeBytes: Number(size),
-      contentType: r.headers.get("content-type") ?? "application/octet-stream",
+      contentType: info.data.contentType,
       etag: r.headers.get("etag") ?? undefined,
       modifiedAt: r.headers.get("last-modified")
         ? new Date(r.headers.get("last-modified")!).toISOString()
