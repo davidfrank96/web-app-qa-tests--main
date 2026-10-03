@@ -11,8 +11,7 @@ import {
   authenticationCheckPresentation,
   authenticationEvidencePresentation,
   type AuthenticationMonitoringCheck,
-  type AuthenticationMonitoringResultResponse,
-  type AuthenticationMonitoringSummary
+  type AuthenticationMonitoringResultResponse
 } from "../lib/monitoring/authentication-result";
 
 export type CampaignDefinition = {
@@ -535,9 +534,6 @@ export function InssaOpsClient({
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null);
   const [schedulerStatusError, setSchedulerStatusError] = useState("");
   const [authenticationMonitoringEnvironment, setAuthenticationMonitoringEnvironment] = useState<"production" | "staging">("staging");
-  const [authenticationMonitoringSummary, setAuthenticationMonitoringSummary] = useState<AuthenticationMonitoringSummary | null>(null);
-  const [authenticationMonitoringError, setAuthenticationMonitoringError] = useState("");
-  const [authenticationMonitoringResultReason, setAuthenticationMonitoringResultReason] = useState("");
   const [authenticationMonitoringResultsByRun, setAuthenticationMonitoringResultsByRun] = useState<Record<string, AuthenticationMonitoringResultResponse>>({});
   const [authenticationMonitoringResultErrorsByRun, setAuthenticationMonitoringResultErrorsByRun] = useState<Record<string, string>>({});
   const [authenticationMonitoringIncompleteReason, setAuthenticationMonitoringIncompleteReason] = useState("");
@@ -639,6 +635,14 @@ export function InssaOpsClient({
   const latestAuthenticationMonitoringResolution = latestAuthenticationMonitoringRun
     ? authenticationMonitoringResultsByRun[latestAuthenticationMonitoringRun.id] ?? null
     : null;
+  const authenticationMonitoringSummary = latestAuthenticationMonitoringResolution?.state === "available" &&
+    latestAuthenticationMonitoringResolution.result?.runId === latestAuthenticationMonitoringRun?.id &&
+    latestAuthenticationMonitoringResolution.result?.environment === authenticationMonitoringEnvironment
+    ? latestAuthenticationMonitoringResolution.result : null;
+  const authenticationMonitoringError = latestAuthenticationMonitoringRun
+    ? authenticationMonitoringResultErrorsByRun[latestAuthenticationMonitoringRun.id] ?? "" : "";
+  const authenticationMonitoringResultReason = latestAuthenticationMonitoringResolution && latestAuthenticationMonitoringResolution.state !== "available"
+    ? latestAuthenticationMonitoringResolution.reason ?? "Result metadata unavailable." : "";
   const latestAuthenticationMonitoringReportId = latestAuthenticationMonitoringResolution?.evidence.reportArtifactId ?? null;
   const lastAuthenticationSuccess = authenticationMonitoringRuns.find((run) => PASSED_STATUSES.has(run.status)) ?? null;
   const lastAuthenticationFailure = authenticationMonitoringRuns.find((run) => FAILED_STATUSES.has(run.status)) ?? null;
@@ -647,9 +651,6 @@ export function InssaOpsClient({
     if (sessionExpired || activeWorkspace !== "authentication-monitoring") return;
     if (!latestAuthenticationMonitoringRun) {
       authenticationMonitoringRequestSequence.current += 1;
-      setAuthenticationMonitoringSummary(null);
-      setAuthenticationMonitoringError("");
-      setAuthenticationMonitoringResultReason("");
       return;
     }
     void refreshAuthenticationMonitoringResults(authenticationMonitoringRuns);
@@ -661,15 +662,17 @@ export function InssaOpsClient({
       activeWorkspace !== "authentication-monitoring" ||
       !latestAuthenticationMonitoringRun ||
       !["failed", "failed_startup", "timed_out"].includes(latestAuthenticationMonitoringRun.status) ||
-      latestAuthenticationMonitoringReportId
+      latestAuthenticationMonitoringReportId || authenticationMonitoringSummary
     ) {
       setAuthenticationMonitoringIncompleteReason("");
       return;
     }
+    let current = true;
     const endpoint = `/api/runs/${latestAuthenticationMonitoringRun.id}/logs`;
     void apiFetch(endpoint, { cache: "no-store" })
       .then(async (response) => {
         const body = (await response.json().catch(() => ({}))) as { error?: string; logs?: RunLogRecord[] };
+        if (!current) return;
         if (!response.ok) {
           recordApiFailure(endpoint, response.status, body.error ?? response.statusText);
           return;
@@ -679,7 +682,8 @@ export function InssaOpsClient({
         );
       })
       .catch((error) => recordApiFailure(endpoint, "network", error instanceof Error ? error.message : String(error)));
-  }, [activeWorkspace, latestAuthenticationMonitoringReportId, latestAuthenticationMonitoringRun?.id, latestAuthenticationMonitoringRun?.status, sessionExpired]);
+    return () => { current = false; };
+  }, [activeWorkspace, authenticationMonitoringSummary, latestAuthenticationMonitoringReportId, latestAuthenticationMonitoringRun?.id, latestAuthenticationMonitoringRun?.status, sessionExpired]);
 
   useEffect(() => {
     runDetailRequestSequence.current += 1;
@@ -1053,7 +1057,6 @@ export function InssaOpsClient({
       })
     );
     if (requestSequence !== authenticationMonitoringRequestSequence.current) return;
-    const latest = recentRuns[0] ? hydrated.find((entry) => entry.runId === recentRuns[0].id) : null;
     startTransition(() => {
       setAuthenticationMonitoringResultsByRun(
         Object.fromEntries(
@@ -1063,13 +1066,7 @@ export function InssaOpsClient({
       setAuthenticationMonitoringResultErrorsByRun(
         Object.fromEntries(hydrated.flatMap((entry) => entry.error ? [[entry.runId, entry.error] as const] : []))
       );
-      setAuthenticationMonitoringError(latest?.error ?? "");
-      setAuthenticationMonitoringSummary(latest?.resolution?.state === "available" ? latest.resolution.result : null);
-      setAuthenticationMonitoringResultReason(
-        latest?.resolution && latest.resolution.state !== "available"
-          ? latest.resolution.reason ?? "Result metadata unavailable."
-          : ""
-      );
+
     });
   }
 
@@ -1920,7 +1917,7 @@ export function InssaOpsClient({
                             <p className="mt-1 break-words">Reason: {authenticationMonitoringResultReason}</p>
                           </div>
                         ) : null}
-                        {authenticationMonitoringIncompleteReason ? (
+                        {!authenticationMonitoringSummary && authenticationMonitoringIncompleteReason ? (
                           <div className="mt-4 rounded-2xl border border-rose-300/20 bg-rose-300/10 p-4 text-sm text-rose-100">
                             <p className="font-semibold">Authentication monitor did not complete provider results.</p>
                             <p className="mt-1 break-words">Reason: {authenticationMonitoringIncompleteReason}</p>

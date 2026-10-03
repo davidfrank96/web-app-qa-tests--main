@@ -104,18 +104,31 @@ export class AuthPage {
     }
     const skipOnboarding = this.page.getByRole("button", { name: "Skip onboarding", exact: true });
     if (await skipOnboarding.isVisible()) await skipOnboarding.click();
-    // The profile link uses the product's SPA navigation. A document reload of
-    // /me here aborts the still-running post-login account lookup.
-    if (!(await this.signOutButton().isVisible())) {
-      await this.page.getByRole("link", { name: /^Profile(?:, \d+ new)?$/ }).click();
+    const locationPrompt = this.page.getByRole("dialog", { name: "Unlock what's near you", exact: true });
+    // Location consent can arrive after profile readiness and hide the header.
+    // Use the product control with the existing synthetic staging coordinates;
+    // a locator handler also covers a prompt that appears during navigation.
+    await this.page.addLocatorHandler(locationPrompt, async () => {
+      await this.page.context().setGeolocation({ latitude: 53.3382, longitude: -6.2591 });
+      await this.page.context().grantPermissions(["geolocation"], { origin: new URL(this.page.url()).origin });
+      await locationPrompt.getByRole("button", { name: "Use my location", exact: true }).click();
+    });
+    try {
+      // The profile link uses the product's SPA navigation. A document reload of
+      // /me here aborts the still-running post-login account lookup.
+      if (!(await this.signOutButton().isVisible())) {
+        await this.page.getByRole("link", { name: /^Profile(?:, \d+ new)?$/ }).click();
+      }
+      await this.expectProfileSurface();
+      await this.expectAuthenticatedSession(expectedEmail);
+      await this.signOutButton().click();
+      await expect.poll(() => this.page.evaluate(() => Object.entries(localStorage).some(([key, value]) => {
+        if (!key.startsWith("firebase:authUser:")) return false;
+        try { return Boolean(JSON.parse(value)?.uid); } catch { return true; }
+      })), { message: "Expected real UI logout to remove the authenticated Firebase user.", timeout: DEFAULT_TIMEOUT }).toBe(false);
+    } finally {
+      await this.page.removeLocatorHandler(locationPrompt);
     }
-    await this.expectProfileSurface();
-    await this.expectAuthenticatedSession(expectedEmail);
-    await this.signOutButton().click();
-    await expect.poll(() => this.page.evaluate(() => Object.entries(localStorage).some(([key, value]) => {
-      if (!key.startsWith("firebase:authUser:")) return false;
-      try { return Boolean(JSON.parse(value)?.uid); } catch { return true; }
-    })), { message: "Expected real UI logout to remove the authenticated Firebase user.", timeout: DEFAULT_TIMEOUT }).toBe(false);
   }
 
   async expectProfileSurface(): Promise<void> {
