@@ -1,6 +1,23 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss" source(none);
+@config "../tailwind.config.ts";
+@source "../app";
+@source "../components";
+@source "../lib";
+
+/* Preserve the dashboard's v3 defaults through the v4 engine migration. */
+@layer base {
+  *, ::before, ::after, ::backdrop, ::file-selector-button {
+    border-color: #e5e7eb;
+  }
+  input::placeholder, textarea::placeholder {
+    color: #9ca3af;
+    opacity: 1;
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  dialog { margin: auto; }
+}
 
 :root {
   color-scheme: dark;
@@ -634,7 +651,7 @@ body {
 }
 
 .live-approval-backdrop {
-  @apply fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm;
+  @apply fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs;
 }
 
 .live-approval-panel {

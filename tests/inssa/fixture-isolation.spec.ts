@@ -19,6 +19,8 @@ const test = safeTest.extend({
 
 // Exercise the actual Safe fixture in two independent browser contexts. The page is
 // fulfilled locally: this check creates no product draft and sends no product writes.
+test.use({ productWriteAuditEnabled: true });
+
 test.describe("Safe fixture state isolation", () => {
   test.describe.configure({ mode: "serial" });
   for (const execution of [1, 2]) {

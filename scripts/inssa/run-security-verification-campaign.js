@@ -15,7 +15,7 @@ const OUTPUT_DIR = path.resolve(ROOT, "security-campaigns", "verification");
 const REPORT_DIR = path.resolve(ROOT, "reports", "security");
 const NAVIGATION_TIMEOUT_MS = 25_000;
 
-main().catch((error) => {
+if (require.main === module) main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
@@ -84,6 +84,7 @@ async function main() {
   writeFileSync(reportPath, renderHtml(summary), "utf8");
 
   printSummary(summary);
+  if (summary.finalSecurityPosture.startsWith("blocked-prerequisite")) process.exitCode = 1;
 }
 
 async function verifyTokenlessCapsules(baseUrl, artifacts) {
@@ -662,6 +663,10 @@ function classifyFinalSecurityPosture(summary) {
   if (high.length > 0) {
     return "high-risk-confirmed-findings";
   }
+  if (!summary.usableArtifactCount) return "blocked-prerequisite-no-usable-artifacts";
+  if (!Object.values(summary.verificationAreas).some(area => (area.byStatus.completed ?? 0) > 0)) {
+    return "blocked-prerequisite-no-completed-verification";
+  }
   if (summary.suspectedFindings.length > 0) {
     return "verification-complete-with-unverified-areas";
   }
@@ -832,3 +837,5 @@ Optional cross-user env:
 The secondary user must already have an auth storage state generated in the standard INSSA auth cache.
 `);
 }
+
+module.exports = { classifyFinalSecurityPosture };

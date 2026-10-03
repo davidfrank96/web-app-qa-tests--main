@@ -10,7 +10,7 @@ import { chromium } from 'playwright';
 const dashboard = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(path.join(dashboard, 'package.json'));
 const { build } = require('esbuild');
-const postcss = require('postcss'), tailwind = require('tailwindcss'), autoprefixer = require('autoprefixer');
+const postcss = require('postcss'), tailwind = require('@tailwindcss/postcss');
 const artifactDir = process.env.LIFECYCLE_UI_ARTIFACT_DIR || path.join(os.tmpdir(), 'lifecycle-ux-verification');
 await fs.mkdir(artifactDir, { recursive: true });
 const names = ['Text Lifecycle', 'Media Lifecycle', 'Video Lifecycle', 'Reveal-Later Lifecycle', 'Cross-User Campaign', 'Reveal-Later Security'];
@@ -24,10 +24,9 @@ const readiness = campaigns.map(campaign => ({ campaignKey:campaign.key,status:c
 const run = { id:'historical-run',campaignKey:campaigns[0].key,status:'failed',exitCode:1,createdAt:'2026-08-01T00:00:00Z',updatedAt:'2026-08-01T00:01:00Z',startedAt:'2026-08-01T00:00:00Z',completedAt:'2026-08-01T00:01:00Z',durationMs:60000,requestedBy:'fixture',cleanup:{status:'pending',createdCapsuleIds:['a','b','c'],createdArtifactIds:[],instructions:['Remove QA objects only after independent verification.'],confirmedAt:null} };
 const props = { currentUser: { id: 'fixture', email: 'admin@example.test', role: 'admin' }, initialCampaignDefinitions: campaigns, initialMetadataBackend: metadataBackend, initialRuns: [run] };
 const bundle = await build({ stdin: { contents: `import React from 'react'; import {createRoot} from 'react-dom/client'; import {InssaOpsClient} from './inssa-ops-client'; const props=${JSON.stringify(props)}; props.currentUser.role=new URL(location.href).searchParams.get('role')||'admin'; createRoot(document.getElementById('root')).render(React.createElement(InssaOpsClient, props));`, resolveDir: path.join(dashboard, 'components'), loader: 'tsx' }, write: false, bundle: true, platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' } });
-const configBundle = await build({entryPoints:[path.join(dashboard,'tailwind.config.ts')],bundle:true,platform:'node',format:'cjs',write:false});
-const configModule = {exports:{}}; new Function('module','exports',configBundle.outputFiles[0].text)(configModule,configModule.exports);
-const config = configModule.exports.default; config.content = [path.join(dashboard,'components/**/*.{ts,tsx}'), path.join(dashboard,'app/**/*.{ts,tsx}'),path.join(dashboard,'lib/**/*.{ts,tsx}')];
-const css = (await postcss([tailwind(config),autoprefixer]).process(await fs.readFile(path.join(dashboard,'app/globals.css'),'utf8'),{from:path.join(dashboard,'app/globals.css')})).css;
+const css = process.env.LIFECYCLE_UI_CSS_PATH
+  ? await fs.readFile(process.env.LIFECYCLE_UI_CSS_PATH, 'utf8')
+  : (await postcss([tailwind({base: dashboard})]).process(await fs.readFile(path.join(dashboard,'app/globals.css'),'utf8'),{from:path.join(dashboard,'app/globals.css')})).css;
 let previews = [], approvals = [], launches = 0, confirmations = 0, blocked = false, delayCreate = false;
 const server = createServer(async (req, res) => {
   const url = new URL(req.url,'http://fixture');
@@ -55,6 +54,7 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const origin=`http://127.0.0.1:${server.address().port}`;
 if(process.argv.includes('--serve')) { console.log(`Lifecycle UI fixture: ${origin}`); await new Promise(()=>{}); }
 const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];
+await page.clock.setFixedTime(new Date("2026-10-03T12:00:00Z"));
 page.on('pageerror',e=>errors.push(e.message));await page.route('**/*',route=>route.request().url().startsWith(origin+'/')?route.continue():route.abort());
 const click = name=>page.getByRole('button',{name,exact:true}).click();
 async function ready() {await page.getByRole('status').filter({hasText:'Ready to run'}).waitFor();}
@@ -98,9 +98,9 @@ try {
       await page.setViewportSize({width,height:width<768?844:1000});await noOverflow(`${theme} ${width}`);
       await page.getByRole('button',{name:'Review & Run',exact:true}).scrollIntoViewIfNeeded();
       assert.ok(await page.getByRole('button',{name:'Review & Run',exact:true}).evaluate(el=>{const b=el.getBoundingClientRect();return el.contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2));}),`${theme} ${width}: primary action covered`);
-      await page.evaluate(()=>window.scrollTo(0,0));
-      await page.screenshot({path:path.join(artifactDir,`${theme}-${width}-workspace.png`),fullPage:true});
-      await click('Review & Run');await ready();await noOverflow(`${theme} ${width} dialog`);await page.screenshot({path:path.join(artifactDir,`${theme}-${width}-dialog.png`)});
+      await page.evaluate(()=>window.scrollTo({top:0,behavior:"instant"}));
+      await page.screenshot({path:path.join(artifactDir,`${theme}-${width}-workspace.png`),fullPage:true,animations:"disabled"});
+      await click('Review & Run');await ready();await noOverflow(`${theme} ${width} dialog`);await page.evaluate(()=>window.scrollTo({top:0,behavior:"instant"}));await page.screenshot({path:path.join(artifactDir,`${theme}-${width}-dialog.png`),animations:"disabled"});
       await click('Cancel');layout.push({theme,width,pass:true});
     }
   }

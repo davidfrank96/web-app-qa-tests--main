@@ -41,10 +41,16 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Verify authenticated JSON evidence text preview
+        run: node dashboard/scripts/test-json-evidence-preview.mjs
+
       - name: Verify active and terminal dashboard polling
         run: npm run test:ci:dashboard-polling
       - name: Verify production read-only logout with isolated browser fixtures
         run: npm --prefix dashboard run test:production-auth-session
+      - name: Verify staging login, account identity and real UI logout
+        run: node --import ./dashboard/node_modules/tsx/dist/loader.mjs dashboard/scripts/test-staging-auth-session.ts
+
       - name: Verify complete staging authentication cache
         working-directory: dashboard
         run: node --import tsx scripts/test-staging-auth-cache.ts

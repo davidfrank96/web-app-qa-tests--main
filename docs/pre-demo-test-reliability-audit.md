@@ -1,0 +1,160 @@
+# Pre-demo test reliability audit
+
+Status: IN PROGRESS — not certified. Phase 5B is paused. This working report records findings before release and will be updated with exact acceptance IDs.
+
+## Baseline — 3 October 2026
+
+- Main: `d9cc2908eeae039728a104b69b07315914d3ff79`; QA deployment: `91a7de89-59d1-44ce-b93c-a2e367685e3d` (DigitalOcean overview verified).
+- Web, worker, scheduler, Supabase and Spaces healthy. Writer Spaces; historical readers Supabase + Spaces. No active execution at baseline.
+- Supabase Storage: 4,478 objects / 949,562,321 bytes; fingerprint `ccf1dc56dd35dbe4be1a8242830382cb`.
+- Phase 5A canary remains SOURCE_PRESERVED; no migration or deletion executed. Retention fingerprint `0865f1d2def1a84361470d277684867c`; cleanup fingerprint `2db218f1a4a221b77fededa7193111ce`.
+- All six hosted lifecycle preflight previews pass; manual cleanup is advisory (10 unresolved historical QA objects), primary/secondary accounts distinct. Hosted target is staging; production methods are username-password only. Exact-host mutation guards fail closed on production (there is no separate product-mutation enable flag). Hosted manual cleanup=1, security input probes=0, lease=120000 ms, heartbeat=15000 ms, failure limit=3.
+
+- Baseline main CI: all eight check runs succeeded on the exact baseline SHA. The subsequently published/reviewed `braces` advisory makes a fresh dependency audit fail on Tailwind 3; owner explicitly approved a Tailwind 4 migration.
+
+## Grouped findings
+
+| Priority | Classification | Finding and disposition |
+|---|---|---|
+| P0 | AUTH_SESSION_BUG / TEST_HARNESS_BUG | Staging monitor accepts an early Profile link, then document-navigates to `/me` during post-login initialization. Trace shows account lookup starting at 30.796 s aborted alongside `/me` navigation at 30.804 s. Credentials and preceding backend auth calls returned 200. Profile/Sign out appears after the assertion deadline. Fix: matching Firebase account + profile readiness, product Profile SPA navigation, real logout and Firebase user disappearance; production path unchanged. |
+| P0 | TEST_EXPECTATION_DRIFT | Location message no longer includes location name. All six current subjects are exact location names; generic seeded message is intentional (owner confirmed 3 October). Assert exact subject/route, valid nonempty bounded message, metadata and Media/Share navigation. |
+| P0 | TEST_HARNESS_BUG | Manual Safe Suite inherited retry=1 (CI=2). Explicit workers=1/retries=0; independent CI policy preserved. |
+| P1 | PRODUCT_REGRESSION (historical), DEMO_UX_ISSUE | 28 September compose autosave emitted Document already exists. Current six-location probe observed no timeCapsules/media writes or draft IDs. It did observe users.lastActive and users.fcmSyncStatus writes: suite is not literally non-mutating. Description and UI disclose account metadata; write audit fails unexpected document/profile changes. |
+| P1 | PERFORMANCE_TIMEOUT / UNKNOWN | Intermittent Bury/direct-compose/media initialization timeouts; subsequent executions passed. No timeout increase or suppression. Repeatability acceptance remains required. |
+| P1 | TEST_HARNESS_BUG | Security Verification previously declared no-high-risk completion with zero source/usable artifacts in two runs. Empty coverage now fails with explicit blocked-prerequisite posture. |
+| P1 | TEST_HARNESS_BUG | Security report renderer exited 0 with no source summary and only a manifest. Missing input now exits nonzero. |
+| P1 | TEST_HARNESS_BUG | OWASP tokenless-exposure check included tokenized observations. It now evaluates only tokenless contexts; regression covers both. |
+| P1 | PERFORMANCE_TIMEOUT | Two historical Security Campaigns reached the 240 s spec limit; no timeout retuning. Hosted safe campaign acceptance pending. |
+| P1 | UNKNOWN / PRODUCT CONTRACT | Historical Text campaign failed public-share assertions; no current usable artifact at baseline. Public share stays conditional until tested against a valid artifact. |
+| P1 | DEMO_UX_ISSUE | JSON iframe fails in Chrome despite correct authenticated bytes. Read-only JSON fetch/text preview preserves endpoint permissions and download behavior, caps preview at 2 MiB. |
+| Expected | EXTERNAL_PROVIDER_LIMITATION | Google rejects automated browser. Preserve blocked_external and degraded overall when password passes. |
+| Expected | MISSING_CONFIGURATION | Apple staging credentials missing. Preserve missing_configuration and degraded overall when password passes. |
+
+| P1 | DEPENDENCY_SECURITY | Tailwind 3 pulls unpatched braces ≤3.0.3 (GHSA-vfj7-8cjw-p6xm). Owner approved Tailwind 4.3.3 with its PostCSS plugin. Removed autoprefixer and preserved the existing palette, border/placeholder/cursor defaults, blur and accessible outlines. Root and dashboard audits both report zero vulnerabilities. |
+
+## Local validation and limits
+
+- Root/dashboard TypeScript, production build, Runtime Doctor and dependency audits passed. Platform tests: 225/225; security/false-green contracts: 8/8. All five disposable local PostgreSQL suites passed (atomic publication, retention, migration concurrency, quota claims, alert fencing). No hosted migration/retention SQL was executed.
+- Staging browser regressions pass eight cases: real UI logout, slow profile initialization, login/onboarding overlays, aria-hidden public header under location prompt, wrong account, stale profile, failed logout, missing control. Production auth browser regression unchanged and passing. Auth cache rejects the wrong account.
+- Post-login overlays include a visually active `Signing in...` heading under an aria-hidden ancestor. Readiness waits for it to disappear and the route to leave `/signin`; warning and onboarding dismissals use actual product controls. Public-state assertion uses the visible `/signin` anchor because the location dialog hides that header from the accessibility tree. Actual Firebase user disappearance is checked separately after UI logout.
+- Local diagnostic attempts exposed overlay/selector failures, one slow profile failure and one aria-hidden public-header assertion failure. These remain diagnostic failures, not acceptance passes. Final local staging password run passed (26.2 s); hosted 3/3 still required.
+- Full local Safe Suite: **12/12, 2.1 min, zero retries**. Slow/unstable telemetry remains visible; a passing assertion does not erase console/network observations. No unexpected product write was found by passive audit. Account activity/notification metadata persists; login may also initialize account profile metadata. Capsule/draft/media creation was not observed.
+- JSON preview, polling and retention browser regressions passed. Lifecycle UI passed all 14 dark/light responsive layouts (320–1440 px), consent/focus/Escape, stale-preflight protection and zero execution/cleanup fixture requests.
+- Tailwind comparison: 28 controlled before/after captures, fixed clock/scroll, identical dimensions. Dark screenshots had no pixel difference; light screenshots differed by at most 3/255 per channel (mean ≤0.08/255), consistent with color interpolation rounding. No layout/action regression. Tailwind 4 requires Safari ≥16.4, Chrome ≥111, Firefox ≥128. Guidance: https://tailwindcss.com/docs/upgrade-guide.
+- These local passes do **not** replace the required post-deployment acceptance sequence. Certification remains pending.
+
+## Safe Suite per-test audit
+
+| Test area | Contract / state | Current result / known history |
+|---|---|---|
+| Logged-out compose | Fresh public context; usable compose/auth entry | Local PASS; no authenticated cache leakage |
+| Authenticated Bury | Complete matching auth cache; actual home action reaches compose | Local PASS; historical initialization timeouts retained |
+| Authenticated direct compose | Fresh page with complete auth state; compose contract | Local PASS; historical initialization timeout/Firestore already-exists failures retained |
+| Six locations (six tests) | Exact subject + route, nonempty message ≤3000, subject ≤140, Media/Share advance | All six PASS; old city-in-message assertion was stale |
+| Media capability | Reach Media, inspect supported controls without upload/publish | Local PASS; historical field timing failure retained |
+| Fixture/session isolation (two tests) | Authenticated and anonymous fixture boundaries | Both PASS; worker cache verifies requested identity |
+
+Each opted-in Safe test records Firestore collection/field names only, never values or IDs, and fails unexpected writes. The audit observes requests; it does not intercept or suppress real product behavior. Mutation campaigns do not use this Safe-only assertion. CI retries remain independently configured; manual Safe command explicitly uses one worker and zero retries.
+
+## Initial auth probe
+
+`bcb1d4c9-7b55-4988-be1f-8b991e3d5810`: password PASS, retries 0, 71.712 s total; Google/Apple disabled for this diagnostic. Durable bundle `b93abdca-5658-4de2-abab-81da2b747f1c`, 22 verified Spaces items. Platform run status passed_with_warnings is not an authentication failure. This baseline probe does not count toward post-deployment 3/3 acceptance.
+
+## Six-location contract and mutation probe
+
+| Location | Subject | Message | Media | Share | Capsule/draft persistence |
+|---|---|---|---|---|---|
+| New York, NY | New York, NY | Found this spot and thought of you. | True | True | No observed capsule write; no initial draft ID |
+| Los Angeles, CA | Los Angeles, CA | Found this spot and thought of you. | True | True | No observed capsule write; no initial draft ID |
+| Chicago, IL | Chicago, IL | Found this spot and thought of you. | True | True | No observed capsule write; no initial draft ID |
+| Miami, FL | Miami, FL | Found this spot and thought of you. | True | True | No observed capsule write; no initial draft ID |
+| Austin, TX | Austin, TX | Found this spot and thought of you. | True | True | No observed capsule write; no initial draft ID |
+| Seattle, WA | Seattle, WA | Found this spot and thought of you. | True | True | No observed capsule write; no initial draft ID |
+
+Routes included address, place, latitude, longitude and placeId. Required-field labels and displayed limits 140/3000 passed on all six. Native required/maxLength attributes are absent; tests enforce displayed product limits. Account writes observed in each probe were lastActive and fcmSyncStatus. No publish, Save & exit or discard/delete action was clicked.
+
+## Complete command inventory at baseline
+
+| Command | Latest run/status | Recent failures (7d) | Last clean success | Prerequisites / side effects | Demo readiness |
+|---|---|---|---|---|---|
+| Authentication Monitoring - Staging (`monitor_inssa_auth_staging`) | cb880945-075e-4e3d-afaa-8c7990e9a596 / failed | 5 | None proven in sampled history | Checks email/password, Google OAuth, and Apple Sign-In against INSSA staging and records independent authentication results. | Pending acceptance |
+| Authentication Monitoring - Production (`monitor_inssa_auth_production`) | b408ccb0-85c8-437c-a9dd-e994c0316488 / passed | 1 | b408ccb0-85c8-437c-a9dd-e994c0316488 | Runs the allowlisted read-only authentication monitor against INSSA production. Requires explicit production monitoring confirmation. | Pending acceptance |
+| INSSA Safe Suite (`test_inssa_safe`) | ef069c09-f3f8-4f75-87ab-d6244fa27934 / failed | 8 | None proven in sampled history | Checks compose without publishing or saving drafts. INSSA updates account activity and notification-sync metadata; unexpected product writes fail the suite. | Pending acceptance |
+| Text Lifecycle (`test_inssa_campaign_text`) | 5a5649de-02e0-4422-ab9f-3c944f874446 / failed | 0 | None proven in sampled history | Staging admin, governed approval, fixtures/accounts; creates QA data | Pending acceptance |
+| Media Lifecycle (`test_inssa_campaign_media`) | Never recorded | 0 | None proven in sampled history | Staging admin, governed approval, fixtures/accounts; creates QA data | Pending acceptance |
+| Video Lifecycle (`test_inssa_campaign_video`) | Never recorded | 0 | None proven in sampled history | Staging admin, governed approval, fixtures/accounts; creates QA data | Pending acceptance |
+| Reveal-Later Lifecycle (`test_inssa_campaign_reveal_later`) | Never recorded | 0 | None proven in sampled history | Staging admin, governed approval, fixtures/accounts; creates QA data | Pending acceptance |
+| Cross-User Campaign (`test_inssa_campaign_cross_user`) | Never recorded | 0 | None proven in sampled history | Staging admin, governed approval, fixtures/accounts; creates QA data | Pending acceptance |
+| Reveal-Later Security (`test_inssa_campaign_reveal_later_security`) | Never recorded | 0 | None proven in sampled history | Staging admin, governed approval, fixtures/accounts; creates QA data | Pending acceptance |
+| Re-render Latest Security Report (`report_security`) | 854a8c9c-2c4c-4168-9baf-f296a8e5432f / passed_with_warnings | 0 | None proven in sampled history | Uses existing findings and regenerates HTML. Does not run Playwright. | Pending acceptance |
+| Run Security Campaign (`test_inssa_campaign_security`) | c0081dad-434e-4c32-a614-a3733f439739 / failed | 0 | None proven in sampled history | Executes the OWASP security campaign against staging and generates fresh findings and reports. | Pending acceptance |
+| Security Verification (`test_inssa_campaign_security_verify`) | 0be80072-8107-4b46-bacd-c55095dc15d1 / passed_with_warnings | 0 | None proven in sampled history | Verify known security findings from existing artifacts. No staging mutation. | Pending acceptance |
+| Render Lifecycle Report (`report_lifecycle`) | Never recorded | 0 | None proven in sampled history | Uses existing lifecycle campaign evidence and regenerates HTML. Does not run Playwright. | Pending acceptance |
+| Authenticated Discovery (`test_inssa_discovery`) | Never recorded | 0 | None proven in sampled history | Valid existing artifact; read-only validation | Pending acceptance |
+| Public Share Validation (`test_inssa_public_share`) | Never recorded | 0 | None proven in sampled history | Valid existing artifact; read-only validation | Pending acceptance |
+| Cleanup Capability Audit (`test_inssa_cleanup_audit`) | Never recorded | 0 | None proven in sampled history | Valid existing artifact; read-only validation | Pending acceptance |
+| Generate SIEM Export (`siem_export`) | Never recorded | 0 | None proven in sampled history | Generates metadata-only SIEM export JSON from existing campaign outputs. | Pending acceptance |
+| Platform Health Check (`platform_healthcheck`) | 8e3af044-c059-48b0-9069-5d0acf5d077b / passed_with_warnings | 0 | None proven in sampled history | Checks local platform wiring and expected output locations. | Pending acceptance |
+
+## Durable run inventory
+
+52 baseline runs cover the last seven days and latest five terminal runs per campaign where available. No active runs were included. Repeated signatures are grouped above. Evidence metadata availability below is not a claim that every binary was downloaded; selected structured results and critical auth trace were SHA-256/size verified.
+
+| Campaign | Run | Time UTC | Status / exit | Duration s | Retry max | Evidence | Failure stage / spec |
+|---|---|---|---|---|---|---|---|
+| monitor_inssa_auth_production | `b408ccb0-85c8-437c-a9dd-e994c0316488` | 2026-10-02 17:15:27.481+00 | passed / 0 | 31.072 | not recorded | 9 items; spaces | Structured results unavailable |
+| monitor_inssa_auth_production | `518489c4-5424-4592-a53c-54a786c18577` | 2026-10-02 11:15:39.64+00 | passed / 0 | 32.727 | not recorded | 9 items; spaces | Structured results unavailable |
+| monitor_inssa_auth_production | `5eaea16a-9e15-4452-9064-e192a69136c8` | 2026-10-01 17:15:02.779+00 | passed / 0 | 32.602 | not recorded | 9 items; spaces | Structured results unavailable |
+| monitor_inssa_auth_production | `dace20a1-605c-4744-a4b5-84bed9ec7b8b` | 2026-10-01 11:15:06.978+00 | passed / 0 | 34.302 | not recorded | 9 items; spaces | Structured results unavailable |
+| monitor_inssa_auth_production | `d8282559-2efa-45c1-b70d-a445cd4ae837` | 2026-09-30 17:15:44.845+00 | passed / 0 | 33.813 | not recorded | 9 items; spaces | Structured results unavailable |
+| monitor_inssa_auth_production | `6928e968-edef-48db-b07e-519943e10508` | 2026-09-30 11:15:39.908+00 | passed / 0 | 35.871 | not recorded | 9 items; spaces | Structured results unavailable |
+| monitor_inssa_auth_production | `38821e8c-c600-42b8-8348-dfa813c362c6` | 2026-09-29 21:43:45.839+00 | passed / 0 | 49.564 | not recorded | 9 items; spaces | Structured results unavailable |
+| monitor_inssa_auth_production | `1a07c00c-0bbe-4e1c-9732-5f734979edb9` | 2026-09-29 17:15:34.1+00 | passed / 0 | 28.055 | not recorded | 9 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_production | `3d32810e-5461-4b9c-a8ca-f424628335a6` | 2026-09-29 13:17:58.785+00 | passed / 0 | 33.025 | not recorded | 9 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_production | `ee731359-54ee-44a1-988c-5e7a62bf513e` | 2026-09-29 11:15:12.51+00 | passed / 0 | 33.889 | not recorded | 9 items; spaces | Structured results unavailable |
+| monitor_inssa_auth_production | `1a023ce2-2282-4371-be8c-aae4bbcb6a7f` | 2026-09-28 17:15:46.668+00 | passed / 0 | 33.678 | not recorded | 9 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_production | `6995e998-c537-41ac-8f56-09b955b76400` | 2026-09-28 11:15:23.368+00 | passed / 0 | 25.902 | not recorded | 9 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_production | `cf1f0288-f217-48d5-9644-f9aad74c2d3c` | 2026-09-27 17:15:13.661+00 | passed / 0 | 27.264 | not recorded | 9 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_production | `dc214670-1a4c-4d80-885f-5594038ad029` | 2026-09-27 11:40:27.516+00 | passed / 0 | 39.415 | not recorded | 9 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_production | `845d09d9-c776-4b57-8b47-b00894771845` | 2026-09-27 11:25:59.282+00 | passed_with_warnings / 0 | 35.799 | not recorded | 9 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_production | `8771509f-c898-4c19-95f6-a87efb8bb22d` | 2026-09-27 10:56:10.349+00 | failed / 1 | 58.666 | 0 | 24 items; supabase-storage | Username & Password |
+| monitor_inssa_auth_staging | `cb880945-075e-4e3d-afaa-8c7990e9a596` | 2026-10-02 17:00:55.061+00 | failed / 1 | 141.802 | 0 | 100 items; spaces | Apple Sign-In; Google OAuth; Username & Password |
+| monitor_inssa_auth_staging | `23ddba9b-76f3-4f7f-980a-d12c7a6e9090` | 2026-10-02 11:00:08.835+00 | failed / 1 | 164.715 | 0 | 99 items; spaces | Apple Sign-In; Google OAuth; Username & Password |
+| monitor_inssa_auth_staging | `e3c2ab9d-1e36-47b2-9bb5-3edc1af4363a` | 2026-10-01 17:00:34.543+00 | passed_with_warnings / 0 | 143.834 | not recorded | 8 items; spaces | Structured results unavailable |
+| monitor_inssa_auth_staging | `db22c607-ef9f-4bb1-a489-efc0c6507108` | 2026-10-01 11:00:33.081+00 | passed_with_warnings / 0 | 146.860 | not recorded | 8 items; spaces | Structured results unavailable |
+| monitor_inssa_auth_staging | `5fc73bc0-48d1-4e63-b9b2-debfbc5ca704` | 2026-09-30 17:00:14.875+00 | failed / 1 | 160.111 | 0 | 99 items; spaces | Apple Sign-In; Google OAuth; Username & Password |
+| monitor_inssa_auth_staging | `c530d0e6-c1e6-4d8e-ae1b-1bd6974c1421` | 2026-09-30 11:00:07.342+00 | passed_with_warnings / 0 | 143.482 | not recorded | 8 items; spaces | Structured results unavailable |
+| monitor_inssa_auth_staging | `beae5bda-cc89-4227-b6d2-42f7484b85be` | 2026-09-29 17:00:12.126+00 | passed_with_warnings / 0 | 127.811 | not recorded | 8 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_staging | `ab803096-c90d-406f-9eb5-22c0fd59ab18` | 2026-09-29 11:00:51.971+00 | passed_with_warnings / 0 | 129.911 | not recorded | 8 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_staging | `93091cf7-7448-435c-a7e5-05ed58b5b9fe` | 2026-09-28 17:00:07.382+00 | passed_with_warnings / 0 | 127.239 | not recorded | 8 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_staging | `32dee9ac-8387-40cc-be5a-8b675b60c3e3` | 2026-09-28 11:00:56.704+00 | passed_with_warnings / 0 | 115.567 | not recorded | 8 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_staging | `735b4678-cd15-45fc-9046-d92486111b51` | 2026-09-27 17:00:41.668+00 | passed_with_warnings / 0 | 119.511 | not recorded | 8 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_staging | `31dc0333-fedd-4100-909d-dcd4e7124b8c` | 2026-09-27 11:00:31.929+00 | failed / 1 | 174.872 | 0 | 100 items; supabase-storage | Apple Sign-In; Google OAuth; Username & Password |
+| monitor_inssa_auth_staging | `fb11a0dc-eda2-41d8-af31-606f3bd0e69e` | 2026-09-26 17:00:30.162+00 | passed_with_warnings / 0 | 154.922 | not recorded | 8 items; supabase-storage | Structured results unavailable |
+| monitor_inssa_auth_staging | `1912e6e1-1d28-460b-9d78-3acafc784776` | 2026-09-26 11:00:02.574+00 | failed / None | 122.378 | not recorded | 0 items; no indexed evidence | Structured results unavailable |
+| platform_healthcheck | `8e3af044-c059-48b0-9069-5d0acf5d077b` | 2026-09-29 21:42:52.082+00 | passed_with_warnings / 0 | 6.645 | not recorded | 2 items; spaces | Structured results unavailable |
+| platform_healthcheck | `89012063-abde-4f23-80f1-89e1b1d04537` | 2026-09-29 21:13:45.674+00 | passed_with_warnings / 0 | 3.982 | not recorded | 2 items; spaces | Structured results unavailable |
+| platform_healthcheck | `aa8ecb61-e20e-46e8-b4e7-546b99aac33d` | 2026-09-29 13:16:31.6+00 | passed_with_warnings / 0 | 4.640 | not recorded | 2 items; supabase-storage | Structured results unavailable |
+| platform_healthcheck | `2cbd163b-286d-43c6-823b-623bff00d478` | 2026-09-29 13:15:11.582+00 | passed_with_warnings / 0 | 3.927 | not recorded | 2 items; supabase-storage | Structured results unavailable |
+| report_security | `854a8c9c-2c4c-4168-9baf-f296a8e5432f` | 2026-09-29 22:48:12.421+00 | passed_with_warnings / 0 | 0.966 | not recorded | 1 items; spaces | Structured results unavailable |
+| retention_maintenance | `b94a42fb-77d6-4ffd-81ae-29352535399b` | 2026-09-16 00:30:43.19986+00 | passed / 0 | 11.177 | not recorded | 0 items; no indexed evidence | Structured results unavailable |
+| retention_maintenance | `8b647fc1-ca8e-45fb-83a5-322ca19b47e0` | 2026-09-15 00:45:02.398128+00 | passed / 0 | 294.296 | not recorded | 0 items; no indexed evidence | Structured results unavailable |
+| stabilization_evidence_fixture | `184f9c55-0f50-45ca-a631-d38e05ba33f5` | 2026-09-14 13:38:08.618+00 | failed / 1 | 1.085 | not recorded | 3 items; supabase-storage | Structured results unavailable |
+| test_inssa_campaign_security | `c0081dad-434e-4c32-a614-a3733f439739` | 2026-09-15 10:36:45.04+00 | failed / 1 | 313.134 | 0 | 44 items; supabase-storage | collects non-destructive OWASP black-box security signals |
+| test_inssa_campaign_security | `6b48dc5e-68e0-411d-8b64-915d878a9a84` | 2026-08-17 09:27:34.553+00 | failed / 1 | 296.894 | not recorded | 27 items; local-filesystem | Structured results unavailable |
+| test_inssa_campaign_security_verify | `0be80072-8107-4b46-bacd-c55095dc15d1` | 2026-09-29 21:45:07.526+00 | passed_with_warnings / 0 | 8.791 | not recorded | 3 items; spaces | Structured results unavailable |
+| test_inssa_campaign_security_verify | `5d4e5504-396c-46ec-9cf8-047269df9c6e` | 2026-08-17 09:35:11.219+00 | passed_with_warnings / 0 | 6.165 | not recorded | 3 items; supabase-storage | Structured results unavailable |
+| test_inssa_campaign_text | `5a5649de-02e0-4422-ab9f-3c944f874446` | 2026-08-17 10:31:49.165+00 | failed / 1 | 328.066 | not recorded | 67 items; local-filesystem | Structured results unavailable |
+| test_inssa_safe | `ef069c09-f3f8-4f75-87ab-d6244fa27934` | 2026-10-03 02:00:14.163+00 | failed / 1 | 324.067 | 1 | 35 items; spaces | authenticated compose renders safely for New York, NY |
+| test_inssa_safe | `2cc41b79-6b17-43c8-9bdd-ceda1edf3e03` | 2026-10-02 02:00:16.463+00 | failed / 1 | 297.411 | 1 | 35 items; spaces | authenticated compose renders safely for New York, NY |
+| test_inssa_safe | `103e5756-a9a7-4d5d-86d9-61c699bbe291` | 2026-10-01 02:01:02.096+00 | failed / 1 | 505.032 | 1 | 50 items; spaces | authenticated bury opens the compose surface; authenticated compose renders safely for New York, NY |
+| test_inssa_safe | `e2dd81a6-fa80-4bbc-8cdf-e452c47029e4` | 2026-09-30 15:12:44.513+00 | failed / 1 | 558.617 | 1 | 63 items; spaces | authenticated bury opens the compose surface; authenticated compose renders safely for New York, NY; authenticated direct compose route renders the non-destructive compose surface |
+| test_inssa_safe | `1ac1d10b-1261-4f9a-a594-04abafd6034e` | 2026-09-30 09:47:27.737+00 | failed / 1 | 408.379 | 1 | 42 items; spaces | authenticated compose renders safely for New York, NY; captures visible media options without uploading |
+| test_inssa_safe | `bd72707c-3f38-4c96-8bcb-807a98d1e44c` | 2026-09-30 02:00:42.954+00 | failed / 1 | 348.781 | 1 | 43 items; spaces | authenticated compose renders safely for New York, NY; authenticated direct compose route renders the non-destructive compose surface |
+| test_inssa_safe | `0f244839-6e82-4fb5-8faa-8401491e50e6` | 2026-09-29 02:00:49.024+00 | failed / 1 | 280.179 | 1 | 35 items; supabase-storage | authenticated compose renders safely for New York, NY |
+| test_inssa_safe | `1b6105a0-d9ad-4604-b1b2-cd868a845188` | 2026-09-28 02:00:44.938+00 | failed / 1 | 329.889 | 1 | 36 items; supabase-storage | authenticated compose renders safely for Chicago, IL; authenticated compose renders safely for New York, NY |
+| test_inssa_safe | `f4dadc87-c1e9-445d-ae62-699d113f50f2` | 2026-09-27 02:00:44.922+00 | passed_with_warnings / 0 | 605.591 | 1 | 27 items; supabase-storage | authenticated bury opens the compose surface |
+
+## Acceptance and release
+
+Pending: exact final-head CI, QA deployment, ordered hosted repeatability, Security/Artifact/Lifecycle runs, evidence integrity/fresh-session reopen and final storage fingerprint. No merge or certification is implied by local test passes.

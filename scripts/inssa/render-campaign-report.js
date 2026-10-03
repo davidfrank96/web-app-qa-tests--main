@@ -20,10 +20,12 @@ if (require.main === module) {
     if (mode === "all" || mode === "security") {
       const output = renderLatestSecurityReport();
       if (output) outputs.push(...output);
+      else process.exitCode = 1;
     }
     if (mode === "all" || mode === "lifecycle") {
       const output = renderLatestLifecycleReport();
       if (output) outputs.push(...output);
+      else process.exitCode = 1;
     }
 
     for (const output of outputs) {

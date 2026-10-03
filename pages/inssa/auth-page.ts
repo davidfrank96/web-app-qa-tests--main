@@ -68,19 +68,54 @@ export class AuthPage {
     await this.expectProfileSurface();
   }
 
-  async expectAuthenticatedSession(): Promise<void> {
+  async expectAuthenticatedSession(expectedEmail: string): Promise<void> {
     await expect
       .poll(
         () =>
-          this.page.evaluate(() =>
-            Object.keys(window.localStorage).some((key) => key.startsWith("firebase:authUser:"))
-          ),
+          this.page.evaluate((email) => {
+            try {
+              const profile = JSON.parse(localStorage.getItem("userProfile") ?? "null")?.state?.userProfile;
+              return Object.entries(localStorage).some(([key, value]) => {
+                if (!key.startsWith("firebase:authUser:")) return false;
+                const user = JSON.parse(value);
+                return typeof user?.uid === "string" && user.uid.length > 0 &&
+                  user.email?.toLowerCase() === email.toLowerCase() && profile?.uid === user.uid;
+              });
+            } catch { return false; }
+          }, expectedEmail),
         {
-          message: "Expected the authenticated INSSA session to persist in Firebase Auth storage.",
+          message: "Expected the requested INSSA account and its matching profile to finish initializing.",
           timeout: DEFAULT_TIMEOUT
         }
       )
       .toBe(true);
+  }
+
+  async expectStagingLoginReady(expectedEmail: string): Promise<void> {
+    await this.expectAuthenticatedSession(expectedEmail);
+    await expect(this.page.getByRole("heading", { name: "Signing in...", exact: true, includeHidden: true })).not.toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    await expect.poll(() => new URL(this.page.url()).pathname, { timeout: DEFAULT_TIMEOUT }).not.toMatch(/^\/signin\/?$/);
+  }
+
+  async signOutStaging(expectedEmail: string): Promise<void> {
+    await this.expectStagingLoginReady(expectedEmail);
+    if (await this.page.getByText("Heads up about this browser session", { exact: true }).isVisible()) {
+      await this.page.getByRole("button", { name: "Got it", exact: true }).click();
+    }
+    const skipOnboarding = this.page.getByRole("button", { name: "Skip onboarding", exact: true });
+    if (await skipOnboarding.isVisible()) await skipOnboarding.click();
+    // The profile link uses the product's SPA navigation. A document reload of
+    // /me here aborts the still-running post-login account lookup.
+    if (!(await this.signOutButton().isVisible())) {
+      await this.page.getByRole("link", { name: /^Profile(?:, \d+ new)?$/ }).click();
+    }
+    await this.expectProfileSurface();
+    await this.expectAuthenticatedSession(expectedEmail);
+    await this.signOutButton().click();
+    await expect.poll(() => this.page.evaluate(() => Object.entries(localStorage).some(([key, value]) => {
+      if (!key.startsWith("firebase:authUser:")) return false;
+      try { return Boolean(JSON.parse(value)?.uid); } catch { return true; }
+    })), { message: "Expected real UI logout to remove the authenticated Firebase user.", timeout: DEFAULT_TIMEOUT }).toBe(false);
   }
 
   async expectProfileSurface(): Promise<void> {
@@ -117,7 +152,7 @@ export class AuthPage {
   async expectPublicState(): Promise<void> {
     await expectPageNotBlank(this.page);
     await expect(
-      this.page.getByRole("link", { name: /sign in/i }),
+      this.page.locator("a[href='/signin']").filter({ hasText: /^sign in$/i }),
       "Expected the public INSSA state to expose a Sign In entry point after logout."
     ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
     await expect(this.signOutButton()).toHaveCount(0);

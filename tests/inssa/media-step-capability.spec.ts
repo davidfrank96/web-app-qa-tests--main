@@ -5,6 +5,8 @@ import { assertValidInssaUrl } from "../../utils/env";
 import { DEFAULT_INSSA_US_MARKET_LOCATION_KEY, getInssaUsMarketLocation } from "../../utils/inssa-test-data";
 import { withInssaStabilityMonitor } from "../../utils/monitor";
 
+test.use({ productWriteAuditEnabled: true });
+
 test.describe("INSSA media step capability audit", () => {
   test.describe.configure({ mode: "serial" });
   test.setTimeout(90_000);

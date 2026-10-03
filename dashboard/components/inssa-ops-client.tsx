@@ -1,5 +1,6 @@
 "use client";
 
+import { JsonEvidencePreview } from "./json-evidence-preview";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { GovernedCampaignWorkspace, GovernedApprovalModal, RunCleanupSummary, functionalResultLabel } from "./governed-campaign-workspace";
 import { RetentionSummary } from "./retention-summary";
@@ -2571,7 +2572,7 @@ function CommandCard({
       <dl className="mt-4 grid gap-2 text-sm text-slate-300 md:grid-cols-2">
         <Metadata label="NPM script" value={campaign.npmScript} mono />
         <Metadata label="Type" value={formatCommandType(campaign.commandType)} />
-        <Metadata label="Mutates staging" value={campaign.mutatesStaging ? "yes" : "no"} />
+        <Metadata label="Staging side effects" value={campaign.mutatesStaging ? "Creates data" : campaign.key === "test_inssa_safe" ? "Account metadata only" : "No governed mutation"} />
         <Metadata label="Fresh findings" value={campaign.producesFindings ? "yes" : "no"} />
         <Metadata label="Reports" value={campaign.producesReports ? "yes" : "no"} />
         <Metadata label="Timeout" value={`${Math.round(campaign.timeoutMs / 1000)}s`} />
@@ -2823,7 +2824,7 @@ function CampaignDetailPanel({
         <MetadataCard label="Status" value={campaign.status} tone={campaign.executionEnabled ? "pass" : "warn"} />
         <MetadataCard label="Estimated Duration" value={campaign.estimatedDuration} />
         <MetadataCard label="Last Run" value={latestRun ? formatCampaignExecutionState(latestRun) : "none"} />
-        <MetadataCard label="Mutates Staging" value={campaign.mutatesStaging ? "yes" : "no"} tone={campaign.mutatesStaging ? "warn" : "pass"} />
+        <MetadataCard label="Staging side effects" value={campaign.mutatesStaging ? "Creates data" : campaign.commandKey === "test_inssa_safe" ? "Account metadata only" : "No governed mutation"} tone={campaign.mutatesStaging ? "warn" : "pass"} />
         <MetadataCard label="Cleanup Required" value={campaign.cleanupRequired ? "yes" : "no"} tone={campaign.cleanupRequired ? "warn" : "pass"} />
         <MetadataCard label="Approval Required" value={campaign.approvalRequired ? "yes" : "no"} tone={campaign.approvalRequired ? "warn" : "pass"} />
         <MetadataCard label="Produces" value={campaign.produces.join(", ") || "metadata"} />
@@ -3014,7 +3015,7 @@ function ActionDetail({
         <Metadata label="Risk level" value={option.riskLevel} />
         <Metadata label="Produces reports" value={campaign?.producesReports ? "yes" : option.disabled ? "not enabled" : "no"} />
         <Metadata label="Produces findings" value={campaign?.producesFindings ? "yes" : option.disabled ? "not enabled" : "no"} />
-        <Metadata label="Mutates staging" value={campaign?.mutatesStaging ? "yes" : option.disabled && option.riskLevel.includes("mutation") ? "yes" : "no"} />
+        <Metadata label="Staging side effects" value={campaign?.key === "test_inssa_safe" ? "Account metadata only" : campaign?.mutatesStaging || (option.disabled && option.riskLevel.includes("mutation")) ? "Creates data" : "No governed mutation"} />
         <Metadata label="Cleanup required" value={cleanupRequiredForAction(option) ? "yes" : "no"} />
         <Metadata label="Estimated duration" value={campaign ? formatDuration(campaign.timeoutMs) : "not available"} />
         <Metadata label="Execution status" value={latestRun ? formatCampaignExecutionState(latestRun) : option.disabled ? "disabled in current phase" : "not run yet"} />
@@ -3096,7 +3097,7 @@ function ArtifactValidationActionPanel({
             <Metadata label="Risk level" value={campaign.riskLevel} />
             <Metadata label="Produces reports" value={campaign.producesReports ? "yes" : "no"} />
             <Metadata label="Produces findings" value={campaign.producesFindings ? "yes" : "no"} />
-            <Metadata label="Mutates staging" value={campaign.mutatesStaging ? "yes" : "no"} />
+            <Metadata label="Staging side effects" value={campaign.mutatesStaging ? "Creates data" : campaign.key === "test_inssa_safe" ? "Account metadata only" : "No governed mutation"} />
             <Metadata label="Cleanup required" value="no" />
             <Metadata label="Estimated duration" value={formatDuration(campaign.timeoutMs)} />
             <Metadata label="Execution status" value={latestRun ? latestRun.status : "not run yet"} />
@@ -3166,7 +3167,7 @@ function ArtifactValidationCommandCard({
       <dl className="mt-4 grid gap-2 text-sm text-slate-300">
         <Metadata label="Consumes artifact" value={selectedArtifact?.filePath ?? "required before execution"} mono />
         <Metadata label="Mode" value={artifactSelection ? artifactSelection.mode : "not selected"} />
-        <Metadata label="Mutates staging" value={campaign.mutatesStaging ? "yes" : "no"} />
+        <Metadata label="Staging side effects" value={campaign.mutatesStaging ? "Creates data" : campaign.key === "test_inssa_safe" ? "Account metadata only" : "No governed mutation"} />
       </dl>
       <button
         className="mt-5 rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
@@ -3250,7 +3251,7 @@ function StatusBadge({ status }: { status: string }) {
               ? "bg-rose-300/15 text-rose-200 ring-rose-300/20"
               : "bg-slate-700 text-slate-300 ring-slate-600";
 
-  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs ring-1 ${className}`}>{status}</span>;
+  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs ring-1 ${className}`}>{humanizePolicy(status)}</span>;
 }
 
 function AuthenticationCheckCard({
@@ -3360,7 +3361,7 @@ function EvidenceWorkspace({
           <label className="block">
             <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Search</span>
             <input
-              className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/60"
+              className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-hidden transition focus:border-cyan-300/60"
               onChange={(event) => setBundleSearch(event.target.value)}
               placeholder="Campaign, run, status, storage..."
               type="search"
@@ -3724,6 +3725,10 @@ function EvidencePreview({
         </p>
       </div>
     );
+  }
+
+  if (item.contentType.split(";")[0].trim() === "application/json") {
+    return <JsonEvidencePreview href={href} />;
   }
 
   if (kind === "image") {
