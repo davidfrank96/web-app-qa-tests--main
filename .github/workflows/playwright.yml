@@ -44,6 +44,9 @@ jobs:
       - name: Verify authenticated JSON evidence text preview
         run: node dashboard/scripts/test-json-evidence-preview.mjs
 
+      - name: Verify authentication result selection and asynchronous status isolation
+        run: node dashboard/scripts/test-authentication-monitor-ui.mjs
+
       - name: Verify active and terminal dashboard polling
         run: npm run test:ci:dashboard-polling
       - name: Verify production read-only logout with isolated browser fixtures
