@@ -105,14 +105,17 @@ export class AuthPage {
     const skipOnboarding = this.page.getByRole("button", { name: "Skip onboarding", exact: true });
     if (await skipOnboarding.isVisible()) await skipOnboarding.click();
     const locationPrompt = this.page.getByRole("dialog", { name: "Unlock what's near you", exact: true });
-    // Location consent can arrive after profile readiness and hide the header.
-    // Use the product control with the existing synthetic staging coordinates;
-    // a locator handler also covers a prompt that appears during navigation.
-    await this.page.addLocatorHandler(locationPrompt, async () => {
+    const acceptLocation = async () => {
       await this.page.context().setGeolocation({ latitude: 53.3382, longitude: -6.2591 });
       await this.page.context().grantPermissions(["geolocation"], { origin: new URL(this.page.url()).origin });
       await locationPrompt.getByRole("button", { name: "Use my location", exact: true }).click();
-    });
+    };
+    // Complete visible consent as its own product step. A locator handler's
+    // duration consumes the triggering action's budget, so nesting known
+    // consent inside Profile navigation can time out both actions.
+    if (await locationPrompt.isVisible()) await acceptLocation();
+    // Keep a one-shot fallback only for a prompt arriving during navigation.
+    await this.page.addLocatorHandler(locationPrompt, acceptLocation, { times: 1 });
     try {
       // The profile link uses the product's SPA navigation. A document reload of
       // /me here aborts the still-running post-login account lookup.
