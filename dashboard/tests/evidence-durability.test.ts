@@ -84,6 +84,29 @@ for (const [mode, expected] of [["pass", "passed"], ["fail", "failed"], ["timeou
   });
 }
 
+test("fast child exit is observed while initial metadata persistence is delayed", { timeout: 8_000 }, async (t) => {
+  const f = await fixture(t), { run, job } = await f.createRun("pass");
+  const prototype = Object.getPrototypeOf(f.store);
+  const appendLog = prototype.appendLog;
+  t.mock.method(prototype, "appendLog", async function (this: typeof f.store, id: string, stream: string, message: string) {
+    if (message.startsWith("Campaign process ownership established:")) {
+      // Let the real short-lived child exit before the initial metadata write resolves.
+      const output = path.join(f.root, "run-output", run.id, "result.json");
+      const deadline = Date.now() + 3_000;
+      while (!(await fs.stat(output).catch(() => null)) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.ok(await fs.stat(output));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    return appendLog.call(this, id, stream, message);
+  });
+  await executeClaimedInssaJob(job, "fixture-worker", config);
+  assert.equal((await f.store.getRun(run.id))?.status, "passed");
+  assert.equal((await f.jobs.getByRunId(run.id))?.status, "completed");
+  assert.equal((await f.store.getEvidence(run.id)).bundles[0]?.uploadStatus, "uploaded");
+});
+
 test("lease loss, foreign ownership and still-alive process reject publication", async (t) => {
   const f = await fixture(t), { run, job } = await f.createRun("timeout");
   const owner = { jobId: job.id, workerId: "fixture-worker" };

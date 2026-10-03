@@ -253,3 +253,9 @@ These are observed unsuccessful attempts, including attempts followed by a retry
 ### Authentication dashboard asynchronous response defect
 
 The live dashboard temporarily showed a production PASS and `inssa.us` target under selected Staging while its 20-result batch loaded, then displayed an incomplete-results banner beside complete method results. The isolated delayed-response regression fails on the released client. Deriving displayed summaries/errors from the selected run and environment, and ignoring obsolete log responses, removes both false status displays; the new real-client regression passes. This is a P1 DEMO_UX_ISSUE / TEST_HARNESS_BUG included in the follow-up PR, with no backend/auth-policy change.
+
+### Worker completion race exposed by final-head CI
+
+QA Enforcement on `f8c188c08c52fdbbbab66e7fcb039fb95110e10d` reached the evidence durability fixture and exhausted its existing 20-minute job limit. Inspection found child completion/error/output listeners were attached after asynchronous startup metadata writes. A fast child could finish during those writes, leaving the worker waiting forever for an already-emitted close event. Classification: **TEST_HARNESS_BUG**, P0 execution reliability.
+
+A regression delays the initial ownership log until a real fixture has written its result and exited. Before the fix it timed out at 8 seconds; after registering all listeners before yielding to metadata IO, it passes in 503 ms with terminal job status and uploaded evidence. The complete local platform suite passes 226/226. No command timeout, lease, heartbeat, failure limit, schedule, or storage policy changed. This supersedes the earlier final-head CI result; new exact-head checks are required before merge.

@@ -271,12 +271,6 @@ async function executeRun(
   });
   const processGroupId = ownedProcessGroupId(child);
   const resourceStart = process.resourceUsage();
-  await appendLog(
-    "system",
-    `Campaign process ownership established: pid=${String(child.pid)}, processGroup=${String(processGroupId)}, timeoutMs=${run.commandSnapshot.timeoutMs}, terminationGraceMs=${terminationGraceMs}.`
-  );
-
-  await store.updateRun(run.id, { status: "running" });
   const terminationState: { promise: ReturnType<typeof terminateOwnedProcessTree> | null } = { promise: null };
   const terminate = (reason: "lease_loss" | "parent_exit_descendants" | "timeout") => {
     if (terminationState.promise) return terminationState.promise;
@@ -318,9 +312,18 @@ async function executeRun(
     void appendLog("system", `Startup failure: ${redactInssaLogLine(error.message)}`);
   });
 
-  const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+  // Register every child listener before yielding to metadata IO: a short
+  // command can finish while startup logs or running status are persisted.
+  const completion = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
     child.on("close", (code, signal) => resolve({ code, signal }));
   });
+  await appendLog(
+    "system",
+    `Campaign process ownership established: pid=${String(child.pid)}, processGroup=${String(processGroupId)}, timeoutMs=${run.commandSnapshot.timeoutMs}, terminationGraceMs=${terminationGraceMs}.`
+  );
+
+  await store.updateRun(run.id, { status: "running" });
+  const exit = await completion;
   clearTimeout(timeout);
   if (!terminationState.promise && isOwnedProcessTreeAlive(child, processGroupId)) {
     await appendLog(
