@@ -158,3 +158,11 @@ Routes included address, place, latitude, longitude and placeId. Required-field 
 ## Acceptance and release
 
 Pending: exact final-head CI, QA deployment, ordered hosted repeatability, Security/Artifact/Lifecycle runs, evidence integrity/fresh-session reopen and final storage fingerprint. No merge or certification is implied by local test passes.
+
+## First deployed acceptance and follow-up
+
+PR #37 merged after exact-head QA Enforcement and Playwright QA passed. Main `a08ae1b70c582f47c3f52260b32ac565f4a817a5`, deployment `1dac2323-016e-412b-942c-c3c775ec9b92` is live and healthy.
+
+First password acceptance `e2f042ee-4cbf-4db7-9771-e31a53a6418a` **FAILED** (129.512 s total; password timed out after 51.056 s; zero retries). Login identity/readiness passed, but an asynchronous **Unlock what's near you** dialog hid the Profile link. Screenshot confirms the product control exists behind the prompt. This is a remaining TEST_HARNESS_BUG, not a passing repeatability attempt. Bundle `c4cdf800-5b42-4b1a-b490-f08ac37882f4` contains 52 uploaded Spaces items.
+
+Follow-up handles that exact dialog with the real Use my location control and the existing synthetic staging coordinates. A scoped locator handler covers late presentation during Profile navigation and is removed afterward. Immediate and delayed aria-hidden-dialog fixtures pass. No login timeout was increased, no final action was retried, and no application state was cleared. Hosted certification restarts only after the follow-up passes CI and deploys; this failed run remains in history.

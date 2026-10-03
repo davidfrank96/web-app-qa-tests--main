@@ -7,7 +7,7 @@ async function main() {
 const origin = "https://staging-auth-fixture.invalid";
 process.env.INSSA_URL = origin;
 const browser = await chromium.launch();
-const cases = ["success", "slow-profile", "post-login-overlays", "public-location-modal", "wrong-account", "stale-profile", "logout-failure", "missing-control"];
+const cases = ["success", "slow-profile", "post-login-overlays", "public-location-modal", "login-location-modal", "late-location-modal", "wrong-account", "stale-profile", "logout-failure", "missing-control"];
 try {
   for (const scenario of cases.filter(name => !process.argv[2] || name === process.argv[2])) {
     const context = await browser.newContext({ baseURL: origin, serviceWorkers: "block" });
@@ -29,6 +29,18 @@ try {
               const onboarding=document.createElement('aside');onboarding.style.cssText='position:fixed;inset:0;background:white;z-index:99';onboarding.innerHTML='<button aria-label="Skip onboarding">Skip</button>';onboarding.querySelector('button').onclick=()=>onboarding.remove();document.body.append(onboarding);
             },700);
           }
+          if(scenario==='login-location-modal'||scenario==='late-location-modal') {
+            const showLocation=()=>{
+              document.querySelector('main').setAttribute('aria-hidden','true');
+              const prompt=document.createElement('section');prompt.setAttribute('role','dialog');prompt.setAttribute('aria-label',"Unlock what's near you");prompt.style.cssText='position:fixed;inset:0;z-index:500;background:white';prompt.innerHTML='<button>Use my location</button>';document.body.append(prompt);
+              prompt.querySelector('button').onclick=()=>{document.querySelector('main').removeAttribute('aria-hidden');prompt.remove();};
+            };
+            if(scenario==='login-location-modal')showLocation();else {
+              document.querySelector('a').style.cssText='transform:translateX(50px);transition:transform 1s';
+              setTimeout(showLocation,30);
+              setTimeout(()=>document.querySelector('a')?.style.removeProperty('transform'),10);
+            }
+          }
           document.querySelector('a').onclick = event => {
             event.preventDefault(); history.pushState(null,'','/u/expected');
             document.querySelector('main').innerHTML = '<h1>Profile</h1>';
@@ -42,7 +54,7 @@ try {
     });
     const page=await context.newPage();const auth=new AuthPage(page);
     await auth.goToSignIn();await auth.signInWithEmail("expected@example.test","fixture-only");
-    if(scenario==='success'||scenario==='slow-profile'||scenario==='post-login-overlays'||scenario==='public-location-modal') {
+    if(scenario==='success'||scenario==='slow-profile'||scenario==='post-login-overlays'||scenario==='public-location-modal'||scenario==='login-location-modal'||scenario==='late-location-modal') {
       await auth.signOutStaging("expected@example.test");await auth.expectPublicState();
     } else {
       await assert.rejects(auth.signOutStaging("expected@example.test"), scenario==='missing-control'?/sign out/i:scenario==='logout-failure'?/Expected: false/:/Expected: true/);
