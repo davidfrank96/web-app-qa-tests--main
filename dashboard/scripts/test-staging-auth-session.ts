@@ -7,7 +7,7 @@ async function main() {
 const origin = "https://staging-auth-fixture.invalid";
 process.env.INSSA_URL = origin;
 const browser = await chromium.launch();
-const cases = ["success", "slow-profile", "post-login-overlays", "public-location-modal", "login-location-modal", "late-location-modal", "slow-location-consent", "wrong-account", "stale-profile", "logout-failure", "missing-control"];
+const cases = ["success", "slow-profile", "post-login-overlays", "public-location-modal", "login-location-modal", "late-location-modal", "slow-location-consent", "permission-driven-location", "wrong-account", "stale-profile", "logout-failure", "missing-control"];
 try {
   for (const scenario of cases.filter(name => !process.argv[2] || name === process.argv[2])) {
     const context = await browser.newContext({ baseURL: origin, serviceWorkers: "block" });
@@ -29,14 +29,15 @@ try {
               const onboarding=document.createElement('aside');onboarding.style.cssText='position:fixed;inset:0;background:white;z-index:99';onboarding.innerHTML='<button aria-label="Skip onboarding">Skip</button>';onboarding.querySelector('button').onclick=()=>onboarding.remove();document.body.append(onboarding);
             },700);
           }
-          if(scenario==='login-location-modal'||scenario==='late-location-modal'||scenario==='slow-location-consent') {
+          if(scenario==='login-location-modal'||scenario==='late-location-modal'||scenario==='slow-location-consent'||scenario==='permission-driven-location') {
             const showLocation=()=>{
               document.querySelector('main').setAttribute('aria-hidden','true');
               const prompt=document.createElement('section');prompt.setAttribute('role','dialog');prompt.setAttribute('aria-label',"Unlock what's near you");prompt.style.cssText='position:fixed;inset:0;z-index:500;background:white';prompt.innerHTML='<button>Use my location</button>';document.body.append(prompt);
               if(scenario==='slow-location-consent'){prompt.querySelector('button').disabled=true;setTimeout(()=>prompt.querySelector('button').disabled=false,2500);}
+              if(scenario==='permission-driven-location')navigator.permissions.query({name:'geolocation'}).then(permission=>{const sync=()=>{if(permission.state==='granted'){document.querySelector('main').removeAttribute('aria-hidden');prompt.remove();}};permission.onchange=sync;sync();});
               prompt.querySelector('button').onclick=()=>{document.querySelector('main').removeAttribute('aria-hidden');prompt.remove();if(scenario==='slow-location-consent'){const link=document.querySelector('a');link.style.cssText='display:inline-block;transform:translateX(150px);transition:transform 2.2s';requestAnimationFrame(()=>requestAnimationFrame(()=>link.style.transform='translateX(0)'));}};
             };
-            if(scenario==='login-location-modal'||scenario==='slow-location-consent')showLocation();else {
+            if(scenario==='login-location-modal'||scenario==='slow-location-consent'||scenario==='permission-driven-location')showLocation();else {
               document.querySelector('a').style.cssText='transform:translateX(50px);transition:transform 1s';
               setTimeout(showLocation,30);
               setTimeout(()=>document.querySelector('a')?.style.removeProperty('transform'),10);
@@ -53,9 +54,9 @@ try {
         };
       </script>` });
     });
-    const page=await context.newPage();if(scenario==='slow-location-consent')page.setDefaultTimeout(3000);const auth=new AuthPage(page);
+    const page=await context.newPage();if(scenario==='slow-location-consent'||scenario==='permission-driven-location')page.setDefaultTimeout(3000);const auth=new AuthPage(page);
     await auth.goToSignIn();await auth.signInWithEmail("expected@example.test","fixture-only");
-    if(scenario==='success'||scenario==='slow-profile'||scenario==='post-login-overlays'||scenario==='public-location-modal'||scenario==='login-location-modal'||scenario==='late-location-modal'||scenario==='slow-location-consent') {
+    if(scenario==='success'||scenario==='slow-profile'||scenario==='post-login-overlays'||scenario==='public-location-modal'||scenario==='login-location-modal'||scenario==='late-location-modal'||scenario==='slow-location-consent'||scenario==='permission-driven-location') {
       await auth.signOutStaging("expected@example.test");await auth.expectPublicState();
     } else {
       await assert.rejects(auth.signOutStaging("expected@example.test"), scenario==='missing-control'?/sign out/i:scenario==='logout-failure'?/Expected: false/:/Expected: true/);

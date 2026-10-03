@@ -98,6 +98,10 @@ export class AuthPage {
   }
 
   async signOutStaging(expectedEmail: string): Promise<void> {
+    // Resolve the browser prerequisite before observing product consent. INSSA
+    // can dismiss that dialog on permission change, detaching its button.
+    await this.page.context().setGeolocation({ latitude: 53.3382, longitude: -6.2591 });
+    await this.page.context().grantPermissions(["geolocation"], { origin: new URL(this.page.url()).origin });
     await this.expectStagingLoginReady(expectedEmail);
     if (await this.page.getByText("Heads up about this browser session", { exact: true }).isVisible()) {
       await this.page.getByRole("button", { name: "Got it", exact: true }).click();
@@ -106,8 +110,6 @@ export class AuthPage {
     if (await skipOnboarding.isVisible()) await skipOnboarding.click();
     const locationPrompt = this.page.getByRole("dialog", { name: "Unlock what's near you", exact: true });
     const acceptLocation = async () => {
-      await this.page.context().setGeolocation({ latitude: 53.3382, longitude: -6.2591 });
-      await this.page.context().grantPermissions(["geolocation"], { origin: new URL(this.page.url()).origin });
       await locationPrompt.getByRole("button", { name: "Use my location", exact: true }).click();
     };
     // Complete visible consent as its own product step. A locator handler's
