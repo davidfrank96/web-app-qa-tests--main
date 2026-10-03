@@ -1,3 +1,4 @@
+import { expectInssaLocationDefaults } from "../../utils/inssa-compose-contract";
 import { expect, test } from "./fixtures";
 import { TimeCapsulePage } from "../../pages/inssa/time-capsule.page";
 import { createInssaErrorMonitor, getInssaTestCredentials } from "../../utils/auth";
@@ -9,6 +10,8 @@ import {
   INSSA_US_MARKET_LOCATIONS
 } from "../../utils/inssa-test-data";
 import { withInssaStabilityMonitor } from "../../utils/monitor";
+
+test.use({ productWriteAuditEnabled: true });
 
 test.describe("INSSA USA compose location matrix", () => {
   test.describe.configure({ mode: "serial" });
@@ -42,14 +45,16 @@ test.describe("INSSA USA compose location matrix", () => {
           await expect(page.url()).toMatch(INSSA_TIME_CAPSULE_ROUTE_PATTERN);
 
           const values = await compose.readComposeValues();
-          expect(
-            values.subject,
-            `Expected the compose subject to seed from the selected USA location defaults for ${location.label}.`
-          ).toBe(templateDefaults.subject);
-          expect(
-            values.message.toLowerCase(),
-            `Expected the compose message to seed from the selected USA location template for ${location.label}.`
-          ).toContain((location.place ?? location.label).toLowerCase());
+          expectInssaLocationDefaults(values, templateDefaults.subject);
+          const actualRoute = new URL(page.url());
+          const expectedRoute = new URL(route, actualRoute.origin);
+          for (const key of ["address", "place", "lat", "lng", "placeId"]) {
+            expect(actualRoute.searchParams.get(key), `Selected location parameter ${key}`).toBe(expectedRoute.searchParams.get(key));
+          }
+          await testInfo.attach(`us-location-${location.key}-defaults.json`, {
+            body: JSON.stringify({ location, route, values, limits: { subject: 140, message: 3000 } }, null, 2),
+            contentType: "application/json"
+          });
         }, { phase: "assertion" });
 
         await monitor.step("reach Media safely without publishing", async () => {

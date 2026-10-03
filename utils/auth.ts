@@ -308,7 +308,7 @@ async function hasUsableInssaAuthStorageState(browser: Browser, statePath: strin
   try {
     const state = JSON.parse(await fs.readFile(statePath, "utf8"));
     const origin = state.origins?.find((entry: { origin: string }) => entry.origin === new URL(assertValidInssaUrl()).origin);
-    if (!hasCompleteInssaSession(origin?.localStorage ?? [])) return false;
+    if (!hasCompleteInssaSession(origin?.localStorage ?? [], getInssaTestCredentials().email)) return false;
   } catch {
     return false;
   }
@@ -362,19 +362,22 @@ async function writeInssaAuthStorageState(browser: Browser, statePath: string): 
       message: "Expected Firebase authentication and the matching INSSA profile to persist before saving the test session.",
       timeout: 30_000
     }).toBe(true);
+    await new AuthPage(page).expectStagingLoginReady(getInssaTestCredentials().email);
     await context.storageState({ path: statePath });
   } finally {
     await context?.close().catch(() => {});
   }
 }
 
-export function hasCompleteInssaSession(entries: Array<{ name: string; value: string }>): boolean {
+export function hasCompleteInssaSession(entries: Array<{ name: string; value: string }>, expectedEmail?: string): boolean {
   try {
     const profile = JSON.parse(entries.find((entry) => entry.name === "userProfile")?.value ?? "null");
     const uid = profile?.state?.userProfile?.uid;
-    return typeof uid === "string" && uid.length > 0 && entries.some((entry) =>
-      entry.name.startsWith("firebase:authUser:") && JSON.parse(entry.value)?.uid === uid
-    );
+    return typeof uid === "string" && uid.length > 0 && entries.some((entry) => {
+      if (!entry.name.startsWith("firebase:authUser:")) return false;
+      const user = JSON.parse(entry.value);
+      return user?.uid === uid && (!expectedEmail || user.email?.toLowerCase() === expectedEmail.toLowerCase());
+    });
   } catch {
     return false;
   }

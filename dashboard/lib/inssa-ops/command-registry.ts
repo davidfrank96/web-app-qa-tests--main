@@ -35,7 +35,7 @@ export const INSSA_PHASE1_COMMANDS: InssaCommandDefinition[] = [
     key: "test_inssa_safe",
     mutatesStaging: false,
     npmScript: "test:inssa:safe",
-    operatorDescription: "Runs the non-mutating INSSA safe regression suite.",
+    operatorDescription: "Checks compose without publishing or saving drafts. INSSA updates account activity and notification-sync metadata; unexpected product writes fail the suite.",
     phase1Enabled: true,
     producesFindings: false,
     producesReports: true,

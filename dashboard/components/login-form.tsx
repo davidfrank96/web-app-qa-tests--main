@@ -67,7 +67,7 @@ export function LoginForm({ authConfigured, initialMessage = "" }: LoginFormProp
             <span className="text-slate-300">Email</span>
             <input
               autoComplete="email"
-              className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none ring-cyan-300/0 transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-300/10"
+              className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-hidden ring-cyan-300/0 transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-300/10"
               onChange={(event) => setEmail(event.target.value)}
               type="email"
               value={email}
@@ -78,7 +78,7 @@ export function LoginForm({ authConfigured, initialMessage = "" }: LoginFormProp
             <span className="text-slate-300">Password</span>
             <input
               autoComplete="current-password"
-              className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none ring-cyan-300/0 transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-300/10"
+              className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-hidden ring-cyan-300/0 transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-300/10"
               onChange={(event) => setPassword(event.target.value)}
               type="password"
               value={password}

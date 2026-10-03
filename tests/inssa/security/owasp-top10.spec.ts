@@ -1,3 +1,4 @@
+import { tokenlessContentObserved } from "../../../utils/inssa-security-observations";
 import { promises as fs } from "fs";
 import path from "path";
 import type { APIRequestContext, Browser } from "@playwright/test";
@@ -153,9 +154,7 @@ async function collectAccessControl(input: {
     }
   }
 
-  const tokenlessExactContent = capsuleProbes.some((probe) =>
-    input.lifecycleArtifacts.some((artifact) => containsExactQaContent(probe.bodySample, artifact))
-  );
+  const tokenlessExactContent = tokenlessContentObserved(capsuleProbes, input.lifecycleArtifacts);
   if (tokenlessExactContent) {
     input.findings.push({
       affectedRoute: "/capsule/<id>",
@@ -627,10 +626,6 @@ function stripToken(url: string): string {
   const parsed = new URL(url);
   parsed.searchParams.delete("token");
   return parsed.toString();
-}
-
-function containsExactQaContent(sample: string, artifact: LifecycleArtifact): boolean {
-  return Boolean(artifact.subject && sample.includes(artifact.subject)) || Boolean(artifact.message && sample.includes(artifact.message));
 }
 
 function normalizeHeaders(headers: Record<string, string>): Record<string, string> {

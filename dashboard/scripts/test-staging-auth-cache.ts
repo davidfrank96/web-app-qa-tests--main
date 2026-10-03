@@ -10,7 +10,7 @@ async function main() {
   Object.assign(process.env, { INSSA_URL: "https://session-fixture.invalid", INSSA_TEST_EMAIL: `${randomUUID()}@example.test`, INSSA_TEST_PASSWORD: "fixture-only" });
   const statePath = getInssaAuthStorageStatePath();
   const key = "firebase:authUser:fixture:[DEFAULT]";
-  const auth = { name: key, value: JSON.stringify({ uid: "fixture-user" }) };
+  const auth = { name: key, value: JSON.stringify({ uid: "fixture-user", email: process.env.INSSA_TEST_EMAIL }) };
   const profile = { name: "userProfile", value: JSON.stringify({ state: { userProfile: { uid: "fixture-user" } } }) };
   const state = (entries: typeof auth[]) => ({ cookies: [], origins: [{ origin: process.env.INSSA_URL, localStorage: entries }] });
   await fs.mkdir(path.dirname(statePath), { recursive: true });
@@ -49,6 +49,7 @@ async function main() {
     assert.equal(logins, 1, "incomplete fresh cache is rejected and delayed profile is captured");
     await ensureInssaAuthStorageState(guardedBrowser);
     assert.equal(logins, 1, "complete recent snapshot is reused");
+    assert.equal(hasCompleteInssaSession([auth, profile], "wrong@example.test"), false, "matching UIDs do not authorize reuse for another email");
     const old = new Date(Date.now() - 20 * 60_000);
     await fs.utimes(statePath, old, old);
     await ensureInssaAuthStorageState(guardedBrowser);

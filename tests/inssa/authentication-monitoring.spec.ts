@@ -63,8 +63,7 @@ test("Username & Password", async ({ page }, testInfo) => {
       await expectProductionSession(page, credentials.email);
       await signOutReadOnlyProduction(page);
     } else {
-      await authPage.expectAuthenticatedSession();
-      await authPage.signOut();
+      await authPage.signOutStaging(credentials.email);
       await expectLoggedOutState(page);
     }
   });
@@ -366,7 +365,9 @@ async function launchProvider(page: Page, accessibleName: string) {
 async function expectLoggedOutState(page: Page) {
   await expect(page.getByRole("button", { name: /sign out|log out|logout/i })).toHaveCount(0);
   const publicSignal = page
-    .getByRole("link", { name: /sign in/i })
+    // Location consent marks the underlying public header aria-hidden. The
+    // visible /signin link remains the public-state signal, not an action target.
+    .locator("a[href='/signin']").filter({ hasText: /^sign in$/i })
     .or(page.getByText("Skip", { exact: true }))
     .or(page.getByRole("button", { name: "Next", exact: true }));
   await expect(

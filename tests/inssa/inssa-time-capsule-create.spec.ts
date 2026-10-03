@@ -47,6 +47,8 @@ baseTest.describe("INSSA time capsule compose entry", () => {
   });
 });
 
+authenticatedTest.use({ productWriteAuditEnabled: true });
+
 authenticatedTest.describe("INSSA time capsule compose entry", () => {
   authenticatedTest.skip(
     !hasInssaTestCredentials(),
