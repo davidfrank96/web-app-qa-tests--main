@@ -1,12 +1,18 @@
-# INSSA demo readiness runbook — 3 October 2026
+# INSSA demo readiness runbook — 4 October 2026
 
-**Certification pending hosted acceptance. Do not call the full demo certified yet.** The current audit and exact run inventory are in [pre-demo-test-reliability-audit.md](pre-demo-test-reliability-audit.md). This replaces the 29 September operating assumptions. The date is unconfirmed; plan a two-hour session with a 35–45 minute core.
+**FULL DEMO BLOCKED. Hosted staging password acceptance is PASS / PASS / FAIL (zero retries).** The current audit and exact run inventory are in [pre-demo-test-reliability-audit.md](pre-demo-test-reliability-audit.md). This replaces the 29 September operating assumptions. The date is unconfirmed; plan a two-hour session with a 35–45 minute core.
 
 ## Operating boundary
 
 Only QA app `kbean-qa-webapp` (`25bef95b-e762-4675-b850-65794c62aa10`) is in scope. Product writes target staging.inssa.us only. Production is password-auth monitoring only. Keep Phase 5B paused; no historical migration/deletion, retention change, source cleanup or credential/schedule change. New evidence belongs in private Spaces `kbean-qa-evidence`; historical Supabase and Spaces remain readable. Manual product cleanup is advisory and does not block testing.
 
 One worker, one active execution, including evidence indexing. Wait for a terminal run **and uploaded evidence** before starting another. Never double-click Run to repair slowness. Preserve lease 120 s, heartbeat 15 s and failure limit 3. Check the actual scheduler/queue before every live action; avoid overlapping scheduled auth occurrences. Do not change schedules for the demo.
+
+## Current checkpoint
+
+Tested release `469236d75cfb2e4672f9faa80e8f8d92d43b04c6`, deployment `62ca4342-1507-4631-985f-8b4c15522395`. Password runs took 81.335 / 80.292 / 81.461 seconds. The third failed before Profile navigation, with visible/stable control but excessive action latency; logout was not reached. Do not increase the timeout or repeat runs simply to replace that result. Ordered production/Safe/security/live lifecycle acceptance remains unexecuted. All six preflights pass, but there are no usable lifecycle artifacts.
+
+Until the P0 is resolved and the entire ordered acceptance passes, restrict the demo to health, dated evidence (including the failure), working JSON preview, and read-only governance preflight. Do not advertise live execution reliability. Scheduled post-release staging and production passes are supporting history only.
 
 ## Current test behavior
 
@@ -18,11 +24,11 @@ Security Campaign is permitted only with input probes disabled; incomplete artif
 
 JSON evidence uses authenticated inert text preview with a 2 MiB cap; larger JSON remains downloadable. Download authorization and attachment behavior are unchanged. Raw result labels are humanized. Tailwind 4 preserves the dashboard layout; use a supported modern browser.
 
-## Suggested two-hour sequence
+## Conditional two-hour sequence — not currently authorized as a certified live demo
 
 1. First 10 min: explain staging/production separation, health, active worker and evidence providers. Show the exact certified release/run IDs from the audit.
 2. Next 10 min: show staging password and expected OAuth degradation, then production password evidence. A fresh password check is optional only after certification and outside scheduled work.
-3. Next 10 min: one certified Safe Suite, one worker, zero retries; explain account metadata side effects while it executes. Typical local time 2.1 min; allow evidence publication time.
+3. Next 10 min: one certified Safe Suite, one worker, zero retries; explain account metadata side effects while it executes. Typical local time 2.1 min; hosted repeatability and average duration remain unproven. Allow evidence publication time.
 4. Next 10 min: open that run's HTML, screenshots/trace and JSON evidence; identify the run timestamp/provider. Historical evidence must be labeled historical.
 5. Next 5 min: governance preview, manual-cleanup advisory and artifact selection. Cancel preview unless the selected campaign has certified live execution and an operator deliberately intends to create staging data.
 6. Remaining time: only certified lifecycle demonstrations and security/artifact evidence. Do not budget a long live wait for Reveal-Later. Prefer a prepared artifact with a verified timestamp, or show Create mode and explain pending reveal. Leave time to record exact created IDs for manual cleanup.
