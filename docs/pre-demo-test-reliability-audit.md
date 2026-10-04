@@ -1,6 +1,6 @@
 # Pre-demo test reliability audit
 
-Status: IN PROGRESS — not certified. Phase 5B is paused. This working report records findings before release and will be updated with exact acceptance IDs.
+Status: **BLOCKED — FULL DEMO NOT CERTIFIED**, 4 October 2026. The latest hosted password sequence is **PASS / PASS / FAIL**, zero retries. The failure is preserved below. Phase 5B remains paused. Completed local checks and preflights do not substitute for the incomplete ordered hosted acceptance.
 
 ## Baseline — 3 October 2026
 
@@ -157,7 +157,7 @@ Routes included address, place, latitude, longitude and placeId. Required-field 
 
 ## Acceptance and release
 
-Pending: exact final-head CI, QA deployment, ordered hosted repeatability, Security/Artifact/Lifecycle runs, evidence integrity/fresh-session reopen and final storage fingerprint. No merge or certification is implied by local test passes.
+Functional PRs #37–#40 passed exact-head QA Enforcement and Playwright QA before merge. Current tested main is `469236d75cfb2e4672f9faa80e8f8d92d43b04c6`, deployed as `62ca4342-1507-4631-985f-8b4c15522395`. The 4 October sequence stopped at its password repeatability gate; see the final checkpoint below. No production or lifecycle acceptance is inferred from earlier/scheduled passes.
 
 ## First deployed acceptance and follow-up
 
@@ -273,3 +273,87 @@ A delayed-button plus delayed-navigation browser fixture reproduces the old time
 PR39 release `86d30c43b26ebe17840ebc95b585ec23a0ad68f3` deployed as `50767faf-7563-4603-a397-d9cf137c966e`; health passed. The next password sequence stopped at `f485fdce-560b-42e3-875f-1003ae0f0a9c`: failed, 80.795 s total / 40.395 s method, zero retries, one worker claim. Bundle `b2bc0ba1-773f-43e7-927d-77891f68c224` has 52 verified Spaces items / 19,569,476 bytes. No production acceptance was run.
 
 Its late consent handler resolved the real button, but it detached while the browser permission update propagated. The test was changing permission and then requiring the old consent control. A permission-driven offline browser fixture reproduces the missing-button timeout. Establishing the same synthetic location permission before observing product readiness/consent removes this race; the dialog can naturally disappear or expose its remaining real control. Correct account, Profile navigation, real Sign out and Firebase/public-state assertions remain required. No timeout or retry changes. Fresh local password diagnostic passes in 17.3 s, zero retries. Hosted repeatability remains unproven.
+
+
+## Final hosted checkpoint — 4 October 2026
+
+**Verdict: BLOCKED.** Password repeatability is 2/3, not the required 3/3. The ordered acceptance sequence stopped at that gate. No additional functional patch, timeout increase, retry, product-state clearing, resource resize or production acceptance was performed to turn the failure green. This report identifies the remaining blocker; it does not claim that every requested acceptance execution completed.
+
+All three runs used the same deployed PR40 release, one worker claim each and zero Playwright retries. Google and Apple were disabled for these password-only checks. Each had a distinct immutable run and bundle. Run-level `passed_with_warnings` on the first two includes npm's `production` configuration warning; their authentication overall and password method are PASS, with no unexpected or flaky tests.
+
+| Attempt | Run ID | Password | Total / method duration | Bundle ID | Verified Spaces items / bytes |
+|---|---|---|---|---|---|
+| 1 | `4a91b708-1fcb-4c76-a594-e9da61b92985` | PASSED | 81.335 s / 66.616 s | `f1afd0ea-5cab-43e7-a5e7-a47b0bae4343` | 22 / 1,074,008 |
+| 2 | `c6f9f516-819d-4ee5-a488-5bf3eefe1a44` | PASSED | 80.292 s / 67.696 s | `41603a2c-ca03-4e2a-8b4a-589e5b5675e6` | 22 / 1,178,179 |
+| 3 | `119ec434-d17a-4fda-b62a-25fd91480248` | TIMED_OUT | 81.461 s / 47.790 s | `ccabef2c-58bd-43d4-a994-1ca5d70a4036` | 55 / 19,029,016 |
+
+### Remaining P0: Profile navigation performance timeout
+
+Classification: **PERFORMANCE_TIMEOUT**, underlying cause **UNKNOWN**. On attempt 3, matching Firebase identity/profile and post-login readiness passed; the session notice and onboarding were dismissed through their controls. The Profile link existed, was visible, enabled and stable. No location handler ran during the failing action. The trace then exhausted the existing 10-second click budget while scrolling into view, before `performing click action`. It never reached Profile navigation or Sign out. This is not evidence of rejected credentials or broken product logout.
+
+Trace timings (relative to browser trace): Profile click dispatched at 40.679 s; waiting for locator logged at 43.766 s; link resolved at 50.471 s; stable at 53.575 s; timeout at 53.768 s. The screenshot shows the authenticated map and unobstructed Profile control. The long gaps establish browser/automation latency, but do not by themselves distinguish product rendering cost, container contention, or transport/trace overhead. Hosted resource counters expose no usable throttling/limit diagnosis (`cpu.cfs_quota_us=-1`, throttling counters unavailable); no CPU-capacity claim is made.
+
+The next diagnostic should correlate browser main-thread work and hosted resource telemetry at this boundary, then change only a demonstrated framework defect. If it is an INSSA performance defect, preserve the failing monitor and report it to the product owner. **Do not restart sequences until there is a supported remediation or a clearly documented product limitation.**
+
+### Acceptance accounting
+
+| Required step | Result at checkpoint |
+|---|---|
+| Platform health | PASS: web, worker, scheduler, Supabase, Spaces, supervisor healthy |
+| Staging password ×3 | **FAIL acceptance: 2/3**, zero retries; exact IDs above |
+| Full staging auth ×1 | NOT RUN in acceptance; stopped at password gate |
+| Production password ×1 | NOT RUN in acceptance; staging gate not green |
+| Safe Suite ×3 | NOT RUN hosted after release; local 12/12, 2.1 min is diagnostic only; hosted average unavailable |
+| Read-only Security Campaign ×1 | NOT RUN in ordered acceptance; historical 240 s failures remain unresolved |
+| Security Verification ×1 | NOT RUN; local regression proves empty coverage returns blocked/nonzero, not a pass |
+| Discovery / Public Share / Cleanup Audit | BLOCKED_PREREQUISITE: catalog has 0 usable artifacts |
+| All six hosted lifecycle preflights | **6/6 PASS**, repeated as read-only audit after queue became idle |
+| Text / Media / Video / Cross-User live | NOT RUN: no current clean success and acceptance gate blocked |
+| Reveal-Later / Reveal-Later Security live | NOT RUN; Create mode preflight passes; Resume requires a valid prepared artifact |
+
+Supporting scheduled runs after deployment (not counted as ordered acceptance): staging `cfae1139-877e-46a6-b9c6-fb91d59ec647`, passed with warnings, 140.124 s; production `60b6b3e4-99d3-4961-ba69-b91e4eebd252`, passed, 28.245 s. The scheduled staging method summary is password PASS / Google blocked_external / Apple missing_configuration / overall degraded; production is password PASS with Google/Apple disabled. These do not erase the later password failure. No intentional invalid production login was attempted.
+
+### Evidence, UI and unchanged infrastructure
+
+- **99/99 new acceptance items**, 21,281,203 bytes, uploaded to private Spaces `kbean-qa-evidence`; every size and SHA-256 read back and verified. HTML, JSON, screenshot, trace and relative assets where present reopen through authenticated bundle routes. A fresh QA password session reopened all three runs, metadata, method results and their report assets. Historical Supabase HTML also reopened.
+- Run History, Run Detail, Evidence Workspace and Playwright report render. Chrome's allowed SIEM JSON now renders as inert authenticated text with its download link. Raw manifests and non-allowlisted standalone JSON remain denied, deliberately; their supported report-bundle views are available. Successful password runs retain screenshots but no success trace/video under the existing retain-on-failure policy. The failed run retains trace, video, screenshots, sanitized network logs and diagnostics.
+- Authentication status humanization and environment/result isolation were covered by real-client regressions; no policy change. Some general evidence metadata still shows raw enum values; this is not an authentication result failure.
+- Retention remains `DRY RUN ONLY`, routine/warning days 30/60, policy `evidence-retention-v3`, zero storage/metadata deletion calls. Cleanup records are identical to baseline.
+- Supabase Storage remains **4,478 objects / 949,562,321 bytes**. Phase 5A ledger `3aa1f7e3-5cd6-42ff-a7c8-5d48cbea993c` remains `SOURCE_PRESERVED`, last updated `2026-09-29T23:03:02.355445+00:00`. Historical/migration source deletions: **0**. Phase 5B not started.
+- Hosted security input probes remain disabled, manual cleanup is `1`, evidence writer is Spaces, production methods are username-password. All six preflights confirm staging lock, admin, worker, fixtures/account requirements and cleanup advisory. The 10 unresolved historical QA objects remain; this audit created no lifecycle objects. Cleanup is not the blocker.
+- Final read-only queue snapshot: 0 active/queued/claimed executions. Each new password run has one claim, no duplicate execution. Next scheduled Safe Suite was 02:00 UTC; auth schedules unchanged at 11:00/11:15 and 17:00/17:15 UTC. No lease/heartbeat/failure-limit, credentials, retention, migration RPC or cloud resource configuration changed in this checkpoint.
+
+### Final operational demo matrix
+
+“Repeatable” below means certified by the requested hosted sequence, not merely an old PASS. Durations are observed rather than promised.
+
+| Command | Latest/current evidence | Repeatable / retries | Mutates | Prerequisite | Evidence / typical duration | Live demo |
+|---|---|---|---|---|---|---|
+| Staging auth | Password sequence 2/3; latest timeout | NO / 0 | Account/session metadata | Resolve Profile-action latency | Spaces verified / 80–82 s password-only runs | **RED**, historical walkthrough only |
+| Production auth | Scheduled PASS, 3 Oct | Acceptance not run / 0 configured | Read-only guarded | Staging 3/3 first | Scheduled Spaces bundle / 28.245 s | **AMBER**, show dated result |
+| Safe Suite | Local 12/12; hosted acceptance not run | NO / manual 0 | Activity/notification metadata; unexpected writes fail | Ordered auth acceptance | Local archived evidence / 2.1 min local; hosted unknown | **RED**, not certified live |
+| Text Lifecycle | Historical failed public-share assertion | NO / 0 governed | Creates staging object | Green gates, explicit approval | Historical evidence / 328.1 s historical failure | **RED**, preflight only |
+| Media Lifecycle | Preflight PASS; never run | NO / 0 governed | Creates staging object/media | Green gates, fixtures, approval | Preflight record / execution unknown | **RED**, preflight only |
+| Video Lifecycle | Preflight PASS; never run | NO / 0 governed | Creates staging object/media | Green gates, fixture, approval | Preflight record / execution unknown | **RED**, preflight only |
+| Reveal-Later | Create preflight PASS; no prepared artifact | NO / 0 governed | Creates staging object | Green gates; Resume needs artifact/timestamp | Preflight record / execution unknown | **RED**, explain Create/Resume only |
+| Cross-User | Preflight PASS; never run | NO / 0 governed | Creates staging object | Distinct accounts, green gates, approval | Preflight record / execution unknown | **RED**, preflight only |
+| Reveal-Later Security | Create preflight PASS; never run | NO / 0 governed | Creates staging object | Distinct accounts, green gates, artifact for Resume | Preflight record / execution unknown | **RED**, preflight only |
+| Security Campaign | Historical 240 s spec timeout | NO / 0 | Read-only with input probes off | Green gates, valid source coverage | Historical evidence / 297–313 s failures | **RED**, findings are not fresh certification |
+| Security Verification | Historical false-green empty coverage fixed | NO / 0 | Read-only | Valid security/lifecycle inputs | Local regression; hosted not run / unknown | **RED**, blocked prerequisite |
+| Authenticated Discovery | No usable artifact | NO / 0 | Read-only | Valid finalized artifact | No current evidence / unknown | **RED**, blocked prerequisite |
+| Public Share | Contract not currently established | NO / 0 | Read-only | Valid tokenized/tokenless/authenticated artifact | Historical failed assertion / unknown | **RED**, avoid live |
+| Cleanup Capability Audit | No usable artifact | NO / 0 | Read-only, no deletion | Valid artifact | No current evidence / unknown | **RED**, blocked prerequisite |
+| Platform Health Check | `/api/health` PASS; historical worker command evidence | API healthy / n/a | QA evidence only | Signed-in QA session, idle worker for command | Historical Spaces bundle / 4–7 s command | **GREEN** health display; label historical bundle |
+| SIEM Export | Existing JSON bytes and preview PASS | New export not run / n/a | QA evidence only | Real source findings | Historical Spaces JSON / new duration unknown | **GREEN** existing preview, **AMBER** generation |
+| Security report rendering | Existing report opens; missing-input false green fixed | New rendering not run / n/a | QA evidence only | Real current summary | Historical HTML / new duration unknown | **AMBER**, historical preview only |
+| Lifecycle report rendering | No usable current lifecycle inputs | NO / n/a | QA evidence only | Valid lifecycle summary | No current evidence / unknown | **RED**, blocked prerequisite |
+
+### Release record and stop boundary
+
+Functional release PRs: [#37](https://github.com/davidfrank96/web-app-qa-tests--main/pull/37), [#38](https://github.com/davidfrank96/web-app-qa-tests--main/pull/38), [#39](https://github.com/davidfrank96/web-app-qa-tests--main/pull/39), [#40](https://github.com/davidfrank96/web-app-qa-tests--main/pull/40). Each merged only after exact final-head QA Enforcement + Playwright QA succeeded. Tested main SHA and deployment are listed above. The final documentation checkpoint does not change runtime code or claim new acceptance.
+
+Platform regression suite reached 226/226; staging isolated browser fixtures reached 12/12; production browser regression, five disposable PostgreSQL suites, TypeScript/build/doctor/secret scan/dependency audits passed as recorded in the release history. Tailwind 4 migration and visual comparisons remain valid. Current blocking evidence is the real hosted result, not a failing CI gate.
+
+**FULL DEMO BLOCKED.** A clearly labeled read-only evidence/governance walkthrough is possible, but all-six live lifecycle certification is incomplete. Phase 5B remains frozen. No other DigitalOcean resource was modified.
+
+Sanitized checkpoint archive: private Spaces manifest `pre-demo-audit/2026-10-04/469236d/checkpoint-diagnostics-6020e84b48e63b9d.tar.gz.manifest.json` (26 files, 98,705 bytes, uploaded part read back and size/SHA verified). It preserves the three run records/integrity results, fresh-session reopen proof, preflights, health, release/CI and audit snapshot; it does not replace their native run bundles.

@@ -1,7 +1,9 @@
-# INSSA operator sheet — 3 October 2026
+# INSSA operator sheet — 4 October 2026
 
-**Full-demo certification pending.** See [audit and acceptance matrix](pre-demo-test-reliability-audit.md) and [runbook](demo-readiness-runbook.md). Demo date unknown; allow two hours, with a 35–45 minute core.
+**FULL DEMO BLOCKED: staging password passed 2/3, then timed out before Profile navigation; zero retries.** See [audit and acceptance matrix](pre-demo-test-reliability-audit.md) and [runbook](demo-readiness-runbook.md). Demo date unknown; allow two hours, with a 35–45 minute core.
 
+- Current tested release: `469236d`, deployment `62ca4342-1507-4631-985f-8b4c15522395`. Password run times: 81.3 / 80.3 / 81.5 s. Preserve failed run `119ec434-d17a-4fda-b62a-25fd91480248`; do not click Run to replace it.
+- Until the P0 is resolved, show only health, dated evidence, JSON preview and governance preflights. All six preflights PASS; none of the six live campaigns is certified. Catalog: 0 usable artifacts. Production/Safe/security acceptance stopped behind the auth gate.
 - Check health, signed-in admin, exact release, idle worker and uploaded evidence first. **One execution at a time**, including indexing. Never click Run again because a result is slow.
 - Show health → auth status → certified Safe Suite → report/JSON/trace → governance → only certified lifecycle/artifact demonstrations.
 - Staging password must pass. Google **Blocked by provider** and Apple **Missing configuration** make the full monitor **Degraded**, not failed. Production is password-only and read-only.
