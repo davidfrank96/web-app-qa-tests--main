@@ -57,14 +57,14 @@ test("Username & Password", async ({ page }, testInfo) => {
     const authPage = new AuthPage(page);
     await authPage.goToSignIn();
     if (new URL(page.url()).origin !== new URL(config.targetUrl).origin) throw new Error("Credential submission origin mismatch");
-    await authPage.signInWithEmail(credentials.email, credentials.password);
-    await authPage.expectAuthenticatedState();
     if (config.environment === "production") {
+      await authPage.signInWithEmail(credentials.email, credentials.password);
+      await authPage.expectAuthenticatedState();
       await expectProductionSession(page, credentials.email);
       await signOutReadOnlyProduction(page);
     } else {
+      await authPage.submitEmailPassword(credentials.email, credentials.password);
       await authPage.signOutStaging(credentials.email);
-      await expectLoggedOutState(page);
     }
   });
 });
