@@ -63,6 +63,7 @@ const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 
 export function createInssaLifecycleNetworkMonitor(input: {
   getPhase: () => InssaLifecycleNetworkPhase;
+  separatelyAccountedEndpoints?: string[];
   onPossibleDocumentId?: (id: string) => void;
 }): InssaLifecycleNetworkMonitor {
   const debugEnabled = process.env[INSSA_DEBUG_LIFECYCLE_NETWORK_ENV_FLAG] === "1";
@@ -84,6 +85,15 @@ export function createInssaLifecycleNetworkMonitor(input: {
   };
 
   const recordObservation = (observation: InssaLifecycleNetworkObservation) => {
+    // System-owned Home seeds have their own evidence and must never become
+    // candidate IDs for the QA capsule or its cleanup ledger. Keep the event.
+    if (input.separatelyAccountedEndpoints?.includes(observation.requestUrl.split("?")[0])) {
+      observation.possibleCapsuleIds = [];
+      observation.possibleDocumentIds = [];
+      observation.possibleShareTokens = [];
+      delete observation.debugBodySnippet;
+      delete observation.debugJsonKeys;
+    }
     observations.push(observation);
     observation.possibleDocumentIds.forEach((id) => input.onPossibleDocumentId?.(id));
     if (debugEnabled && (observation.phase === "bury-click" || observation.phase === "reveal-continue" || observation.phase === "post-create")) {

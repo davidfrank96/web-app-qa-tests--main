@@ -9,7 +9,11 @@ const test = safeTest.extend({
     const context = await browser.newContext({ storageState: {
       cookies: [],
       origins: [{ origin: new URL(workerInfo.project.use.baseURL!).origin,
-        localStorage: [{ name: "qa-fixture-seed", value: "safe-storage-state" }] }]
+        localStorage: [
+          { name: "qa-fixture-seed", value: "safe-storage-state" },
+          { name: "firebase:authUser:fixture:[DEFAULT]", value: JSON.stringify({ uid: "fixture-user" }) },
+          { name: "userProfile", value: JSON.stringify({ state: { userProfile: { uid: "fixture-user" } } }) }
+        ] }]
     } });
     await context.storageState({ path: statePath });
     await context.close();
@@ -19,7 +23,7 @@ const test = safeTest.extend({
 
 // Exercise the actual Safe fixture in two independent browser contexts. The page is
 // fulfilled locally: this check creates no product draft and sends no product writes.
-test.use({ productWriteAuditEnabled: true });
+test.use({ productWriteAuditEnabled: true, safeSession: true });
 
 test.describe("Safe fixture state isolation", () => {
   test.describe.configure({ mode: "serial" });

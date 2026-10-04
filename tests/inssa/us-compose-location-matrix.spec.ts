@@ -1,3 +1,4 @@
+import { dismissInssaSessionWarning } from "../../utils/inssa-session-warning";
 import { expectInssaLocationDefaults } from "../../utils/inssa-compose-contract";
 import { expect, test } from "./fixtures";
 import { TimeCapsulePage } from "../../pages/inssa/time-capsule.page";
@@ -11,7 +12,7 @@ import {
 } from "../../utils/inssa-test-data";
 import { withInssaStabilityMonitor } from "../../utils/monitor";
 
-test.use({ productWriteAuditEnabled: true });
+test.use({ productWriteAuditEnabled: true, safeSession: true });
 
 test.describe("INSSA USA compose location matrix", () => {
   test.describe.configure({ mode: "serial" });
@@ -41,6 +42,7 @@ test.describe("INSSA USA compose location matrix", () => {
 
         await monitor.step("assert compose surface and seeded defaults", async () => {
           await compose.expectComposeSurface();
+        await dismissInssaSessionWarning(page);
           await compose.expectRequiredFieldMetadata();
           await expect(page.url()).toMatch(INSSA_TIME_CAPSULE_ROUTE_PATTERN);
 

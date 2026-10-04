@@ -67,7 +67,8 @@
     "install:browsers": "playwright install",
     "codegen": "playwright codegen",
     "test:ci:dashboard-polling": "node dashboard/scripts/test-run-detail-polling.mjs",
-    "retention:execute": "npm --prefix dashboard run retention:execute --"
+    "retention:execute": "npm --prefix dashboard run retention:execute --",
+    "test:inssa:safe:fixtures": "node --import ./dashboard/node_modules/tsx/dist/loader.mjs --test dashboard/tests/safe-write-audit.test.ts && node --import ./dashboard/node_modules/tsx/dist/loader.mjs dashboard/scripts/test-safe-suite-session.ts && node --import ./dashboard/node_modules/tsx/dist/loader.mjs dashboard/scripts/test-safe-suite-service-worker.ts && node --import ./dashboard/node_modules/tsx/dist/loader.mjs dashboard/scripts/test-safe-auth-setup.ts && node --import ./dashboard/node_modules/tsx/dist/loader.mjs dashboard/scripts/test-governed-home-bury.ts"
   },
   "devDependencies": {
     "@playwright/test": "latest",

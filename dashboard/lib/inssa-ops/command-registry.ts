@@ -52,7 +52,7 @@ export const INSSA_PHASE1_COMMANDS: InssaCommandDefinition[] = [
     key: "test_inssa_campaign_text",
     mutatesStaging: true,
     npmScript: "test:inssa:campaign:text",
-    operatorDescription: "Creates one QA-tagged text capsule on staging and validates its downstream lifecycle.",
+    operatorDescription: "Validates governed Home/Bury entry, then creates one QA-tagged text capsule on staging and validates its downstream lifecycle. Home may also seed system-owned discovery capsules.",
     phase1Enabled: true,
     producesFindings: true,
     producesReports: true,
