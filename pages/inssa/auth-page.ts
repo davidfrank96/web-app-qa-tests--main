@@ -69,70 +69,97 @@ export class AuthPage {
   }
 
   async expectAuthenticatedSession(expectedEmail: string): Promise<void> {
-    await expect
-      .poll(
-        () =>
-          this.page.evaluate((email) => {
-            try {
-              const profile = JSON.parse(localStorage.getItem("userProfile") ?? "null")?.state?.userProfile;
-              return Object.entries(localStorage).some(([key, value]) => {
-                if (!key.startsWith("firebase:authUser:")) return false;
-                const user = JSON.parse(value);
-                return typeof user?.uid === "string" && user.uid.length > 0 &&
-                  user.email?.toLowerCase() === email.toLowerCase() && profile?.uid === user.uid;
-              });
-            } catch { return false; }
-          }, expectedEmail),
-        {
-          message: "Expected the requested INSSA account and its matching profile to finish initializing.",
-          timeout: DEFAULT_TIMEOUT
-        }
-      )
-      .toBe(true);
+    await this.stagingBoundary("SESSION_NOT_ESTABLISHED", async () => {
+      let state = "pending";
+      await expect.poll(async () => {
+        const authenticated = await this.page.evaluate((email) => Object.entries(localStorage).some(([key, value]) => {
+          if (!key.startsWith("firebase:authUser:")) return false;
+          try {
+            const user = JSON.parse(value);
+            return typeof user?.uid === "string" && user.uid.length > 0 &&
+              user.email?.toLowerCase() === email.toLowerCase();
+          } catch { return false; }
+        }), expectedEmail);
+        state = authenticated ? "authenticated" : await this.invalidLoginSignals().isVisible() ? "rejected" : "pending";
+        return state;
+      }, { message: "Expected Firebase to authenticate the requested account.", timeout: DEFAULT_TIMEOUT }).not.toBe("pending");
+      if (state === "rejected") {
+        throw new Error("AUTHENTICATION_REJECTED: INSSA rejected the submitted credentials.");
+      }
+    });
+    await this.stagingBoundary("PROFILE_INITIALIZATION_FAILED", async () => {
+      await expect.poll(() => this.page.evaluate((email) => {
+        try {
+          const profile = JSON.parse(localStorage.getItem("userProfile") ?? "null")?.state?.userProfile;
+          return Object.entries(localStorage).some(([key, value]) => {
+            if (!key.startsWith("firebase:authUser:")) return false;
+            const user = JSON.parse(value);
+            return typeof user?.uid === "string" && user.uid.length > 0 &&
+              user.email?.toLowerCase() === email.toLowerCase() && profile?.uid === user.uid;
+          });
+        } catch { return false; }
+      }, expectedEmail), {
+        message: "Expected the requested INSSA account and its matching profile to finish initializing.",
+        timeout: DEFAULT_TIMEOUT
+      }).toBe(true);
+    });
   }
 
   async expectStagingLoginReady(expectedEmail: string): Promise<void> {
     await this.expectAuthenticatedSession(expectedEmail);
-    await expect(this.page.getByRole("heading", { name: "Signing in...", exact: true, includeHidden: true })).not.toBeVisible({ timeout: DEFAULT_TIMEOUT });
-    await expect.poll(() => new URL(this.page.url()).pathname, { timeout: DEFAULT_TIMEOUT }).not.toMatch(/^\/signin\/?$/);
+    await this.stagingBoundary("PROFILE_INITIALIZATION_FAILED", async () => {
+      await expect(this.page.getByRole("heading", { name: "Signing in...", exact: true, includeHidden: true })).not.toBeVisible({ timeout: DEFAULT_TIMEOUT });
+      await expect.poll(() => new URL(this.page.url()).pathname, { timeout: DEFAULT_TIMEOUT }).not.toMatch(/^\/signin\/?$/);
+    });
   }
 
   async signOutStaging(expectedEmail: string): Promise<void> {
-    // Resolve the browser prerequisite before observing product consent. INSSA
-    // can dismiss that dialog on permission change, detaching its button.
-    await this.page.context().setGeolocation({ latitude: 53.3382, longitude: -6.2591 });
-    await this.page.context().grantPermissions(["geolocation"], { origin: new URL(this.page.url()).origin });
+    // Persisted identity and its matching profile must be ready before the
+    // document navigation. Landing-page overlays are unrelated to this check.
     await this.expectStagingLoginReady(expectedEmail);
-    if (await this.page.getByText("Heads up about this browser session", { exact: true }).isVisible()) {
-      await this.page.getByRole("button", { name: "Got it", exact: true }).click();
-    }
-    const skipOnboarding = this.page.getByRole("button", { name: "Skip onboarding", exact: true });
-    if (await skipOnboarding.isVisible()) await skipOnboarding.click();
-    const locationPrompt = this.page.getByRole("dialog", { name: "Unlock what's near you", exact: true });
-    const acceptLocation = async () => {
-      await locationPrompt.getByRole("button", { name: "Use my location", exact: true }).click();
-    };
-    // Complete visible consent as its own product step. A locator handler's
-    // duration consumes the triggering action's budget, so nesting known
-    // consent inside Profile navigation can time out both actions.
-    if (await locationPrompt.isVisible()) await acceptLocation();
-    // Keep a one-shot fallback only for a prompt arriving during navigation.
-    await this.page.addLocatorHandler(locationPrompt, acceptLocation, { times: 1 });
-    try {
-      // The profile link uses the product's SPA navigation. A document reload of
-      // /me here aborts the still-running post-login account lookup.
-      if (!(await this.signOutButton().isVisible())) {
-        await this.page.getByRole("link", { name: /^Profile(?:, \d+ new)?$/ }).click();
-      }
-      await this.expectProfileSurface();
+    await this.stagingBoundary("AUTHENTICATED_PROFILE_ROUTE_FAILED", async () => {
+      await this.goToProfile();
+      await expect.poll(() => new URL(this.page.url()).pathname, {
+        message: "Expected /me to resolve to an authenticated INSSA profile route.",
+        timeout: DEFAULT_TIMEOUT
+      }).toMatch(/^\/(?:me(?:\/|$)|u\/[^/]+(?:\/|$)|profile(?:\/|$))/);
       await this.expectAuthenticatedSession(expectedEmail);
+    });
+    await this.stagingBoundary("LOGOUT_CONTROL_MISSING", async () => {
+      await expect(this.signOutButton(), "Expected a visible Sign Out control on the authenticated profile.").toBeVisible({ timeout: DEFAULT_TIMEOUT });
+      await expect(this.signOutButton()).toBeEnabled({ timeout: DEFAULT_TIMEOUT });
+    });
+    await this.stagingBoundary("LOGOUT_FAILED", async () => {
       await this.signOutButton().click();
       await expect.poll(() => this.page.evaluate(() => Object.entries(localStorage).some(([key, value]) => {
         if (!key.startsWith("firebase:authUser:")) return false;
         try { return Boolean(JSON.parse(value)?.uid); } catch { return true; }
       })), { message: "Expected real UI logout to remove the authenticated Firebase user.", timeout: DEFAULT_TIMEOUT }).toBe(false);
-    } finally {
-      await this.page.removeLocatorHandler(locationPrompt);
+      await this.expectStagingPublicState();
+    });
+  }
+
+  private async expectStagingPublicState(): Promise<void> {
+    await expectPageNotBlank(this.page);
+    await expect(this.page.getByRole("button", { name: /sign out|log out|logout/i, includeHidden: true })).toHaveCount(0);
+    await expect.poll(() => new URL(this.page.url()).pathname, {
+      message: "Expected logout to leave the authenticated profile route.",
+      timeout: DEFAULT_TIMEOUT
+    }).not.toMatch(/^\/(?:me(?:\/|$)|u\/[^/]+(?:\/|$)|profile(?:\/|$))/);
+    // Same public Sign In/onboarding contract as the monitor's existing
+    // expectLoggedOutState, after Firebase removal has already been proven.
+    const publicSignal = this.page.locator("a[href='/signin']").filter({ hasText: /^sign in$/i })
+      .or(this.page.getByRole("button", { name: /^(?:Skip|Skip onboarding|Next)$/ }))
+      .filter({ visible: true });
+    await expect(publicSignal.first(), "Expected public Sign In or onboarding after logout.").toBeVisible({ timeout: DEFAULT_TIMEOUT });
+  }
+
+  private async stagingBoundary(code: string, check: () => Promise<void>): Promise<void> {
+    try { await check(); }
+    catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/^AUTHENTICATION_REJECTED:/.test(message)) throw error;
+      throw new Error(`${code}: ${message}`, { cause: error });
     }
   }
 
