@@ -1,3 +1,4 @@
+import { GOVERNED_HOME_SEED_URL, openGovernedHomeBury, observeGovernedHomeSeeding } from "../../utils/inssa-governed-home-bury";
 import { expect, test } from "./fixtures";
 import {
   InssaFinalLiveCreateStepError,
@@ -51,6 +52,7 @@ const MANUAL_CLEANUP_APPROVED = process.env[INSSA_LIVE_CAPSULE_MANUAL_CLEANUP_AP
 const STAGING_HOSTNAME = "staging.inssa.us";
 
 type LiveCapsuleArtifact = {
+  homeInitialization: Awaited<ReturnType<ReturnType<typeof observeGovernedHomeSeeding>["finish"]>>;
   artifactStateNote: string | null;
   buryClicked: boolean;
   cleanupIdentityStatus: InssaCleanupIdentityStatus;
@@ -113,6 +115,8 @@ type LiveCapsuleArtifact = {
   warningNetworkIssues: ClassifiedInssaLifecycleNetworkIssue[];
   writesObserved: InssaLifecycleNetworkObservation[];
 };
+
+test.use({ productWriteAuditEnabled: false, safeSession: false });
 
 test.describe("INSSA live capsule create", () => {
   test.describe.configure({ mode: "serial", retries: 0 });
@@ -216,16 +220,27 @@ test.describe("INSSA live capsule create", () => {
     };
     const networkMonitor = createInssaLifecycleNetworkMonitor({
       getPhase: () => phase,
+      separatelyAccountedEndpoints: [GOVERNED_HOME_SEED_URL],
       onPossibleDocumentId: (id) => possibleDocumentIds.add(id)
     });
-    networkMonitor.attach(page);
+    const homeSeeding = observeGovernedHomeSeeding();
+    homeSeeding.attach(page);
 
     try {
       await withInssaStabilityMonitor(page, testInfo, errorMonitor, async (monitor) => {
-        await monitor.step("open authenticated compose route directly", () => compose.goToComposeRoute(), {
-          phase: "navigation",
-          route: "/timecapsule"
+        await monitor.step("governed logged-out Home/Bury redirects to sign-in", async () => {
+          const guest = await page.context().browser()!.newContext({ baseURL: configuredUrl, serviceWorkers: "allow" });
+          try {
+            const guestPage = await guest.newPage(); homeSeeding.attach(guestPage);
+            const guestErrors = createInssaErrorMonitor(guestPage);
+            await openGovernedHomeBury(guestPage, false);
+            await guestErrors.expectNoUnexpectedErrors();
+          } finally { await guest.close(); }
+        }, { phase: "navigation", route: "/" });
+        await monitor.step("governed authenticated Home/Bury reaches compose", () => openGovernedHomeBury(page, true), {
+          phase: "navigation", route: "/timecapsule"
         });
+        networkMonitor.attach(page);
         await monitor.step("assert compose surface and metadata", async () => {
           await compose.expectComposeSurface();
           await compose.expectRequiredFieldMetadata();
@@ -450,6 +465,8 @@ test.describe("INSSA live capsule create", () => {
         });
       });
     } finally {
+      const homeInitialization = await homeSeeding.finish();
+      await testInfo.attach("governed-home-seeding.json", { body: JSON.stringify(homeInitialization, null, 2), contentType: "application/json" });
       await networkMonitor.flush();
       const lifecycleNetworkSummary = networkMonitor.summarize();
       lifecycleNetworkSummary.possibleDocumentIds.forEach((id) => possibleDocumentIds.add(id));
@@ -522,7 +539,7 @@ test.describe("INSSA live capsule create", () => {
         fatalNetworkIssues.length === 0;
       successSignals.add(`lifecycle-classification=${lifecycleClassification}`);
       if (!buryClicked) {
-        artifactStateNote = "Bury was not clicked. No live capsule is likely to exist; only a draft-side artifact may exist on staging.";
+        artifactStateNote = "Bury was not clicked. No live capsule is likely to exist; a draft-side artifact and system-owned Home discovery seeds/media may exist on staging.";
       } else if (buryClicked && !revealSettingsContinueClicked) {
         artifactStateNote =
           "Bury was clicked and Reveal settings opened, but finalization was not continued. A live capsule may or may not exist on staging.";
@@ -534,6 +551,7 @@ test.describe("INSSA live capsule create", () => {
           : "Live capsule finalization was attempted; verify staging before rerun.";
       }
       const artifact: LiveCapsuleArtifact = {
+        homeInitialization,
         artifactStateNote,
         buryClicked,
         cleanupIdentityStatus,

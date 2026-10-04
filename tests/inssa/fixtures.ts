@@ -1,7 +1,7 @@
 import { expect, test as base, type Page } from "@playwright/test";
-import { firestoreWrites, isExpectedInssaAccountMetadata, type ProductWrite } from "../../utils/inssa-product-writes";
+import { installSafeWriteAudit, type SafeWriteRecord } from "../../utils/inssa-safe-write-audit";
 import { AuthPage } from "../../pages/inssa/auth-page";
-import { ensureInssaAuthStorageState } from "../../utils/auth";
+import { ensureInssaAuthStorageState, hasCompleteInssaSession } from "../../utils/auth";
 import { assertValidInssaUrl } from "../../utils/env";
 
 type InssaFixtures = {
@@ -12,13 +12,17 @@ type InssaFixtures = {
 
 type InssaWorkerFixtures = {
   authStorageStatePath: string;
+  safeSession: boolean;
+  authSetupWrites: SafeWriteRecord[];
 };
 
 export const test = base.extend<InssaFixtures, InssaWorkerFixtures>({
+  safeSession: [false, { scope: "worker", option: true }],
+  authSetupWrites: [async ({}, use) => { await use([]); }, { scope: "worker" }],
   authStorageStatePath: [
-    async ({ browser }, use) => {
+    async ({ browser, safeSession, authSetupWrites }, use) => {
       assertValidInssaUrl();
-      const statePath = await ensureInssaAuthStorageState(browser);
+      const statePath = await ensureInssaAuthStorageState(browser, { safe: safeSession, onAudit: records => authSetupWrites.push(...records) });
       await use(statePath);
     },
     { scope: "worker", timeout: 120_000 }
@@ -29,21 +33,29 @@ export const test = base.extend<InssaFixtures, InssaWorkerFixtures>({
   },
 
   productWriteAuditEnabled: [false, { option: true }],
-  productWriteAudit: [async ({ page, productWriteAuditEnabled }, use, testInfo) => {
+  productWriteAudit: [async ({ context, productWriteAuditEnabled, authSetupWrites }, use, testInfo) => {
     if (!productWriteAuditEnabled) { await use(); return; }
-    const writes: ProductWrite[] = [];
-    const failures: string[] = [];
-    page.on("request", request => {
-      try { writes.push(...firestoreWrites(request.url(), request.postData() ?? "")); }
-      catch { failures.push("Unrecognized Firestore write payload"); }
-    });
-    await use();
-    await testInfo.attach("safe-suite-product-writes.json", {
-      body: JSON.stringify({ writes, parseFailures: failures, expectedSideEffects: ["users.lastActive", "users.fcmSyncStatus"] }, null, 2),
-      contentType: "application/json"
-    });
-    expect(failures, "Product write audit must understand every observed write").toEqual([]);
-    expect(writes.filter(write => !isExpectedInssaAccountMetadata(write)), "Safe Suite must not create drafts, capsules, media or change profile data").toEqual([]);
+    const state = await context.storageState();
+    const origin = state.origins.find(item => item.origin === new URL(assertValidInssaUrl()).origin);
+    const profile = JSON.parse(origin?.localStorage.find(item => item.name === "userProfile")?.value ?? "null");
+    const uid = profile?.state?.userProfile?.uid;
+    if (typeof uid !== "string" || !uid || !hasCompleteInssaSession(origin?.localStorage ?? [])) throw new Error("Safe Suite needs a matching authenticated profile");
+    const audit = await installSafeWriteAudit(context, uid);
+    try { await use(); }
+    finally {
+      await audit.dispose();
+      await testInfo.attach("safe-suite-product-writes.json", {
+        body: JSON.stringify({ authSetupWrites, writes: audit.records, failures: audit.failures,
+          summary: {
+            allowedReadOnly: audit.records.filter(row => row.outcome === "ALLOWED_READ_ONLY").length,
+            benignInitialization: audit.records.filter(row => row.outcome === "ALLOWED_BENIGN_INITIALIZATION").length,
+            blockedUnexpectedWrites: audit.records.filter(row => row.outcome === "BLOCKED_UNEXPECTED_WRITE").length,
+            // Unknown semantics cannot be reported as proven zero product mutations.
+            productMutationStatus: "NOT_INDEPENDENTLY_VERIFIED"
+          }, serviceWorkers: context.serviceWorkers().map(worker => worker.url()) }, null, 2), contentType: "application/json"
+      });
+    }
+    expect(audit.failures, "Safe Suite must not create drafts, capsules, media or change profile content").toEqual([]);
   }, { auto: true }],
 
   authPage: async ({ page }, use) => {

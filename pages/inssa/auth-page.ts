@@ -9,9 +9,9 @@ const INVALID_LOGIN_PATTERN =
 export class AuthPage {
   constructor(private readonly page: Page) {}
 
-  async goToSignIn(): Promise<void> {
+  async goToSignIn(next?: "/timecapsule"): Promise<void> {
     assertValidInssaUrl();
-    const response = await this.page.goto("/signin", { waitUntil: "domcontentloaded" });
+    const response = await this.page.goto(next ? `/signin?next=${encodeURIComponent(next)}` : "/signin", { waitUntil: "domcontentloaded" });
     if (response && response.status() >= 400) {
       throw new Error(`INSSA sign-in page returned HTTP ${response.status()}.`);
     }

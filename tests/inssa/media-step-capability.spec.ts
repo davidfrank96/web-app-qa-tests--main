@@ -1,3 +1,4 @@
+import { dismissInssaSessionWarning } from "../../utils/inssa-session-warning";
 import { test } from "./fixtures";
 import { TimeCapsulePage } from "../../pages/inssa/time-capsule.page";
 import { createInssaErrorMonitor, getInssaTestCredentials } from "../../utils/auth";
@@ -5,7 +6,7 @@ import { assertValidInssaUrl } from "../../utils/env";
 import { DEFAULT_INSSA_US_MARKET_LOCATION_KEY, getInssaUsMarketLocation } from "../../utils/inssa-test-data";
 import { withInssaStabilityMonitor } from "../../utils/monitor";
 
-test.use({ productWriteAuditEnabled: true });
+test.use({ productWriteAuditEnabled: true, safeSession: true });
 
 test.describe("INSSA media step capability audit", () => {
   test.describe.configure({ mode: "serial" });
@@ -37,6 +38,7 @@ test.describe("INSSA media step capability audit", () => {
 
       await monitor.step("assert compose surface before media audit", async () => {
         await compose.expectComposeSurface();
+        await dismissInssaSessionWarning(page);
         await compose.expectRequiredFieldMetadata();
       }, { phase: "assertion" });
 

@@ -1,3 +1,4 @@
+import { dismissInssaSessionWarning } from "../../utils/inssa-session-warning";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { expectPageNotBlank, expectPageReady } from "../../utils/assertions";
 import { assertValidInssaUrl } from "../../utils/env";
@@ -285,12 +286,6 @@ export class LandingPage {
   }
 
   private async dismissBrowserSessionWarningIfPresent(): Promise<void> {
-    const browserSessionDismiss = this.page.getByRole("button", { name: /^Got it$/i }).first();
-    if (await browserSessionDismiss.isVisible({ timeout: 1_000 }).catch(() => false)) {
-      await browserSessionDismiss.click();
-      await expect(browserSessionDismiss, "Expected browser session warning to dismiss.").not.toBeVisible({
-        timeout: DEFAULT_TIMEOUT
-      });
-    }
+    await dismissInssaSessionWarning(this.page);
   }
 }
