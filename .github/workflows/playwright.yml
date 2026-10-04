@@ -44,6 +44,9 @@ jobs:
       - name: Verify authenticated JSON evidence text preview
         run: node dashboard/scripts/test-json-evidence-preview.mjs
 
+      - name: Verify Reports workspace features, permissions and responsive themes
+        run: node dashboard/scripts/test-reports-workspace.mjs
+
       - name: Verify authentication result selection and asynchronous status isolation
         run: node dashboard/scripts/test-authentication-monitor-ui.mjs
 
