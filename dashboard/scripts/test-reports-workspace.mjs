@@ -11,7 +11,7 @@ const require = createRequire(path.join(dashboard, 'package.json'));
 const { build } = require('esbuild');
 const postcss = require('postcss'), tailwind = require('@tailwindcss/postcss');
 const baseline = process.argv.includes('--baseline');
-const output = process.env.REPORTS_UI_ARTIFACT_DIR || path.join(dashboard, '../output/playwright/reports-polish');
+const output = process.env.REPORTS_UI_ARTIFACT_DIR || path.join(dashboard, '../output/playwright/reports-restructure');
 await fs.mkdir(output, { recursive: true });
 const longPath = 'reports/' + 'long-but-realistic-campaign-evidence-path-'.repeat(4);
 const sha = 'abcdef0123456789'.repeat(4);
@@ -56,17 +56,24 @@ const click=name=>page.getByRole('button',{name,exact:true}).click();
 const heading=name=>page.getByRole('heading',{name,exact:true});
 async function reports(){await click('Reports');await heading('Evidence Explorer').waitFor();await page.locator('.evidence-bundle-card').first().waitFor();}
 async function select(title){await page.locator('.evidence-bundle-card').filter({hasText:title}).click();await page.locator('.evidence-hero h2').filter({hasText:title}).waitFor();}
+const disclosureNames=['Bundle Details','Selected Item Integrity','Related Evidence','Report Archive','Report Tools'];
+const disclosure=name=>page.locator('.evidence-disclosure').filter({has:page.locator('summary').getByText(name,{exact:true})});
+async function expand(name){const panel=disclosure(name);if(!await panel.evaluate(el=>el.open))await panel.locator('summary').click();}
+async function collapseAll(){for(const name of disclosureNames){const panel=disclosure(name);if(await panel.evaluate(el=>el.open))await panel.locator('summary').click();}}
+async function shellMetrics(){return page.evaluate(()=>Object.fromEntries(['.workspace-sidebar','.workspace-titlebar','.workspace-content','.ops-topbar','.ops-footer','.side-link','.side-label'].map(selector=>{const el=document.querySelector(selector),s=getComputedStyle(el);return [selector,Object.fromEntries(['width','padding','fontSize','position','top','borderRadius','gap'].map(k=>[k,s[k]]))]})));}
 async function capture(theme,width,label){
- await click(theme==='dark'?'🌙 Dark':'☀️ Light');await page.setViewportSize({width,height:1000});await page.evaluate(()=>scrollTo(0,0));
- await page.screenshot({path:path.join(output,`${label}-${theme}-${width}.png`),fullPage:true});
- await page.screenshot({path:path.join(output,`${label}-${theme}-${width}-viewport.png`)});
+ await click(theme==='dark'?'🌙 Dark':'☀️ Light');await page.setViewportSize({width,height:1000});await page.evaluate(()=>scrollTo({top:0,behavior:'instant'}));await page.waitForFunction(()=>scrollY===0);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ await page.screenshot({path:path.join(output,`${label}-${theme}-${width}.png`),fullPage:true,animations:'disabled'});
+ await page.screenshot({path:path.join(output,`${label}-${theme}-${width}-viewport.png`),animations:'disabled'});
 }
 try {
  await page.goto(origin);await reports();
- if(baseline){for(const [theme,width] of [['dark',1440],['light',1440],['dark',1024],['dark',390]])await capture(theme,width,'before');console.log('PASS: four matching visual baselines saved');}
+ if(baseline){await click('Authentication Monitoring');for(const [theme,width] of [['dark',1440],['light',1440],['dark',1024],['dark',390]])await capture(theme,width,'reference-authentication');await reports();for(const [theme,width] of [['dark',1440],['light',1440],['dark',1024],['dark',390]])await capture(theme,width,'before');console.log('PASS: four matching visual baselines saved');}
  else {
   // Presentation and interaction assertions are intentionally against the complete client.
-  for(const name of ['Evidence Explorer','Evidence Items','Evidence Preview','Bundle Details','Selected Item Integrity','Related Evidence','Report Archive','Report Tools'])await heading(name).waitFor();
+  for(const name of ['Evidence Explorer','Evidence Items','Evidence Preview'])await heading(name).waitFor();
+  assert.equal(await page.locator('.evidence-disclosure').count(),5);assert.equal(await page.locator('.evidence-disclosure[open]').count(),0);
+  for(const name of disclosureNames){await disclosure(name).locator('summary').focus();await page.keyboard.press('Enter');assert.equal(await disclosure(name).evaluate(el=>el.open),true);await page.keyboard.press('Space');assert.equal(await disclosure(name).evaluate(el=>el.open),false);}
   for(const label of ['Campaign','Run','Evidence Count','Bundle Size','Storage Backend','Upload Status','Retention','Integrity'])assert.match(await page.locator('.evidence-hero').innerText(),new RegExp(label));
   await page.getByLabel('Search',{exact:true}).fill('Historical Supabase');assert.equal(await page.locator('.evidence-bundle-card').count(),1);await select('Historical Supabase');
   await page.getByLabel('Search',{exact:true}).fill('');await page.getByLabel('Bundle Type',{exact:true}).selectOption('security');assert.equal(await page.locator('.evidence-bundle-card').count(),1);await select('Security verification');
@@ -79,30 +86,37 @@ try {
   const download=page.waitForEvent('download');await page.getByRole('link',{name:'Download Evidence',exact:true}).click();assert.equal((await download).suggestedFilename(),'siem.json');
   await page.getByRole('button',{name:'Select Protected Screenshot',exact:true}).click();await page.getByText(/not previewable through current serving rules/).waitFor();assert.equal(await page.locator('.evidence-item-card').filter({hasText:'Protected Screenshot'}).getByRole('link').count(),0);
   await page.getByRole('button',{name:'Select Download archive',exact:true}).click();const zip=page.waitForEvent('download');await page.getByRole('link',{name:'Download Evidence',exact:true}).click();assert.equal((await zip).suggestedFilename(),'evidence.zip');
-  const related=page.locator('.evidence-detail-rail').getByRole('heading',{name:'Related Evidence'}).locator('..').locator('..');assert.equal(await related.getByRole('link').count(),4);
+  await expand('Related Evidence');const related=disclosure('Related Evidence');await expand('Report Archive');assert.equal(await related.getByRole('link').count(),4);
   for(const category of ['Playwright','Security','Lifecycle','SIEM']){await click(`${category} (3)`);assert.equal(await page.locator('.evidence-report-list button').count(),3);assert.ok(await page.getByRole('link',{name:'Open Report'}).getAttribute('href'));}
   await click('Playwright (3)');const archiveOpen=page.waitForEvent('popup');await page.getByRole('link',{name:'Open Report'}).click();const archivePopup=await archiveOpen;await archivePopup.waitForLoadState();assert.match(await archivePopup.locator('body').innerText(),/Evidence report fixture/);await archivePopup.close();
   // Execute only against the fixture; no real report job or product mutation is created.
-  for(const campaign of campaigns){await page.locator('.evidence-report-tool').filter({hasText:campaign.displayName}).getByRole('button').click();await heading('Execution Workspace').waitFor();assert.equal(launches.at(-1).campaignKey,campaign.key);await reports();}
+  for(const campaign of campaigns){await expand('Report Tools');await page.locator('.evidence-report-tool').filter({hasText:campaign.displayName}).getByRole('button').click();await heading('Execution Workspace').waitFor();assert.equal(launches.at(-1).campaignKey,campaign.key);await reports();}
   assert.equal(launches.length,2);
-  await select('Empty evidence bundle');await page.getByText('This bundle has no item metadata.',{exact:true}).waitFor();await page.getByText('Select an evidence item to inspect integrity details.').waitFor();
+  await select('Empty evidence bundle');await page.getByText('This bundle has no item metadata.',{exact:true}).waitFor();await expand('Selected Item Integrity');await page.getByText('Select an evidence item to inspect integrity details.').waitFor();
   await select('Expired evidence bundle');await page.getByRole('region',{name:'Expired evidence'}).waitFor();assert.equal(await page.locator('.evidence-detail-pane a').count(),0);
   await page.goto(origin);await reports();await select('Authentication monitoring');await page.getByRole('button',{name:'Select Playwright Report',exact:true}).click();
   const layouts=[];
   for(const theme of ['dark','light'])for(const width of [320,375,390,430,768,1024,1280,1440,1600,1920]){
-   await capture(theme,width,'after');
-   const dimensions=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,center:document.querySelector('.evidence-inspection').getBoundingClientRect().width,explorer:document.querySelector('.evidence-explorer-pane').getBoundingClientRect().width,rail:document.querySelector('.evidence-detail-rail').getBoundingClientRect().width}));
+   await collapseAll();await capture(theme,width,'after');
+   const dimensions=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,center:document.querySelector('.evidence-inspection').getBoundingClientRect().width,explorer:document.querySelector('.evidence-explorer-pane').getBoundingClientRect().width,details:document.querySelector('.evidence-disclosures').getBoundingClientRect().width,itemsHeight:document.querySelector('.evidence-item-list').clientHeight,itemsScroll:document.querySelector('.evidence-item-list').scrollHeight,stripWidth:document.querySelector('.evidence-explorer-list').clientWidth,stripScroll:document.querySelector('.evidence-explorer-list').scrollWidth,metadataColumns:getComputedStyle(document.querySelector('.evidence-summary-grid')).gridTemplateColumns.split(' ').length}));
    assert.ok(dimensions.scroll<=width,`${theme} ${width}: horizontal document overflow`);
-   if(width>=1440)assert.ok(dimensions.center>dimensions.explorer&&dimensions.center>dimensions.rail,`${width}: center must be widest`);
+   assert.equal(dimensions.center,dimensions.explorer,'Explorer must span content width');assert.equal(dimensions.center,dimensions.details,'details must span content width');
+   assert.ok(dimensions.itemsHeight<=400&&dimensions.itemsScroll>dimensions.itemsHeight,'Evidence items use bounded scrolling');assert.ok(dimensions.stripScroll>dimensions.stripWidth,'bundle strip scrolls horizontally');
+   assert.equal(dimensions.metadataColumns,width<640?1:width<1280?2:4);
+   const reportsShell=await shellMetrics();await click('Authentication Monitoring');const referenceShell=await shellMetrics();assert.deepEqual(reportsShell,referenceShell,`${width}: Reports must inherit the shared shell`);await reports();
+   if(width>=1024){assert.equal(reportsShell['.workspace-sidebar'].position,'sticky');assert.equal(reportsShell['.workspace-sidebar'].width,'240px');}
+   await expand('Report Archive');await expand('Report Tools');
    for(const control of [page.getByLabel('Search',{exact:true}),page.getByRole('link',{name:'Open Report'}),page.locator('.evidence-report-tool button').last()]){await control.scrollIntoViewIfNeeded();assert.ok(await control.evaluate(el=>{const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),`${theme} ${width}: control overlapped`);}
    layouts.push({theme,...dimensions});
   }
   await page.setViewportSize({width:1440,height:1000});await page.getByLabel('Search',{exact:true}).focus();await page.keyboard.press('Tab');assert.equal(await page.getByLabel('Sort',{exact:true}).evaluate(el=>el===document.activeElement),true);assert.notEqual(await page.getByLabel('Sort',{exact:true}).evaluate(el=>getComputedStyle(el).outlineStyle),'none');
   await page.locator('.evidence-bundle-card').nth(1).focus();await page.keyboard.press('Enter');assert.equal(await page.locator('.evidence-bundle-card').nth(1).getAttribute('aria-pressed'),'true');
+  for(const name of disclosureNames)await expand(name);
+  for(const theme of ['dark','light'])for(const width of [1440,390]){await capture(theme,width,'expanded');assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));}
   await page.getByLabel('Search',{exact:true}).fill('no matching bundle');await page.getByText('No Evidence Bundle Selected',{exact:true}).waitFor();assert.equal(await page.locator('.evidence-bundle-card').count(),0);
-  await page.goto(origin+'/?scenario=empty-reports');await reports();await page.getByText('No security reports indexed.',{exact:true}).waitFor();assert.equal(await page.getByRole('link',{name:'Open Report'}).count(),0);await page.getByText('No report artifacts are linked to this bundle yet.').waitFor();
-  await page.goto(origin+'/?scenario=upload-error');await reports();await page.getByText('Upload failed: '+longPath,{exact:true}).waitFor();await page.setViewportSize({width:320,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'long upload error does not overflow');
-  await page.goto(origin+'/?role=viewer');await reports();assert.equal(await page.getByRole('button',{name:'Viewer role cannot run'}).count(),2);for(const button of await page.getByRole('button',{name:'Viewer role cannot run'}).all())assert.equal(await button.isDisabled(),true);assert.equal(launches.length,2);
+  await page.goto(origin+'/?scenario=empty-reports');await reports();await expand('Report Archive');await expand('Related Evidence');await page.getByText('No security reports indexed.',{exact:true}).waitFor();assert.equal(await page.getByRole('link',{name:'Open Report'}).count(),0);await page.getByText('No report artifacts are linked to this bundle yet.').waitFor();
+  await page.goto(origin+'/?scenario=upload-error');await reports();await page.getByRole('alert').getByText('Upload failed: '+longPath,{exact:true}).waitFor();await page.setViewportSize({width:320,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'long upload error does not overflow');
+  await page.goto(origin+'/?role=viewer');await reports();await expand('Report Tools');assert.equal(await page.getByRole('button',{name:'Viewer role cannot run'}).count(),2);for(const button of await page.getByRole('button',{name:'Viewer role cannot run'}).all())assert.equal(await button.isDisabled(),true);assert.equal(launches.length,2);
   assert.deepEqual(errors,[]);await fs.writeFile(path.join(output,'responsive-results.json'),JSON.stringify(layouts,null,2));
   console.log('PASS: feature preservation, permissions, HTML/JSON/download, report actions, empty/expired states, keyboard focus, both themes and 20 responsive layouts');
  }
