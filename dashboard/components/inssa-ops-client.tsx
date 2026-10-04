@@ -3205,7 +3205,7 @@ function Metadata({ label, mono, value }: { label: string; mono?: boolean; value
   return (
     <div>
       <dt className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</dt>
-      <dd className={`mt-1 break-all ${mono ? "font-mono text-xs" : ""}`}>{value}</dd>
+      <dd title={mono ? value : undefined} className={`mt-1 break-all ${mono ? "font-mono text-xs" : ""}`}>{mono ? <span>{value}</span> : value}</dd>
     </div>
   );
 }
@@ -3341,20 +3341,19 @@ function EvidenceWorkspace({
   setSelectedReportId: (value: string) => void;
 }) {
   const selectedReportHref = selectedReport ? `/api/artifacts/${selectedReport.id}/file` : null;
-  const selectedItemHref = selectedItem ? evidenceItemHref(selectedItem, selectedArtifact, evidenceArtifacts) : null;
   const playableEvidence = evidenceItems.filter((item) => isPreviewableEvidenceItem(item, evidenceArtifacts));
   const reportArtifactsForRun = evidenceArtifacts.filter((artifact) => REPORT_ARCHIVE_ARTIFACT_TYPES.has(artifact.artifactType));
   const siemArtifact = evidenceArtifacts.find((artifact) => artifact.artifactType === "SIEM Export") ?? null;
 
   return (
-    <section className="evidence-workspace">
-      <aside className="evidence-explorer-pane">
+    <section className="evidence-workspace" aria-label="Reports and evidence workspace">
+      <aside className="evidence-explorer-pane" aria-label="Evidence Explorer">
         <div className="flex items-start justify-between gap-3">
-          <SectionHeader title="Evidence Explorer" subtitle="Group evidence by campaign, run, bundle, date, environment, status, and type." />
+          <SectionHeader title="Evidence Explorer" subtitle="Find a campaign, run, or bundle." />
           <span className="report-chip">{evidenceBundles.length} bundles</span>
         </div>
 
-        <div className="mt-4 grid gap-3">
+        <div className="evidence-explorer-controls">
           <label className="block">
             <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Search</span>
             <input
@@ -3371,6 +3370,7 @@ function EvidenceWorkspace({
               <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Sort</span>
               <select
                 className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                aria-label="Sort"
                 onChange={(event) => setBundleSort(event.target.value as EvidenceSortMode)}
                 value={bundleSort}
               >
@@ -3383,6 +3383,7 @@ function EvidenceWorkspace({
               <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Bundle Type</span>
               <select
                 className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                aria-label="Bundle Type"
                 onChange={(event) => setBundleTypeFilter(event.target.value)}
                 value={bundleTypeFilter}
               >
@@ -3399,7 +3400,7 @@ function EvidenceWorkspace({
         <div className="evidence-explorer-list">
           {evidenceBundles.length === 0 ? (
             <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-400">
-              No Evidence Bundles are currently indexed. Run a safe campaign or select a historical run with evidence metadata.
+              No matching evidence bundles. Adjust the filters or select a historical run with evidence.
             </div>
           ) : (
             evidenceBundles.map((bundle) => {
@@ -3409,6 +3410,8 @@ function EvidenceWorkspace({
                 <button
                   className={`evidence-bundle-card ${selected ? "evidence-bundle-card-active" : ""}`}
                   key={bundle.id}
+                  aria-pressed={selected}
+                  title={bundle.title}
                   onClick={() => {
                     setSelectedBundleId(bundle.id);
                     setSelectedItemId("");
@@ -3428,7 +3431,7 @@ function EvidenceWorkspace({
                     <span>{bundle.itemCount} items</span>
                     <span>{formatBytes(bundle.totalBytes)}</span>
                   </span>
-                  <span className="mt-3 block truncate font-mono text-xs text-slate-600">{run?.id ?? bundle.runId}</span>
+                  <span title={run?.id ?? bundle.runId} className="mt-3 block truncate font-mono text-xs text-slate-600">{run?.id ?? bundle.runId}</span>
                   <span className="mt-1 block text-xs text-slate-500">{formatDate(bundle.createdAt)}</span>
                 </button>
               );
@@ -3439,7 +3442,8 @@ function EvidenceWorkspace({
 
       <section className="evidence-detail-pane">
         {selectedBundle ? (
-          <>
+          <div className="evidence-main-grid">
+            <div className="evidence-inspection">
             <div className="evidence-hero">
               <div className="min-w-0">
                 <p className="text-xs uppercase tracking-[0.22em] text-cyan-200/80">Evidence Bundle</p>
@@ -3450,9 +3454,9 @@ function EvidenceWorkspace({
                 </div>
                 <p className="mt-2 break-words font-mono text-xs text-slate-500">{selectedBundle.id}</p>
               </div>
-              <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+              <div className="evidence-summary-grid">
                 <MetadataCard label="Campaign" value={selectedBundle.campaignKey} />
-                <MetadataCard label="Run" value={selectedBundle.runId.slice(0, 18)} />
+                <MetadataCard label="Run" value={selectedBundle.runId} />
                 <MetadataCard label="Evidence Count" value={String(evidenceItems.length)} />
                 <MetadataCard label="Bundle Size" value={formatBytes(selectedBundle.totalBytes)} />
                 <MetadataCard label="Storage Backend" value={selectedBundle.storageBackend === "spaces" ? "DigitalOcean Spaces" : selectedBundle.storageBackend === "supabase-storage" ? "Supabase" : selectedBundle.storageBackend} />
@@ -3465,7 +3469,7 @@ function EvidenceWorkspace({
             {selectedBundle.status === "expired" ? <section className="evidence-panel" aria-label="Expired evidence">
               <h3 className="text-lg font-semibold">Evidence expired under retention policy</h3>
               <p className="mt-2 text-sm text-slate-400">The files were permanently deleted after their retention period. Run and provider results remain available.</p>
-              {selectedBundle.retentionTombstone ? <dl className="mt-4 space-y-3 text-sm text-slate-300">
+              {selectedBundle.retentionTombstone ? <dl className="evidence-key-values">
                 <Metadata label="Deleted at" value={formatDate(selectedBundle.retentionTombstone.deletedAt)} />
                 <Metadata label="Policy" value={selectedBundle.retentionTombstone.policyVersion} />
                 <Metadata label="Original objects" value={String(selectedBundle.retentionTombstone.originalObjectCount)} />
@@ -3473,7 +3477,7 @@ function EvidenceWorkspace({
                 <Metadata label="Verification" value={selectedBundle.retentionTombstone.verificationStatus} />
               </dl> : null}
             </section> : <>
-            <div className="evidence-chain">
+            <div className="evidence-chain" aria-label="Evidence lineage">
               {[
                 { label: "Campaign", value: selectedBundle.campaignKey },
                 { label: "Run", value: selectedRun?.status ?? selectedBundle.runId },
@@ -3486,19 +3490,18 @@ function EvidenceWorkspace({
                   <span className="evidence-chain-index">{index + 1}</span>
                   <span className="min-w-0">
                     <span className="block text-xs uppercase tracking-[0.18em] text-slate-500">{step.label}</span>
-                    <span className="mt-1 block truncate text-sm font-semibold text-slate-200">{step.value}</span>
+                    <span title={step.value} className="mt-1 block truncate text-sm font-semibold text-slate-200">{step.value}</span>
                   </span>
                 </div>
               ))}
             </div>
 
-            <div className="evidence-main-grid">
-              <div className="space-y-4">
-                <section className="evidence-panel">
+                <section className="evidence-panel evidence-items-panel">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <SectionHeader title="Evidence Items" subtitle="Every indexed item in the selected bundle." />
                     <span className="text-xs text-slate-500">{playableEvidence.length} preview-capable</span>
                   </div>
+                  <div className="evidence-items-heading" aria-hidden="true"><span>Name / path</span><span>Type</span><span>Size / created</span><span>Actions</span></div>
                   <div className="evidence-item-list">
                     {evidenceItems.length === 0 ? (
                       <p className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-400">
@@ -3509,41 +3512,36 @@ function EvidenceWorkspace({
                         const selected = selectedItem?.id === item.id;
                         const href = evidenceItemHref(item, evidenceArtifacts.find((artifact) => artifact.id === item.artifactId) ?? null, evidenceArtifacts);
                         return (
-                          <button
-                            className={`evidence-item-card ${selected ? "evidence-item-card-active" : ""}`}
-                            key={item.id}
-                            onClick={() => setSelectedItemId(item.id)}
-                            type="button"
-                          >
-                            <span className="report-file-icon" aria-hidden="true">{evidenceIcon(item)}</span>
-                            <span className="min-w-0 flex-1">
-                              <span className="flex flex-wrap items-center gap-2">
-                                <span className="font-semibold">{item.itemType}</span>
-                                <span className="report-chip">{evidenceFormatLabel(item)}</span>
-                                {href ? <span className="report-chip report-chip-blue">preview</span> : null}
-                              </span>
-                              <span className="mt-1 block break-words font-mono text-xs text-slate-500">{item.relativePath}</span>
-                              <span className="mt-2 block text-xs text-slate-400">
-                                {formatBytes(item.sizeBytes)} · {item.storageBackend} · {item.uploadStatus}
-                              </span>
+                          <div className={`evidence-item-card ${selected ? "evidence-item-card-active" : ""}`} key={item.id}>
+                            <button className="evidence-item-select" aria-label={`Select ${item.itemType}`} aria-pressed={selected} onClick={() => setSelectedItemId(item.id)} type="button">
+                              <span className="evidence-item-name">{item.itemType}</span>
+                              <span className="evidence-item-path" title={item.relativePath}>{item.relativePath}</span>
+                              <span className="evidence-item-storage">{item.storageBackend} · {item.uploadStatus}</span>
+                            </button>
+                            <span className="evidence-item-format"><span className="report-chip">{evidenceFormatLabel(item)}</span></span>
+                            <span className="evidence-item-date"><span>{formatBytes(item.sizeBytes)}</span><time dateTime={item.createdAt} title={formatDate(item.createdAt)}>{formatDate(item.createdAt)}</time></span>
+                            <span className="evidence-item-actions">
+                              {href && evidencePreviewKind(item) !== "download" ? <button className="secondary-action" onClick={() => setSelectedItemId(item.id)} type="button" aria-label={`Preview ${item.itemType}`}>Preview</button> : null}
+                              {href ? <a className="evidence-download" download href={href} aria-label={`Download ${item.fileName}`}>Download</a> : null}
                             </span>
-                          </button>
+                          </div>
                         );
                       })
                     )}
                   </div>
                 </section>
 
-                <section className="evidence-panel">
-                  <SectionHeader title="Evidence Preview" subtitle="Preview supported evidence inline without changing storage or report generation." />
+                <section className="evidence-panel evidence-preview-pane">
+                  <SectionHeader title="Evidence Preview" subtitle="Inspect the selected item." />
                   <EvidencePreview item={selectedItem} artifact={selectedArtifact} artifacts={evidenceArtifacts} />
                 </section>
-              </div>
+            </>}
+            </div>
 
-              <aside className="space-y-4">
+              {selectedBundle.status !== "expired" ? <aside className="evidence-detail-rail" aria-label="Evidence details and report tools">
                 <section className="evidence-panel">
                   <SectionHeader title="Bundle Details" subtitle="Storage, integrity, retention, and lifecycle metadata." />
-                  <dl className="mt-4 space-y-3 text-sm text-slate-300">
+                  <dl className="evidence-key-values">
                     <Metadata label="Status" value={selectedBundle.status} />
                     <Metadata label="Storage Prefix" value={selectedBundle.storagePrefix ?? "local filesystem"} mono />
                     <Metadata label="Uploaded At" value={selectedBundle.uploadedAt ? formatDate(selectedBundle.uploadedAt) : "not uploaded"} />
@@ -3561,7 +3559,7 @@ function EvidenceWorkspace({
                 <section className="evidence-panel">
                   <SectionHeader title="Selected Item Integrity" subtitle="Per-item hash, storage key, and preview status." />
                   {selectedItem ? (
-                    <dl className="mt-4 space-y-3 text-sm text-slate-300">
+                    <dl className="evidence-key-values">
                       <Metadata label="SHA256" value={selectedItem.sha256} mono />
                       <Metadata label="Storage Key" value={selectedItem.storageKey} mono />
                       <Metadata label="Content Type" value={selectedItem.contentType} />
@@ -3606,6 +3604,7 @@ function EvidenceWorkspace({
                             : "bg-slate-950 text-slate-300 ring-1 ring-slate-800 hover:ring-cyan-300/40"
                         }`}
                         key={category}
+                        aria-pressed={reportCategory === category}
                         onClick={() => {
                           setReportCategory(category);
                           setSelectedReportId("");
@@ -3624,12 +3623,13 @@ function EvidenceWorkspace({
                         <button
                           className={`report-list-item ${selectedReport?.id === report.id ? "report-list-item-active" : ""}`}
                           key={report.id}
+                          aria-pressed={selectedReport?.id === report.id}
                           onClick={() => setSelectedReportId(report.id)}
                           type="button"
                         >
                           <span className="min-w-0 flex-1">
                             <span className="block font-semibold">{reportTitle(report)}</span>
-                            <span className="mt-1 block break-words font-mono text-xs text-slate-500">{report.filePath}</span>
+                            <span title={report.filePath} className="mt-1 block break-words font-mono text-xs text-slate-500">{report.filePath}</span>
                           </span>
                           <span className="text-xs text-slate-400">{formatBytes(report.fileSize)}</span>
                         </button>
@@ -3654,7 +3654,7 @@ function EvidenceWorkspace({
                   <SectionHeader title="Report Tools" subtitle="Re-render existing evidence views without executing tests." />
                   <div className="mt-4 space-y-3">
                     {reportRenderCommands.map((campaign) => (
-                      <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-3" key={campaign.key}>
+                      <article className="evidence-report-tool" key={campaign.key}>
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <h5 className="font-medium">{campaign.displayName}</h5>
@@ -3664,7 +3664,7 @@ function EvidenceWorkspace({
                         </div>
                         <p className="mt-3 text-sm leading-6 text-slate-400">{campaign.operatorDescription}</p>
                         <button
-                          className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                          className="secondary-action"
                           disabled={!canStartRuns}
                           onClick={() => void runCampaign(campaign.key)}
                           type="button"
@@ -3675,10 +3675,8 @@ function EvidenceWorkspace({
                     ))}
                   </div>
                 </section>
-              </aside>
-            </div>
-            </>}
-          </>
+              </aside> : null}
+          </div>
         ) : (
           <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-8 text-center">
             <p className="text-lg font-semibold">No Evidence Bundle Selected</p>
@@ -3798,7 +3796,7 @@ function RelatedEvidenceRow({
   const content = (
     <>
       <span className="block text-xs uppercase tracking-[0.18em] text-slate-500">{label}</span>
-      <span className="mt-1 block break-words font-mono text-xs text-slate-300">{value}</span>
+      <span title={value} className="mt-1 block break-words font-mono text-xs text-slate-300">{value}</span>
       <span className="mt-2 block text-xs text-slate-500">{meta}</span>
     </>
   );
@@ -3846,16 +3844,6 @@ function evidencePreviewKind(item: EvidenceItemRecord) {
 
 function isPreviewableEvidenceItem(item: EvidenceItemRecord, artifacts: ArtifactRecord[]) {
   return Boolean(evidenceItemHref(item, artifacts.find((artifact) => artifact.id === item.artifactId) ?? null, artifacts));
-}
-
-function evidenceIcon(item: EvidenceItemRecord) {
-  if (item.contentType.startsWith("image/")) return "▧";
-  if (item.contentType.startsWith("video/")) return "▶";
-  if (item.contentType.includes("json")) return "{}";
-  if (item.contentType.includes("html")) return "HTML";
-  if (item.contentType.includes("markdown")) return "MD";
-  if (item.contentType.includes("zip")) return "ZIP";
-  return "▤";
 }
 
 function evidenceFormatLabel(item: EvidenceItemRecord) {
