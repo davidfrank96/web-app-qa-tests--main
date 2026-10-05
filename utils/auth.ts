@@ -3,7 +3,6 @@ import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
 import { expect, type Browser, type Page } from "@playwright/test";
-import { installSafeWriteAudit, type SafeWriteRecord } from "./inssa-safe-write-audit";
 import { AuthPage } from "../pages/inssa/auth-page";
 import { assertValidInssaUrl, requiredEnv } from "./env";
 import {
@@ -60,21 +59,20 @@ export function getInssaAuthStorageStatePath(): string {
   return path.join(os.tmpdir(), "web-app-qa-tests", "inssa-auth", key, "storage-state.json");
 }
 
-type SafeSessionOptions = { safe?: boolean; onAudit?: (records: SafeWriteRecord[]) => void };
-export async function ensureInssaAuthStorageState(browser: Browser, options: SafeSessionOptions = {}): Promise<string> {
+export async function ensureInssaAuthStorageState(browser: Browser): Promise<string> {
   const statePath = getInssaAuthStorageStatePath();
   await fs.mkdir(path.dirname(statePath), { recursive: true });
 
-  if (await hasUsableInssaAuthStorageState(browser, statePath, options)) {
+  if (await hasUsableInssaAuthStorageState(browser, statePath)) {
     return statePath;
   }
 
   await withInssaAuthStateLock(statePath, async () => {
-    if (await hasUsableInssaAuthStorageState(browser, statePath, options)) {
+    if (await hasUsableInssaAuthStorageState(browser, statePath)) {
       return;
     }
 
-    await writeInssaAuthStorageState(browser, statePath, options);
+    await writeInssaAuthStorageState(browser, statePath);
   });
 
   return statePath;
@@ -299,7 +297,7 @@ function classifyIssue(issue: InssaIssue, ignorePatterns: RegExp[]): ClassifiedI
   };
 }
 
-async function hasUsableInssaAuthStorageState(browser: Browser, statePath: string, options: SafeSessionOptions): Promise<boolean> {
+async function hasUsableInssaAuthStorageState(browser: Browser, statePath: string): Promise<boolean> {
   const ageMs = await getAuthStateAgeMs(statePath);
   if (ageMs === null || ageMs > INSSA_AUTH_STATE_MAX_AGE_MS) {
     return false;
@@ -320,7 +318,6 @@ async function hasUsableInssaAuthStorageState(browser: Browser, statePath: strin
   }
 
   let context: Awaited<ReturnType<Browser["newContext"]>> | undefined;
-  let audit: Awaited<ReturnType<typeof installSafeWriteAudit>> | undefined;
 
   try {
     context = await browser.newContext({
@@ -328,7 +325,6 @@ async function hasUsableInssaAuthStorageState(browser: Browser, statePath: strin
       storageState: statePath
     });
 
-    if (options.safe) audit = await installSafeWriteAudit(context, { email: getInssaTestCredentials().email });
     const page = await context.newPage();
     const authPage = new AuthPage(page);
     await page.setDefaultNavigationTimeout(INSSA_AUTH_VALIDATION_TIMEOUT_MS);
@@ -343,28 +339,20 @@ async function hasUsableInssaAuthStorageState(browser: Browser, statePath: strin
   } catch {
     return false;
   } finally {
-    try {
-      if (audit) {
-        await audit.dispose();
-        options.onAudit?.(audit.records);
-        expect(audit.failures, "Safe authentication setup must not cause product mutations or unknown writes").toEqual([]);
-      }
-    } finally { await context?.close().catch(() => {}); }
+    await context?.close().catch(() => {});
   }
 }
 
-async function writeInssaAuthStorageState(browser: Browser, statePath: string, options: SafeSessionOptions): Promise<void> {
+async function writeInssaAuthStorageState(browser: Browser, statePath: string): Promise<void> {
   let context: Awaited<ReturnType<Browser["newContext"]>> | undefined;
-  let audit: Awaited<ReturnType<typeof installSafeWriteAudit>> | undefined;
 
   try {
     context = await browser.newContext({
       baseURL: assertValidInssaUrl()
     });
 
-    if (options.safe) audit = await installSafeWriteAudit(context, { email: getInssaTestCredentials().email });
     const page = await context.newPage();
-    await login(page, options.safe ? "/timecapsule" : undefined);
+    await login(page);
     await expect.poll(async () => {
       const entries = await page.evaluate(() => Object.entries(localStorage)
         .filter(([name]) => name === "userProfile" || name.startsWith("firebase:authUser:"))
@@ -377,14 +365,7 @@ async function writeInssaAuthStorageState(browser: Browser, statePath: string, o
     await new AuthPage(page).expectStagingLoginReady(getInssaTestCredentials().email);
     await context.storageState({ path: statePath });
   } finally {
-    try {
-      if (audit) {
-        await audit.dispose();
-        options.onAudit?.(audit.records);
-        if (audit.failures.length) await fs.rm(statePath, { force: true });
-        expect(audit.failures, "Safe authentication setup must not cause product mutations or unknown writes").toEqual([]);
-      }
-    } finally { await context?.close().catch(() => {}); }
+    await context?.close().catch(() => {});
   }
 }
 

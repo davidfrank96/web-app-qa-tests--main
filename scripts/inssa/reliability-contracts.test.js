@@ -21,6 +21,8 @@ test('report commands fail visibly when their source summaries do not exist',()=
 });
 test('manual Safe Suite has zero retries while CI keeps independent retry policy',()=>{
  const {scripts}=require('../../package.json');
- assert.match(scripts['test:inssa:safe'],/--workers=1 --retries=0/);
+ assert.equal(scripts['test:inssa:safe'],'node scripts/inssa/run-safe-suite.js');
+ const {safeTestArgs}=require('./run-safe-suite');
+ assert.ok(safeTestArgs.includes('--workers=1'));assert.ok(safeTestArgs.includes('--retries=0'));
  assert.doesNotMatch(scripts['test:ci:playwright'],/--retries=0/);
 });

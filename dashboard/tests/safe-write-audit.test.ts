@@ -82,3 +82,29 @@ test("proven claims is exact read-only; seed and unknown functions remain blocke
   assert.deepEqual(classifySafeDependency(host+"/discover_seedQuickFindCategories","POST",'{"reusedCapsuleIds":["existing"]}'), {classification:"PRODUCT_MUTATION",outcome:"BLOCKED_UNEXPECTED_WRITE"});
   for(const [url,method] of [[host+"/listMyRaffleClaimsExtra","POST"],[host+"/unknown","POST"],[host+"/listMyRaffleClaims","PATCH"],[host.replace("stg","prod")+"/listMyRaffleClaims","POST"]]) assert.equal(classifySafeDependency(url,method,"{}").outcome,"BLOCKED_UNEXPECTED_WRITE");
 });
+
+test("observed Google reCAPTCHA report-only CSP telemetry is exact; arbitrary reports and writes stay blocked", async () => {
+  const url = "https://csp.withgoogle.com/csp/frame-ancestors/38fac9d5b82543fc4729580d18ff2d3d";
+  const report = { "document-uri": "https://www.google.com/", "referrer": "", "violated-directive": "frame-ancestors",
+    "effective-directive": "frame-ancestors", "original-policy": `frame-ancestors 'self'; report-uri ${url}`,
+    disposition: "report", "blocked-uri": "https://www.google.com/", "status-code": 200, "script-sample": "" };
+  const body = JSON.stringify({ "csp-report": report });
+  assert.equal(classifySafeDependency(url, "POST", body, "application/csp-report").outcome, "ALLOWED_BENIGN_INITIALIZATION");
+  for (const [target, method, payload, contentType] of [
+    [url, "POST", body, "application/json"], [url, "PUT", body, "application/csp-report"],
+    [url + "?write=1", "POST", body, "application/csp-report"],
+    [url.replace("38fac", "18fac"), "POST", body, "application/csp-report"],
+    [url.replace("csp.withgoogle.com", "example.test"), "POST", body, "application/csp-report"],
+    [url, "POST", "{}", "application/csp-report"], [url, "POST", "invalid", "application/csp-report"],
+    ...[{ disposition: "enforce" }, { "script-sample": "unexpected content" }, { "document-uri": "https://staging.inssa.us/" },
+      { "effective-directive": "script-src" }, { "original-policy": "default-src *" }, { draft: {} }]
+      .map(change => [url, "POST", JSON.stringify({ "csp-report": { ...report, ...change } }), "application/csp-report"])
+  ]) assert.equal(classifySafeDependency(target, method, payload, contentType).outcome, "BLOCKED_UNEXPECTED_WRITE");
+  let handler: (route: Route, request: Request) => Promise<void> = async () => {};
+  const context = { route: async (_: unknown, h: typeof handler) => { handler = h; }, unroute: async () => {} } as unknown as BrowserContext;
+  const audit = await installSafeWriteAudit(context, "account"); let forwarded = 0;
+  await handler({ continue: async () => { forwarded++; }, abort: async () => { assert.fail("Known CSP report was blocked"); } } as unknown as Route,
+    { url: () => url, method: () => "POST", postData: () => body, headers: () => ({ "content-type": "application/csp-report" }) } as unknown as Request);
+  assert.equal(forwarded, 1); assert.equal(audit.failures.length, 0);
+  assert.equal(audit.records[0].outcome, "ALLOWED_BENIGN_INITIALIZATION");
+});
