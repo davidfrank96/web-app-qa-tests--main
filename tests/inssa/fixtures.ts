@@ -2,6 +2,7 @@ import { expect, test as base, type Page } from "@playwright/test";
 import { installSafeWriteAudit, type SafeWriteRecord } from "../../utils/inssa-safe-write-audit";
 import { AuthPage } from "../../pages/inssa/auth-page";
 import { ensureInssaAuthStorageState, hasCompleteInssaSession } from "../../utils/auth";
+import { readPreparedInssaSafeState } from "../../utils/inssa-safe-session";
 import { assertValidInssaUrl } from "../../utils/env";
 
 type InssaFixtures = {
@@ -20,9 +21,9 @@ export const test = base.extend<InssaFixtures, InssaWorkerFixtures>({
   safeSession: [false, { scope: "worker", option: true }],
   authSetupWrites: [async ({}, use) => { await use([]); }, { scope: "worker" }],
   authStorageStatePath: [
-    async ({ browser, safeSession, authSetupWrites }, use) => {
+    async ({ browser, safeSession }, use) => {
       assertValidInssaUrl();
-      const statePath = await ensureInssaAuthStorageState(browser, { safe: safeSession, onAudit: records => authSetupWrites.push(...records) });
+      const statePath = safeSession ? await readPreparedInssaSafeState() : await ensureInssaAuthStorageState(browser);
       await use(statePath);
     },
     { scope: "worker", timeout: 120_000 }

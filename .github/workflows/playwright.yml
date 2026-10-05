@@ -57,7 +57,7 @@ jobs:
       - name: Verify staging login, account identity and real UI logout
         run: node --import ./dashboard/node_modules/tsx/dist/loader.mjs dashboard/scripts/test-staging-auth-session.ts
 
-      - name: Verify Safe write boundaries, guarded login and governed Home/Bury fixtures
+      - name: Verify fresh Safe auth preparation, strict test write guard and governed Home/Bury fixtures
         run: npm run test:inssa:safe:fixtures
 
       - name: Verify complete staging authentication cache

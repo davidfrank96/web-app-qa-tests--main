@@ -71,7 +71,7 @@ export function classifySafeWrite(write: FirestoreWrite, ownDocument: string, cu
   return "AUTH_PROFILE_INITIALIZATION_NO_CHANGE";
 }
 
-export function classifySafeDependency(url: string, method: string, body: string): { classification: SafeWriteClassification; outcome: SafeWriteOutcome } {
+export function classifySafeDependency(url: string, method: string, body: string, contentType?: string): { classification: SafeWriteClassification; outcome: SafeWriteOutcome } {
   const target = new URL(url);
   const result = (classification: SafeWriteClassification, outcome: SafeWriteOutcome) => ({ classification, outcome });
   const unknown = () => result("UNKNOWN", "BLOCKED_UNEXPECTED_WRITE");
@@ -85,6 +85,24 @@ export function classifySafeDependency(url: string, method: string, body: string
   if (host === "firebaseinstallations.googleapis.com" && /^\/v1\/projects\/[^/]+\/installations$/.test(path)) return result("BENIGN_NOTIFICATION_METADATA", "ALLOWED_BENIGN_INITIALIZATION");
   if ((host === "region1.google-analytics.com" && path === "/g/collect") ||
       (host === "o4509804097699840.ingest.us.sentry.io" && path === "/api/4509804098945024/envelope/")) return result("BENIGN_SESSION_INITIALIZATION", "ALLOWED_BENIGN_INITIALIZATION");
+  // Saved Media trace: this report matches the report-only policy returned by
+  // Google's reCAPTCHA frame. Recognize that exact telemetry envelope only.
+  if (host === "csp.withgoogle.com" && path === "/csp/frame-ancestors/38fac9d5b82543fc4729580d18ff2d3d" &&
+      !target.search && !target.hash && contentType?.split(";")[0].trim().toLowerCase() === "application/csp-report") {
+    try {
+      const payload = JSON.parse(body);
+      const report = payload?.["csp-report"];
+      const policy = report?.["original-policy"];
+      if (payload && isDeepStrictEqual(Object.keys(payload), ["csp-report"]) && report &&
+          typeof policy === "string" && isDeepStrictEqual(policy.split(";").map(part => part.trim()).filter(Boolean), ["frame-ancestors 'self'", `report-uri ${target.href}`]) &&
+          isDeepStrictEqual(report, {
+            "document-uri": "https://www.google.com/", "referrer": "",
+            "violated-directive": "frame-ancestors", "effective-directive": "frame-ancestors",
+            "original-policy": policy, "disposition": "report", "blocked-uri": "https://www.google.com/",
+            "status-code": 200, "script-sample": ""
+          })) return result("BENIGN_SESSION_INITIALIZATION", "ALLOWED_BENIGN_INITIALIZATION");
+    } catch { /* An unknown report remains blocked. */ }
+  }
   if (host === "maps.googleapis.com" && path === "/$rpc/google.internal.maps.mapsjs.v1.MapsJsInternalService/GetViewportInfo") {
     try {
       const values = JSON.parse(body);
@@ -120,7 +138,7 @@ export async function installSafeWriteAudit(context: BrowserContext, identity: s
     const method = request.method();
     if (["GET", "HEAD", "OPTIONS"].includes(method)) { await route.continue(); return; }
     if (url.hostname !== "firestore.googleapis.com") {
-      const decision = classifySafeDependency(url.href, method, request.postData() ?? "");
+      const decision = classifySafeDependency(url.href, method, request.postData() ?? "", request.headers?.()["content-type"]);
       const blocked = decision.outcome === "BLOCKED_UNEXPECTED_WRITE";
       records.push({ observedAt: new Date().toISOString(), method, endpoint: `${url.origin}${url.pathname.replace(/(@|%40)[^/]+/g, "<redacted>")}`, collection: "dependency", fields: [], ...decision, blocked, serviceWorker: Boolean(request.serviceWorker?.()) });
       if (blocked) {
