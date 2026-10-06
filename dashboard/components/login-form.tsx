@@ -50,6 +50,7 @@ export function LoginForm({ authConfigured, initialMessage = "" }: LoginFormProp
   return (
     <div className="mx-auto flex min-h-screen max-w-lg items-center px-4 py-12">
       <section className="w-full rounded-3xl border border-slate-800 bg-slate-900/85 p-6 text-slate-100 shadow-2xl shadow-slate-950/50">
+        <img src="/brand/kbean/kbean-icon-48.png" alt="KBean" width={48} height={48} className="mb-5 rounded-2xl" />
         <p className="text-xs uppercase tracking-[0.28em] text-cyan-300">INSSA QA Operations</p>
         <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">Sign in</h1>
         <p className="mt-3 text-sm leading-6 text-slate-400">

@@ -1367,7 +1367,7 @@ export function InssaOpsClient({
         <header className="ops-topbar workspace-topbar">
           <div className="flex min-w-[18rem] items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-300/30 bg-cyan-300/10 text-sm font-bold text-cyan-100">
-              IQ
+              <img src="/brand/kbean/kbean-icon-48.png" alt="KBean" width={44} height={44} className="h-full w-full rounded-[inherit]" />
             </div>
             <div>
               <p className="text-base font-semibold tracking-[-0.02em]">INSSA QA Operations</p>
