@@ -1,4 +1,4 @@
-import { dismissInssaSessionWarning } from "../../utils/inssa-session-warning";
+import { INSSA_SAFE_COMPOSE_READINESS_MS, INSSA_SAFE_COMPOSE_TEST_MS } from "../../utils/inssa-compose-contract";
 import { test } from "./fixtures";
 import { TimeCapsulePage } from "../../pages/inssa/time-capsule.page";
 import { createInssaErrorMonitor, getInssaTestCredentials } from "../../utils/auth";
@@ -10,7 +10,7 @@ test.use({ productWriteAuditEnabled: true, safeSession: true });
 
 test.describe("INSSA media step capability audit", () => {
   test.describe.configure({ mode: "serial" });
-  test.setTimeout(90_000);
+  test.setTimeout(INSSA_SAFE_COMPOSE_TEST_MS);
   test.skip(
     !hasInssaTestCredentials(),
     "INSSA_TEST_EMAIL and INSSA_TEST_PASSWORD are required for the authenticated media-step audit."
@@ -37,8 +37,7 @@ test.describe("INSSA media step capability audit", () => {
       });
 
       await monitor.step("assert compose surface before media audit", async () => {
-        await compose.expectComposeSurface();
-        await dismissInssaSessionWarning(page);
+        await compose.expectComposeSurface({ readinessTimeoutMs: INSSA_SAFE_COMPOSE_READINESS_MS });
         await compose.expectRequiredFieldMetadata();
       }, { phase: "assertion" });
 

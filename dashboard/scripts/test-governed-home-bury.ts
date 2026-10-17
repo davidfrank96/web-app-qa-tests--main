@@ -27,7 +27,7 @@ async function main() {
       await context.route("**/*", async route => {
         const url=new URL(route.request().url()); visits.push(url.pathname);
         if(url.hostname.endsWith("cloudfunctions.net")) return route.fulfill({contentType:"application/json",body:JSON.stringify({result:{createdCapsuleIds:["fixture-id"],reusedCapsuleIds:[],categories:{places:[{id:"system-capsule",capsuleId:"system-capsule"}]}}})});
-        const body=url.pathname==="/" ? `<input type="text" placeholder="Search for any place"><button>Find</button><button onclick="location.href='${authenticated?'/timecapsule':'/signin?next=%2Ftimecapsule'}'">Bury</button><a href="/signin">Sign In</a><a href="/points-ledger">Points</a>` : '<h1>Compose</h1><input type="text"><textarea></textarea><button>Discard draft</button><button>Save & exit</button>';
+        const body=url.pathname==="/" ? `<input type="text" placeholder="Search for any place"><button>Find</button><button onclick="location.href='${authenticated?'/timecapsule':'/signin?next=%2Ftimecapsule'}'">Bury</button><a href="/signin">Sign In</a><a href="/points-ledger">Points</a>` : '<h1>Compose</h1><label>Subject*<input type="text"></label><label>Your Message*<textarea></textarea></label><button>Discard draft</button><button>Save & exit</button>';
         await route.fulfill({contentType:"text/html",body});
       });
       await openGovernedHomeBury(page,authenticated);

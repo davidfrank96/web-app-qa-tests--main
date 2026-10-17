@@ -1,4 +1,4 @@
-import { dismissInssaSessionWarning } from "../../utils/inssa-session-warning";
+import { INSSA_SAFE_COMPOSE_READINESS_MS, INSSA_SAFE_COMPOSE_TEST_MS } from "../../utils/inssa-compose-contract";
 import { expect, test as authenticatedTest } from "./fixtures";
 import { TimeCapsulePage } from "../../pages/inssa/time-capsule.page";
 import { createInssaErrorMonitor, getInssaTestCredentials } from "../../utils/auth";
@@ -10,6 +10,7 @@ import { withInssaStabilityMonitor } from "../../utils/monitor";
 // Home automatically invokes a backend that creates system-owned discover capsules.
 authenticatedTest.use({ productWriteAuditEnabled: true, safeSession: true });
 authenticatedTest.describe("INSSA direct compose safe coverage", () => {
+  authenticatedTest.setTimeout(INSSA_SAFE_COMPOSE_TEST_MS);
   authenticatedTest.skip(!process.env.INSSA_TEST_EMAIL?.trim() || !process.env.INSSA_TEST_PASSWORD?.trim(), "INSSA staging credentials required");
   authenticatedTest.beforeAll(() => { assertValidInssaUrl(); getInssaTestCredentials(); });
   authenticatedTest("authenticated direct compose route renders the non-destructive compose surface", async ({ page }, testInfo) => {
@@ -30,8 +31,7 @@ authenticatedTest.describe("INSSA direct compose safe coverage", () => {
           .toMatch(INSSA_TIME_CAPSULE_ROUTE_PATTERN);
       }, { phase: "assertion" });
       await monitor.step("assert compose surface and required-field metadata", async () => {
-        await timeCapsule.expectComposeSurface();
-        await dismissInssaSessionWarning(page);
+        await timeCapsule.expectComposeSurface({ readinessTimeoutMs: INSSA_SAFE_COMPOSE_READINESS_MS });
         await timeCapsule.expectRequiredFieldMetadata();
       }, { phase: "assertion" });
       await monitor.step("assert no unexpected INSSA errors", () => errorMonitor.expectNoUnexpectedErrors(), {
