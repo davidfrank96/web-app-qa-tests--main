@@ -151,3 +151,17 @@ See [Worker Operations](worker-operations.md), [Dashboard Runtime](dashboard-run
 ## Release
 
 Follow [Deployment Checklist](deployment-checklist.md) and [Platform Release Guide](platform-release-guide.md). Current production status is blocked until the historical token remediation in the security certification is complete.
+
+## Diagnosing Text Lifecycle Landing Setup
+
+A failed logged-out landing prerequisite is `setup-failed`, not a missing finalization response. The text lifecycle monitor observes the guest page for that step. Its failure JSON and screenshot are captured before the guest closes, and the final artifact preserves that URL and screenshot. A later failure before the final action is `finalization-not-attempted`.
+
+The session warning helper uses one normal, actionable click and verifies disappearance within its existing three-second budget. A still-visible warning preserves the original click error; a click whose application handler does nothing still fails the disappearance assertion. No retry or forced-click fallback is used.
+
+Run offline checks with `npm run test:inssa:landing:fixtures`. For an explicitly requested staging investigation, run:
+
+```bash
+node --import ./dashboard/node_modules/tsx/dist/loader.mjs dashboard/scripts/probe-landing-setup.ts --staging
+```
+
+This probe opens three fresh logged-out contexts and stops after landing initialization, before Bury. It blocks service workers and uses the Safe Suite write guard because Home can automatically request discovery seeding. Blocked seeding is recorded, not permitted. This protective difference and the absence of concurrent campaign load must be disclosed when comparing timings with a lifecycle run. It writes screenshots, traces and diagnostics to a new temporary directory printed at startup; it does not execute a lifecycle campaign or enable mutation flags.

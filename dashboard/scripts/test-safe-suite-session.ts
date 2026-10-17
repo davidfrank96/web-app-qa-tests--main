@@ -22,7 +22,7 @@ try {
       await dismissInssaSessionWarning(page);
     } else if(scenario==='persistent-failure') {
       await page.locator('[role=status] button').evaluate(button=>button.removeAttribute('onclick'));
-      await assert.rejects(dismissInssaSessionWarning(page),/Timeout 3000ms/);
+      await assert.rejects(dismissInssaSessionWarning(page),/not.toBeVisible\(\) failed/);
     } else await dismissInssaSessionWarning(page);
     if(scenario!=='persistent-failure')assert.equal(await page.locator('[role=status]').isVisible(),false);
     assert.equal(await page.evaluate(()=>Boolean((window as unknown as {unrelatedClicked?:boolean}).unrelatedClicked)),false);
