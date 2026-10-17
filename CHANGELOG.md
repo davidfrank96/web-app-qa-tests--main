@@ -2,6 +2,13 @@
 
 All notable QA Operations Platform changes are documented here.
 
+## Unreleased
+
+- Preserve session-notice click actionability errors within the existing dismissal budget.
+- Capture text-lifecycle guest setup failures before closing their context; classify setup and unattempted finalization separately.
+- Resolve recorded lifecycle phase reports and their trace assets through the authenticated bundle route.
+- Add offline setup diagnostics checks and an opt-in, mutation-blocked landing-only staging probe.
+
 ## 1.0.0 - 2026-07-21
 
 ### Added

@@ -16,6 +16,8 @@ type ErrorMonitorLike = {
 type StepOptions = {
   phase?: StepPhase;
   route?: string;
+  page?: Page;
+  errorMonitor?: ErrorMonitorLike;
 };
 
 type StepLogRecord = {
@@ -63,23 +65,25 @@ export function createInssaStabilityMonitor(
 
   return {
     async step<T>(step: string, run: () => Promise<T>, stepOptions: StepOptions = {}): Promise<T> {
+      const observedPage = stepOptions.page ?? page;
+      const observedErrors = stepOptions.errorMonitor ?? errorMonitor;
       const phase = stepOptions.phase ?? inferPhase(step);
       const startedAt = Date.now();
-      const issueStartIndex = errorMonitor.issues.length;
-      errorMonitor.setAction(step);
+      const issueStartIndex = observedErrors.issues.length;
+      observedErrors.setAction(step);
 
       try {
         const result = await run();
         const renderObserved =
-          phase === "navigation" ? await waitForMeaningfulRender(page, meaningfulRenderTimeoutMs) : false;
+          phase === "navigation" ? await waitForMeaningfulRender(observedPage, meaningfulRenderTimeoutMs) : false;
         const durationMs = Date.now() - startedAt;
-        const counts = countIssuesByKind(errorMonitor.issues.slice(issueStartIndex));
+        const counts = countIssuesByKind(observedErrors.issues.slice(issueStartIndex));
         const status = classifyDuration(durationMs, slowThresholdMs, unstableThresholdMs);
 
         const record = buildRecord({
           counts,
           durationMs,
-          page,
+          page: observedPage,
           phase,
           renderObserved,
           route: stepOptions.route,
@@ -93,12 +97,12 @@ export function createInssaStabilityMonitor(
         return result;
       } catch (error) {
         const durationMs = Date.now() - startedAt;
-        const counts = countIssuesByKind(errorMonitor.issues.slice(issueStartIndex));
+        const counts = countIssuesByKind(observedErrors.issues.slice(issueStartIndex));
         const record = buildRecord({
           counts,
           durationMs,
           failureReason: getErrorMessage(error),
-          page,
+          page: observedPage,
           phase,
           renderObserved: false,
           route: stepOptions.route,
@@ -179,7 +183,7 @@ function buildSummary(testName: string, page: Page, records: StepLogRecord[]): S
 
   return {
     brokenSteps,
-    finalRoute: page.url() || "about:blank",
+    finalRoute: records.at(-1)?.route || page.url() || "about:blank",
     slowSteps,
     status:
       brokenSteps > 0 ? "broken" : unstableSteps > 0 ? "unstable" : slowSteps > 0 ? "slow" : "healthy",

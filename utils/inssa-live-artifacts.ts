@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { copyFile, mkdir, writeFile } from "fs/promises";
 import path from "path";
-import type { Page } from "@playwright/test";
+import type { Page, TestInfo } from "@playwright/test";
 
 export const INSSA_LIVE_CAPSULE_ARTIFACT_PATH_ENV = "INSSA_LIVE_CAPSULE_ARTIFACT_PATH";
 export const INSSA_USE_LATEST_LIVE_CAPSULE_ARTIFACT_ENV = "INSSA_USE_LATEST_LIVE_CAPSULE_ARTIFACT";
@@ -378,4 +378,25 @@ function formatUnknown(value: unknown): string {
   }
 
   return String(value);
+}
+
+// Capture the guest while it is alive; the fixture page can still be about:blank.
+// Diagnostic failures are recorded without replacing the original setup error.
+export async function captureInssaSetupFailure(
+  page: Page, testInfo: Pick<TestInfo, "attach">, issues: unknown[], error: unknown, screenshotFileName: string
+): Promise<void> {
+  const diagnostics = {
+    classification: "setup-failed", url: page.url(), issues,
+    error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
+    captureErrors: [] as string[]
+  };
+  try {
+    const screenshotPath = await captureInssaLifecycleArtifactScreenshot(page, screenshotFileName);
+    await testInfo.attach("inssa-guest-setup-failure.png", { path: screenshotPath, contentType: "image/png" });
+  } catch (captureError) { diagnostics.captureErrors.push(String(captureError)); }
+  try {
+    await testInfo.attach("inssa-guest-setup-failure.json", {
+      body: JSON.stringify(diagnostics, null, 2), contentType: "application/json"
+    });
+  } catch (captureError) { console.error("INSSA_SETUP_DIAGNOSTIC_CAPTURE_FAILED", String(captureError)); }
 }

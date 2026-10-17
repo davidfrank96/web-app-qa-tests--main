@@ -11,6 +11,7 @@ import { createInssaErrorMonitor, getInssaTestCredentials } from "../../utils/au
 import { assertValidInssaUrl } from "../../utils/env";
 import {
   captureInssaLifecycleArtifactScreenshot,
+  captureInssaSetupFailure,
   getInssaLifecycleArtifactPath,
   writeInssaLifecycleArtifactJson
 } from "../../utils/inssa-live-artifacts";
@@ -192,6 +193,8 @@ test.describe("INSSA live capsule create", () => {
     let finalShareActionClicked = false;
     let finalizationPersistenceResponseStatuses: number[] = [];
     let buryClicked = false;
+    let setupComplete = false;
+    let guestSetupFailed = false;
     let artifactStateNote: string | null = null;
     let cleanupObjectType: "timeCapsule" | null = null;
     let cleanupOwner: string | null = null;
@@ -228,15 +231,22 @@ test.describe("INSSA live capsule create", () => {
 
     try {
       await withInssaStabilityMonitor(page, testInfo, errorMonitor, async (monitor) => {
-        await monitor.step("governed logged-out Home/Bury redirects to sign-in", async () => {
-          const guest = await page.context().browser()!.newContext({ baseURL: configuredUrl, serviceWorkers: "allow" });
+        const guest = await page.context().browser()!.newContext({ baseURL: configuredUrl, serviceWorkers: "allow" });
+        try {
+          const guestPage = await guest.newPage(); homeSeeding.attach(guestPage);
+          const guestErrors = createInssaErrorMonitor(guestPage);
           try {
-            const guestPage = await guest.newPage(); homeSeeding.attach(guestPage);
-            const guestErrors = createInssaErrorMonitor(guestPage);
-            await openGovernedHomeBury(guestPage, false);
-            await guestErrors.expectNoUnexpectedErrors();
-          } finally { await guest.close(); }
-        }, { phase: "navigation", route: "/" });
+            await monitor.step("governed logged-out Home/Bury redirects to sign-in", async () => {
+              await openGovernedHomeBury(guestPage, false);
+              await guestErrors.expectNoUnexpectedErrors();
+            }, { phase: "navigation", route: "/", page: guestPage, errorMonitor: guestErrors });
+          } catch (error) {
+            guestSetupFailed = true;
+            finalUrl = guestPage.url();
+            await captureInssaSetupFailure(guestPage, testInfo, guestErrors.issues, error, screenshotFileName);
+            throw error;
+          }
+        } finally { await guest.close(); }
         await monitor.step("governed authenticated Home/Bury reaches compose", () => openGovernedHomeBury(page, true), {
           phase: "navigation", route: "/timecapsule"
         });
@@ -251,6 +261,8 @@ test.describe("INSSA live capsule create", () => {
             })
             .toMatch(INSSA_TIME_CAPSULE_ROUTE_PATTERN);
         }, { phase: "assertion" });
+
+        setupComplete = true;
 
         await monitor.step("fill unique QA-tagged text-only live capsule content", async () => {
           await compose.fillComposeFields(seed);
@@ -472,7 +484,7 @@ test.describe("INSSA live capsule create", () => {
       lifecycleNetworkSummary.possibleDocumentIds.forEach((id) => possibleDocumentIds.add(id));
       possibleFinalCapsuleId = possibleFinalCapsuleId ?? lifecycleNetworkSummary.possibleCapsuleIds[0] ?? null;
       possibleShareToken = possibleShareToken ?? lifecycleNetworkSummary.possibleShareTokens[0] ?? null;
-      await captureInssaLifecycleArtifactScreenshot(page, screenshotFileName).catch(() => {});
+      if (!guestSetupFailed) await captureInssaLifecycleArtifactScreenshot(page, screenshotFileName).catch(() => {});
       if (finalShareActionClicked) {
         await captureInssaLifecycleArtifactScreenshot(page, postFinalizationScreenshotFileName).catch(() => {});
       }
@@ -500,6 +512,8 @@ test.describe("INSSA live capsule create", () => {
             Boolean(finalShareEvidence?.shareLinkButtonVisible) ||
             Boolean(finalShareEvidence?.homeVisible)));
       const lifecycleClassification = classifyInssaLifecyclePersistence({
+        setupFailed: !setupComplete,
+        finalizationAttempted: finalActionClicked,
         finalShareEvidence,
         finalShareLink,
         finalUrl,
@@ -556,7 +570,9 @@ test.describe("INSSA live capsule create", () => {
         buryClicked,
         cleanupIdentityStatus,
         cleanupInvestigationRequired,
-        cleanupInstruction: cleanupInvestigationRequired
+        cleanupInstruction: !setupComplete
+          ? "Setup failed before capsule content entry or finalization. Review Home seed evidence; no QA capsule deletion is authorized by this result."
+          : cleanupInvestigationRequired
           ? "Cleanup Investigation Required. Identify the exact staging capsule before any further mutation run; do not retry the final action."
           : `Delete the QA staging time capsule ${possibleFinalCapsuleId ?? "identified by this run's evidence"} after verification.`,
         cleanupObjectType,

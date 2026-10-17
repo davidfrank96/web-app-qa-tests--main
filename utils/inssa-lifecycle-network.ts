@@ -6,6 +6,8 @@ export const INSSA_DEBUG_LIFECYCLE_NETWORK_ENV_FLAG = "INSSA_DEBUG_LIFECYCLE_NET
 export type InssaLifecycleNetworkPhase = "bury-click" | "post-create" | "pre-create" | "reveal-continue";
 
 export type InssaLifecyclePersistenceClassification =
+  | "setup-failed"
+  | "finalization-not-attempted"
   | "finalization-response-missing"
   | "finalized-and-retrievable"
   | "finalized-but-unindexed"
@@ -213,6 +215,8 @@ export function createInssaLifecycleNetworkMonitor(input: {
 }
 
 export function classifyInssaLifecyclePersistence(input: {
+  setupFailed?: boolean;
+  finalizationAttempted?: boolean;
   finalShareEvidence: InssaLiveCapsuleShareEvidence | null;
   finalShareLink: string | null;
   finalUrl: string;
@@ -225,6 +229,8 @@ export function classifyInssaLifecyclePersistence(input: {
   revealSettingsFollowupClickedLabel: string | null;
   revealTiming: "reveal-later" | "reveal-now" | null;
 }): InssaLifecyclePersistenceClassification {
+  if (input.setupFailed) return "setup-failed";
+  if (input.finalizationAttempted === false) return "finalization-not-attempted";
   const hasRetrievalMetadata = Boolean(
     input.finalShareLink ||
       input.possibleFinalCapsuleId ||

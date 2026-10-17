@@ -52,10 +52,14 @@ const EVIDENCE_CONTENT_TYPES: Record<string, string> = {
 };
 
 export function isPlaywrightReportArtifact(artifact: InssaArtifactRecord) {
-  const normalizedPath = artifact.filePath.split(path.sep).join("/");
   return artifact.artifactType === "Playwright Report" && !artifact.sensitive &&
-    (normalizedPath === `${PLAYWRIGHT_REPORT_ROOT}/index.html` ||
-      normalizedPath.endsWith(`/${PLAYWRIGHT_REPORT_ROOT}/index.html`));
+    isSupportedPlaywrightIndex(logicalArtifactPath(artifact));
+}
+
+function isSupportedPlaywrightIndex(logicalPath: string) {
+  // Lifecycle recording emits one report per phase. Keep the same bundle and
+  // canonical path boundaries; only the launcher's explicit phase roots qualify.
+  return /^playwright-report\/(?:create\/|authenticated-discovery\/|public-share\/)?index\.html$/.test(logicalPath);
 }
 
 export async function resolvePlaywrightEvidenceBundleFile(
@@ -89,11 +93,7 @@ export function resolvePlaywrightEvidenceBundlePath(
 ): ResolvedEvidenceBundlePath {
   const relativePath = normalizeBundleRelativePath(relativePathSegments);
   const normalizedArtifactPath = artifact.filePath.split(path.sep).join("/");
-  const runPrefix = `run-output/${artifact.runId}/`;
-  const expectedIndexPath = normalizedArtifactPath.startsWith(runPrefix)
-    ? `${runPrefix}${PLAYWRIGHT_REPORT_ROOT}/index.html`
-    : `${PLAYWRIGHT_REPORT_ROOT}/index.html`;
-  if (normalizedArtifactPath !== expectedIndexPath) {
+  if (!isPlaywrightReportArtifact(artifact)) {
     throw new InssaEvidenceServingError("Playwright evidence metadata does not identify a valid bundle root.", 403);
   }
 

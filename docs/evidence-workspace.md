@@ -24,7 +24,7 @@ The workspace shows:
 
 Evidence Item metadata includes relative path, type, content type, size, SHA-256, sensitivity, rendering policy, storage key, and upload state. Supported previews use existing authenticated routes for HTML, JSON, text, Markdown, images, and video where the item is allowed. Trace ZIPs and other binaries remain download-oriented.
 
-Playwright reports use the bundle route so CSS, JavaScript, images, attachments, traces, and other relative assets resolve under the authenticated bundle root.
+Playwright reports use the bundle route so CSS, JavaScript, images, attachments, traces, and other relative assets resolve under the authenticated bundle root. Recorded lifecycle reports also support the launcher’s `create`, `authenticated-discovery`, and `public-share` subdirectories. Their `/file` links redirect to the corresponding bundle root; relative trace-viewer and attachment URLs stay within that report directory. Unknown phase roots and traversal/symlink escapes remain rejected.
 
 ## Evidence Chain
 
