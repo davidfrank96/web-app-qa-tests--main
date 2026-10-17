@@ -8,6 +8,7 @@ All notable QA Operations Platform changes are documented here.
 - Capture text-lifecycle guest setup failures before closing their context; classify setup and unattempted finalization separately.
 - Resolve recorded lifecycle phase reports and their trace assets through the authenticated bundle route.
 - Add offline setup diagnostics checks and an opt-in, mutation-blocked landing-only staging probe.
+- Update Next.js to 15.5.28 and the existing sharp override to 0.35.5 to clear the mandatory dependency audit before release.
 
 ## 1.0.0 - 2026-07-21
 
