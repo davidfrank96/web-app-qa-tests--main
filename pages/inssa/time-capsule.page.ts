@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import { expectPageNotBlank } from "../../utils/assertions";
+import { dismissInssaSessionWarning } from "../../utils/inssa-session-warning";
 import { assertValidInssaUrl } from "../../utils/env";
 import {
   buildInssaComposeRouteForLocation,
@@ -455,32 +456,54 @@ export class TimeCapsulePage {
     );
   }
 
-  async expectComposeSurface(): Promise<void> {
+  async expectComposeSurface(options: { readinessTimeoutMs?: number } = {}): Promise<void> {
+    // Safe Suite supplies one cold-start budget for the entire surface, not a
+    // fresh timeout per control. Other callers retain their existing defaults.
+    const budget = options.readinessTimeoutMs;
+    if (budget !== undefined && (!Number.isFinite(budget) || budget <= 0)) {
+      throw new Error("Compose readiness budget must be a positive finite number.");
+    }
+    const deadline = budget === undefined ? undefined : Date.now() + budget;
+    const remaining = () => {
+      if (deadline === undefined) return DEFAULT_TIMEOUT;
+      const timeout = deadline - Date.now();
+      // Playwright treats zero as no timeout, so never pass an exhausted budget.
+      if (timeout <= 0) throw new Error(`Compose readiness exceeded its ${budget}ms budget.`);
+      return timeout;
+    };
+    // The notice can arrive before the form. Handle it before readiness, and
+    // again after hydration so a late notice cannot cover the first interaction.
+    await dismissInssaSessionWarning(this.page, budget === undefined ? {} : { timeoutMs: remaining() });
     await expectPageNotBlank(this.page);
-    await expect(this.page.locator("body")).not.toContainText(INSSA_GENERIC_JS_SHELL_PATTERN);
+    remaining();
+    await expect(this.page.locator("body")).not.toContainText(INSSA_GENERIC_JS_SHELL_PATTERN, { timeout: remaining() });
     await expect
       .poll(() => this.page.url(), {
-        timeout: DEFAULT_TIMEOUT,
+        timeout: remaining(),
         message: "Expected the Bury action to land on the time capsule compose route."
       })
       .toMatch(INSSA_TIME_CAPSULE_ROUTE_PATTERN);
 
     await expect(this.subjectField(), "Expected the compose surface to show the Subject field.").toBeVisible({
-      timeout: DEFAULT_TIMEOUT
+      timeout: remaining()
     });
     await expect(this.messageField(), "Expected the compose surface to show the message field.").toBeVisible({
-      timeout: DEFAULT_TIMEOUT
+      timeout: remaining()
     });
+    await expect(this.subjectField(), "Subject must be editable without changing product data.").toBeEditable({ timeout: remaining() });
+    await expect(this.messageField(), "Message must be editable without changing product data.").toBeEditable({ timeout: remaining() });
+    await dismissInssaSessionWarning(this.page, budget === undefined ? {} : { timeoutMs: remaining() });
     await expect(this.discardDraftButton(), "Expected the compose surface to expose Discard draft.").toBeVisible({
-      timeout: DEFAULT_TIMEOUT
+      timeout: remaining()
     });
     await expect(this.saveAndExitButton(), "Expected the compose surface to expose Save & exit.").toBeVisible({
-      timeout: DEFAULT_TIMEOUT
+      timeout: remaining()
     });
     await expect(
       this.page.getByText(INSSA_COMPOSE_STEP_PATTERN).first(),
       "Expected the compose flow to expose step labels."
-    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+    ).toBeVisible({ timeout: remaining() });
+    remaining();
   }
 
   async expectRequiredFieldMetadata(): Promise<void> {
@@ -2621,11 +2644,11 @@ export class TimeCapsulePage {
   }
 
   subjectField(): Locator {
-    return this.page.locator("input[type='text']").first();
+    return this.page.getByRole("textbox", { name: /^Subject\s*\*?$/i });
   }
 
   messageField(): Locator {
-    return this.page.locator("textarea:not([name='g-recaptcha-response'])").first();
+    return this.page.getByRole("textbox", { name: /^Your Message\s*\*?$/i });
   }
 
   discardDraftButton(): Locator {

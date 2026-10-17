@@ -4,6 +4,10 @@ All notable QA Operations Platform changes are documented here.
 
 ## Unreleased
 
+- Bound Safe Suite compose readiness with one shared deadline, align the direct-compose total budget with the existing media audit, and require uniquely labeled editable fields.
+- Run city cases independently so one failure cannot skip the remaining locations; preserve one worker, zero retries, write guards and performance thresholds.
+- Add compose-readiness fixtures and retain the recorded hosted before/after investigation.
+
 - Preserve session-notice click actionability errors within the existing dismissal budget.
 - Capture text-lifecycle guest setup failures before closing their context; classify setup and unattempted finalization separately.
 - Resolve recorded lifecycle phase reports and their trace assets through the authenticated bundle route.

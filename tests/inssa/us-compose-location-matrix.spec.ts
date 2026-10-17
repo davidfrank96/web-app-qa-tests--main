@@ -1,4 +1,4 @@
-import { dismissInssaSessionWarning } from "../../utils/inssa-session-warning";
+import { INSSA_SAFE_COMPOSE_READINESS_MS } from "../../utils/inssa-compose-contract";
 import { expectInssaLocationDefaults } from "../../utils/inssa-compose-contract";
 import { expect, test } from "./fixtures";
 import { TimeCapsulePage } from "../../pages/inssa/time-capsule.page";
@@ -15,7 +15,9 @@ import { withInssaStabilityMonitor } from "../../utils/monitor";
 test.use({ productWriteAuditEnabled: true, safeSession: true });
 
 test.describe("INSSA USA compose location matrix", () => {
-  test.describe.configure({ mode: "serial" });
+  // Each case gets a fresh context and only inspects its own seeded compose flow.
+  // Keep ordering without the serial fail-fast cascade. The safe runner uses one worker.
+  test.describe.configure({ mode: "default" });
   test.setTimeout(120_000);
   test.skip(
     !hasInssaTestCredentials(),
@@ -41,8 +43,7 @@ test.describe("INSSA USA compose location matrix", () => {
         });
 
         await monitor.step("assert compose surface and seeded defaults", async () => {
-          await compose.expectComposeSurface();
-        await dismissInssaSessionWarning(page);
+          await compose.expectComposeSurface({ readinessTimeoutMs: INSSA_SAFE_COMPOSE_READINESS_MS });
           await compose.expectRequiredFieldMetadata();
           await expect(page.url()).toMatch(INSSA_TIME_CAPSULE_ROUTE_PATTERN);
 
